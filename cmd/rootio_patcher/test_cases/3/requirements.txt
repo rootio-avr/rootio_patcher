@@ -1,0 +1,6 @@
+# Test Case 3: Mixed Patchable and Non-Patchable Vulnerabilities
+# cryptography(1 patch), certifi(1 patch) + Django(EOL, no easy patch)
+
+cryptography==36.0.2
+certifi==2020.12.5
+Django==1.11.29

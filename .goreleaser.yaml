@@ -1,0 +1,128 @@
+# GoReleaser configuration for rootio_patcher
+# See: https://goreleaser.com
+
+version: 2
+
+project_name: rootio_patcher
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+builds:
+  - id: rootio_patcher
+    main: ./cmd/rootio_patcher
+    binary: rootio_patcher
+
+    env:
+      - CGO_ENABLED=0
+
+    goos:
+      - linux
+      - darwin
+      - windows
+
+    goarch:
+      - amd64
+      - arm64
+
+    flags:
+      - -trimpath
+
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+      - -X main.builtBy=goreleaser
+
+archives:
+  - id: rootio_patcher
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+
+    format_overrides:
+      - goos: windows
+        format: zip
+
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+  groups:
+    - title: 'New Features'
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: 'Bug Fixes'
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: 'Performance Improvements'
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: 'Other'
+      order: 999
+
+release:
+  github:
+    owner: root-io
+    name: rootio_patcher
+
+  draft: false
+  prerelease: auto
+
+  header: |
+    ## Root.io Patcher {{ .Tag }}
+
+    Cross-platform binary for patching Python packages with Root.io security fixes.
+
+  footer: |
+    ## Installation
+
+    Download the appropriate binary for your platform from the assets below.
+
+    ### Quick Install (Linux/macOS)
+    ```bash
+    # Linux (x86_64)
+    curl -sL https://github.com/root-io/rootio_patcher/releases/latest/download/rootio_patcher_{{ .Version }}_linux_x86_64.tar.gz | tar xz
+
+    # macOS (Apple Silicon)
+    curl -sL https://github.com/root-io/rootio_patcher/releases/latest/download/rootio_patcher_{{ .Version }}_darwin_arm64.tar.gz | tar xz
+
+    # Make executable and move to PATH
+    chmod +x rootio_patcher
+    sudo mv rootio_patcher /usr/local/bin/
+    ```
+
+    ### Verify Checksum
+    ```bash
+    curl -sL https://github.com/root-io/rootio_patcher/releases/latest/download/checksums.txt
+    sha256sum rootio_patcher  # Compare with checksums.txt
+    ```

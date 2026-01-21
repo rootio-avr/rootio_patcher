@@ -1,0 +1,6 @@
+# Test Case 1: Only Patchable Vulnerabilities
+# Packages with patches available: Flask(1), gunicorn(2), Brotli(1) = 4 total patches
+
+Flask==2.1.2
+gunicorn==21.2.0
+Brotli==1.1.0

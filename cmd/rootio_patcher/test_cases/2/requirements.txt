@@ -1,0 +1,6 @@
+# Test Case 2: Only Non-Patchable Vulnerabilities
+# Old packages with vulnerabilities requiring major version upgrades
+
+Django==1.11.29
+PyYAML==3.12
+urllib3==1.24.1

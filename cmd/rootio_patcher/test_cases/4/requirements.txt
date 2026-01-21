@@ -1,0 +1,5 @@
+# Test Case 4: Transient Dependency Vulnerabilities
+# Simple packages that pull in vulnerable dependencies
+
+requests==2.25.0
+Jinja2==3.0.0
