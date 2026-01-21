@@ -92,7 +92,7 @@ changelog:
 
 release:
   github:
-    owner: root-io
+    owner: rootio-avr
     name: rootio_patcher
 
   draft: false
