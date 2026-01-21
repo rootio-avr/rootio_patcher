@@ -38,8 +38,8 @@ builds:
       - -X main.builtBy=goreleaser
 
 archives:
-  - id: rootio_patcher
-    format: tar.gz
+  - id: versioned
+    formats: ['tar.gz']
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -51,7 +51,26 @@ archives:
 
     format_overrides:
       - goos: windows
-        format: zip
+        formats: ['zip']
+
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+
+  - id: latest
+    formats: ['tar.gz']
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+
+    format_overrides:
+      - goos: windows
+        formats: ['zip']
 
     files:
       - LICENSE*
@@ -111,10 +130,10 @@ release:
     ### Quick Install (Linux/macOS)
     ```bash
     # Linux (x86_64)
-    curl -sL https://github.com/root-io/rootio_patcher/releases/latest/download/rootio_patcher_{{ .Version }}_linux_x86_64.tar.gz | tar xz
+    curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_linux_x86_64.tar.gz | tar xz
 
     # macOS (Apple Silicon)
-    curl -sL https://github.com/root-io/rootio_patcher/releases/latest/download/rootio_patcher_{{ .Version }}_darwin_arm64.tar.gz | tar xz
+    curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_darwin_arm64.tar.gz | tar xz
 
     # Make executable and move to PATH
     chmod +x rootio_patcher
@@ -123,6 +142,6 @@ release:
 
     ### Verify Checksum
     ```bash
-    curl -sL https://github.com/root-io/rootio_patcher/releases/latest/download/checksums.txt
+    curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/checksums.txt
     sha256sum rootio_patcher  # Compare with checksums.txt
     ```
