@@ -168,17 +168,16 @@ LOG_LEVEL=debug rootio_patcher
 ## How to Get a Root.io API Key
 
 1. **Sign up for Root.io**
-   - Visit [https://root.io](https://root.io)
+   - Visit [https://app.root.io](https://app.root.io)
    - Create an account or log in
 
 2. **Navigate to API Settings**
    - Go to your dashboard
-   - Click on **Settings** → **API Keys**
+   - Click on **Settings** → **Token Management**
 
 3. **Generate a New API Key**
-   - Click **"Generate New API Key"**
-   - Give it a descriptive name (e.g., "Production Patcher")
-   - Copy the generated key (it will only be shown once!)
+   - Click **"Generate API Token"**
+   - It's in your clipboard!
 
 4. **Store Your API Key Securely**
 
