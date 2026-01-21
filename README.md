@@ -470,7 +470,7 @@ GoReleaser will automatically build binaries for all platforms and create a GitH
 
 ## License
 
-[MIT License](LICENSE)
+[Apache License 2.0](LICENSE)
 
 ---
 
