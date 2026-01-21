@@ -100,7 +100,7 @@ rootio_patcher --help
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `ROOTIO_API_KEY` | Your Root.io API key (**required**) | `rootio_abc123...` |
+| `ROOTIO_API_KEY` | Your Root.io API key (**required**) | `sk_125e43...` |
 
 ### Optional Configuration
 
@@ -485,7 +485,6 @@ GoReleaser will automatically build binaries for all platforms and create a GitH
 ## Related Projects
 
 - [Root.io Platform](https://root.io) - Comprehensive container security and vulnerability management
-- [Root.io Python SDK](https://github.com/rootio-avr/python-sdk) - Python library for Root.io API
 
 ---
 
