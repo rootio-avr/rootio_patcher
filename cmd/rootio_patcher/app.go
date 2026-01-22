@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"rootio_patcher/pkg/rootio"
 )
@@ -115,7 +116,15 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 			slog.String("patch_name", patchName),
 			slog.Bool("use_alias", a.cfg.UseAlias))
 
-		if err := a.pipExecutor.ApplyPatch(ctx, patch); err != nil {
+		// Use special handling for pip package - upgrade instead of uninstall+install
+		var err error
+		if strings.EqualFold(patch.PackageName, "pip") {
+			err = a.pipExecutor.ApplyPatchForPip(ctx, patch)
+		} else {
+			err = a.pipExecutor.ApplyPatch(ctx, patch)
+		}
+
+		if err != nil {
 			fmt.Printf("✗ Patch failed: %v\n", err)
 			return fmt.Errorf("patch failed: %w", err)
 		}

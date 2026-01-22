@@ -77,6 +77,46 @@ func (e *PipExecutor) ApplyPatch(ctx context.Context, patch rootio.PackagePatch)
 	return nil
 }
 
+// ApplyPatchForPip applies a patch for pip itself using upgrade instead of uninstall+install
+// This is necessary because pip cannot uninstall itself and then reinstall
+func (e *PipExecutor) ApplyPatchForPip(ctx context.Context, patch rootio.PackagePatch) error {
+	// Select patch based on useAlias flag
+	var patchInfo rootio.PatchInfo
+	if e.useAlias {
+		patchInfo = patch.PatchAlias
+	} else {
+		patchInfo = patch.Patch
+	}
+
+	// Upgrade pip in a single run using --upgrade flag
+	e.logger.DebugContext(ctx, "Upgrading pip package",
+		slog.String("package_name", patchInfo.Name),
+		slog.String("version", patchInfo.Version),
+		slog.Bool("use_alias", e.useAlias))
+
+	// Construct authenticated index URL: https://root:{api_key}@<host>/pypi/simple/
+	indexURL := e.constructIndexURL()
+
+	// Package specification: package==version (pip handles normalization internally)
+	packageSpec := fmt.Sprintf("%s==%s", patchInfo.Name, patchInfo.Version)
+
+	//nolint:gosec // Subprocess command is safe - using package names from our API
+	upgradeCmd := exec.CommandContext(
+		ctx, e.pythonPath, "-m", "pip", "install",
+		"--upgrade",
+		"--no-deps",
+		"--no-cache-dir",
+		"--index-url", indexURL,
+		packageSpec,
+	)
+
+	if output, err := upgradeCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("pip upgrade failed: %w (output: %s)", err, string(output))
+	}
+
+	return nil
+}
+
 // constructIndexURL builds the authenticated PyPI index URL
 // Returns: https://root:<api_key>@<host>/pypi/simple/
 func (e *PipExecutor) constructIndexURL() string {
