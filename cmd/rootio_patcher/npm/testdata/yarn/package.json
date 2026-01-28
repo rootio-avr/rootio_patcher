@@ -1,0 +1,12 @@
+{
+  "name": "test-yarn-project",
+  "version": "1.0.0",
+  "description": "Test project for yarn lock file parsing",
+  "dependencies": {
+    "lodash": "4.17.21",
+    "express": "4.18.2"
+  },
+  "devDependencies": {
+    "jest": "29.0.0"
+  }
+}
