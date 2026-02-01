@@ -147,11 +147,14 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 
 // applyPatches updates the pom.xml file with patched versions
 func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) error {
-	// Build updates map: package name -> new version
+	// Build updates map: package name -> new groupId:artifactId:version
+	// This format supports changing the groupId for Root.io patched packages
 	updates := make(map[string]string)
 	for _, patch := range patches {
-		updates[patch.PackageName] = patch.Patch.Version
-		fmt.Printf("  - %s: %s → %s\n", patch.PackageName, patch.Version, patch.Patch.Version)
+		// Format: "newGroupId:artifactId:newVersion"
+		updateValue := patch.Patch.Name + ":" + patch.Patch.Version
+		updates[patch.PackageName] = updateValue
+		fmt.Printf("  - %s: %s → %s:%s\n", patch.PackageName, patch.Version, patch.Patch.Name, patch.Patch.Version)
 	}
 
 	// Update the file
