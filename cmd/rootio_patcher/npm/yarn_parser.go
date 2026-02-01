@@ -77,6 +77,9 @@ func (p *YarnParser) Parse(ctx context.Context, filePath string) ([]common.Packa
 				firstSpec = strings.TrimSpace(declaration[:idx])
 			}
 
+			// Remove quotes if present (scoped packages are quoted)
+			firstSpec = strings.Trim(firstSpec, "\"")
+
 			// Extract package name (everything before last @)
 			lastAt := strings.LastIndex(firstSpec, "@")
 			if lastAt > 0 { // > 0 to handle scoped packages like @babel/runtime
