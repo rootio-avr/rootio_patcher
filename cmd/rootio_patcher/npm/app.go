@@ -2,15 +2,19 @@ package npm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
+
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/pretty"
+	"github.com/tidwall/sjson"
 )
 
 // App handles npm package remediation (pre-install file patching)
@@ -226,7 +230,28 @@ func (a *App) getOverrideField() string {
 	}
 }
 
-// updatePackageJSON updates package.json with version overrides
+// escapeSjsonKey escapes special characters for sjson paths
+// Only @ and . need escaping based on sjson behavior
+func escapeSjsonKey(key string) string {
+	key = strings.ReplaceAll(key, `\`, `\\`)
+	key = strings.ReplaceAll(key, `@`, `\@`)
+	key = strings.ReplaceAll(key, `.`, `\.`)
+	return key
+}
+
+// detectIndentation detects the indentation used in JSON file
+func detectIndentation(content []byte) string {
+	// Look for first indented line after opening brace
+	re := regexp.MustCompile(`\{\s*\n([ \t]+)`)
+	matches := re.FindSubmatch(content)
+	if len(matches) > 1 {
+		return string(matches[1])
+	}
+	// Default to 2 spaces
+	return "  "
+}
+
+// updatePackageJSON updates package.json with version overrides while preserving structure
 func (a *App) updatePackageJSON(overrides map[string]string) error {
 	packageJSONPath := "package.json"
 
@@ -235,45 +260,69 @@ func (a *App) updatePackageJSON(overrides map[string]string) error {
 		return fmt.Errorf("package.json not found in current directory")
 	}
 
-	// Read package.json
+	// Read package.json as bytes
 	content, err := os.ReadFile(packageJSONPath)
 	if err != nil {
 		return fmt.Errorf("failed to read package.json: %w", err)
 	}
 
-	// Parse JSON
-	var pkgJSON map[string]interface{}
-	if err := json.Unmarshal(content, &pkgJSON); err != nil {
-		return fmt.Errorf("failed to parse package.json: %w", err)
+	// Detect original indentation
+	indent := detectIndentation(content)
+
+	// Update direct dependencies if they exist
+	for pkgName, overrideValue := range overrides {
+		escapedPkg := escapeSjsonKey(pkgName)
+
+		// Check if package exists in dependencies
+		if gjson.GetBytes(content, "dependencies."+escapedPkg).Exists() {
+			content, err = sjson.SetBytes(content, "dependencies."+escapedPkg, overrideValue)
+			if err != nil {
+				return fmt.Errorf("failed to update dependencies.%s: %w", pkgName, err)
+			}
+		}
+
+		// Check if package exists in devDependencies
+		if gjson.GetBytes(content, "devDependencies."+escapedPkg).Exists() {
+			content, err = sjson.SetBytes(content, "devDependencies."+escapedPkg, overrideValue)
+			if err != nil {
+				return fmt.Errorf("failed to update devDependencies.%s: %w", pkgName, err)
+			}
+		}
 	}
 
-	// Add or update overrides based on package manager
+	// Add or update overrides based on package manager (for transitive dependencies)
 	overrideField := a.getOverrideField()
 
 	// pnpm requires nested structure: { "pnpm": { "overrides": { ... } } }
 	if a.packageManager == "pnpm" {
-		pnpmConfig, ok := pkgJSON["pnpm"].(map[string]interface{})
-		if !ok {
-			pnpmConfig = make(map[string]interface{})
-			pkgJSON["pnpm"] = pnpmConfig
+		for pkgName, overrideValue := range overrides {
+			escapedPkg := escapeSjsonKey(pkgName)
+			content, err = sjson.SetBytes(content, "pnpm.overrides."+escapedPkg, overrideValue)
+			if err != nil {
+				return fmt.Errorf("failed to update pnpm.overrides.%s: %w", pkgName, err)
+			}
 		}
-		pnpmConfig["overrides"] = overrides
 	} else {
 		// npm and yarn use top-level field
-		pkgJSON[overrideField] = overrides
+		for pkgName, overrideValue := range overrides {
+			escapedPkg := escapeSjsonKey(pkgName)
+			content, err = sjson.SetBytes(content, overrideField+"."+escapedPkg, overrideValue)
+			if err != nil {
+				return fmt.Errorf("failed to update %s.%s: %w", overrideField, pkgName, err)
+			}
+		}
 	}
 
-	// Write back to package.json with pretty formatting
-	updatedContent, err := json.MarshalIndent(pkgJSON, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal package.json: %w", err)
-	}
-
-	// Add newline at end of file (common convention)
-	updatedContent = append(updatedContent, '\n')
+	// Pretty-print with detected indentation to fix formatting
+	content = pretty.PrettyOptions(content, &pretty.Options{
+		Width:    80,
+		Prefix:   "",
+		Indent:   indent,
+		SortKeys: false,
+	})
 
 	// Write to file
-	if err := os.WriteFile(packageJSONPath, updatedContent, 0644); err != nil {
+	if err := os.WriteFile(packageJSONPath, content, 0644); err != nil {
 		return fmt.Errorf("failed to write package.json: %w", err)
 	}
 

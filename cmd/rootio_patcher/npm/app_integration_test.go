@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
@@ -322,4 +323,293 @@ func TestNpmApp_UpdatePackageJSON_Pnpm(t *testing.T) {
 	}
 
 	t.Log("Successfully updated package.json with pnpm overrides (nested under 'pnpm', aliased packages)")
+}
+
+// TestNpmApp_AddOverrides_NoExistingOverrides tests adding overrides to a package.json without existing overrides
+func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	// Create temp directory
+	tmpDir := t.TempDir()
+
+	// Create package.json WITHOUT overrides field
+	packageJSON := filepath.Join(tmpDir, "package.json")
+	initialContent := `{
+  "name": "test-project",
+  "version": "1.0.0",
+  "dependencies": {
+    "lodash": "4.17.20",
+    "express": "4.18.0"
+  }
+}`
+	if err := os.WriteFile(packageJSON, []byte(initialContent), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
+	}
+
+	// Change to temp directory
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(tmpDir)
+
+	// Create app with mock services
+	mockAPIClient := &MockAPIClient{
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			return &rootio.AnalyzePackagesResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "lodash",
+						Version:     "4.17.20",
+						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21"},
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	// Create a fake lock file
+	lockFile := filepath.Join(tmpDir, "package-lock.json")
+	lockContent := `{
+  "name": "test-project",
+  "lockfileVersion": 3,
+  "packages": {
+    "": {
+      "dependencies": { "lodash": "4.17.20", "express": "4.18.0" }
+    },
+    "node_modules/lodash": {
+      "version": "4.17.20"
+    },
+    "node_modules/express": {
+      "version": "4.18.0"
+    }
+  }
+}`
+	if err := os.WriteFile(lockFile, []byte(lockContent), 0644); err != nil {
+		t.Fatalf("Failed to create lock file: %v", err)
+	}
+
+	app := NewAppWithServices(
+		"test-key",
+		"https://api.root.io",
+		"npm",
+		false, // not dry-run
+		logger,
+		NewParser(),
+		mockAPIClient,
+	)
+
+	// Run the app
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("App run failed: %v", err)
+	}
+
+	// Read updated package.json
+	updatedContent, err := os.ReadFile(packageJSON)
+	if err != nil {
+		t.Fatalf("Failed to read updated package.json: %v", err)
+	}
+
+	// Parse and verify
+	var pkgJSON map[string]interface{}
+	if err := json.Unmarshal(updatedContent, &pkgJSON); err != nil {
+		t.Fatalf("Failed to parse updated package.json: %v", err)
+	}
+
+	// Verify overrides field was created
+	overrides, ok := pkgJSON["overrides"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected 'overrides' field to be created")
+	}
+
+	// Verify lodash override exists
+	lodashOverride, ok := overrides["lodash"].(string)
+	if !ok {
+		t.Fatal("Expected lodash in overrides")
+	}
+	expectedOverride := "npm:@rootio/lodash@4.17.21"
+	if lodashOverride != expectedOverride {
+		t.Errorf("Expected lodash override '%s', got '%s'", expectedOverride, lodashOverride)
+	}
+
+	// Verify dependencies were updated
+	deps, ok := pkgJSON["dependencies"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected dependencies field")
+	}
+	lodashDep, ok := deps["lodash"].(string)
+	if !ok {
+		t.Fatal("Expected lodash in dependencies")
+	}
+	if lodashDep != expectedOverride {
+		t.Errorf("Expected lodash dependency '%s', got '%s'", expectedOverride, lodashDep)
+	}
+
+	// Verify proper formatting (should have newlines and indentation)
+	if !strings.Contains(string(updatedContent), "\n") {
+		t.Error("Expected formatted JSON with newlines")
+	}
+	if !strings.Contains(string(updatedContent), "  ") {
+		t.Error("Expected indented JSON")
+	}
+
+	t.Log("Successfully added overrides to package.json without existing overrides")
+}
+
+// TestNpmApp_AddOverrides_WithExistingOverrides tests appending to existing overrides
+func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	// Create temp directory
+	tmpDir := t.TempDir()
+
+	// Create package.json WITH existing overrides
+	packageJSON := filepath.Join(tmpDir, "package.json")
+	initialContent := `{
+  "name": "test-project",
+  "version": "1.0.0",
+  "dependencies": {
+    "lodash": "4.17.20",
+    "express": "4.18.0",
+    "axios": "0.21.1"
+  },
+  "overrides": {
+    "axios": "npm:@rootio/axios@0.21.2"
+  }
+}`
+	if err := os.WriteFile(packageJSON, []byte(initialContent), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
+	}
+
+	// Change to temp directory
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(tmpDir)
+
+	// Create app with mock services
+	mockAPIClient := &MockAPIClient{
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			return &rootio.AnalyzePackagesResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "lodash",
+						Version:     "4.17.20",
+						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21"},
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
+					},
+					{
+						PackageName: "express",
+						Version:     "4.18.0",
+						Patch:       rootio.PatchInfo{Name: "express", Version: "4.18.2"},
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/express", Version: "4.18.2"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	// Create a fake lock file
+	lockFile := filepath.Join(tmpDir, "package-lock.json")
+	lockContent := `{
+  "name": "test-project",
+  "lockfileVersion": 3,
+  "packages": {
+    "": {
+      "dependencies": { "lodash": "4.17.20", "express": "4.18.0", "axios": "0.21.1" }
+    },
+    "node_modules/lodash": {
+      "version": "4.17.20"
+    },
+    "node_modules/express": {
+      "version": "4.18.0"
+    },
+    "node_modules/axios": {
+      "version": "0.21.1"
+    }
+  }
+}`
+	if err := os.WriteFile(lockFile, []byte(lockContent), 0644); err != nil {
+		t.Fatalf("Failed to create lock file: %v", err)
+	}
+
+	app := NewAppWithServices(
+		"test-key",
+		"https://api.root.io",
+		"npm",
+		false, // not dry-run
+		logger,
+		NewParser(),
+		mockAPIClient,
+	)
+
+	// Run the app
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("App run failed: %v", err)
+	}
+
+	// Read updated package.json
+	updatedContent, err := os.ReadFile(packageJSON)
+	if err != nil {
+		t.Fatalf("Failed to read updated package.json: %v", err)
+	}
+
+	// Parse and verify
+	var pkgJSON map[string]interface{}
+	if err := json.Unmarshal(updatedContent, &pkgJSON); err != nil {
+		t.Fatalf("Failed to parse updated package.json: %v", err)
+	}
+
+	// Verify overrides field exists and has all three packages
+	overrides, ok := pkgJSON["overrides"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected 'overrides' field")
+	}
+
+	// Verify existing override is preserved
+	axiosOverride, ok := overrides["axios"].(string)
+	if !ok {
+		t.Fatal("Expected axios in overrides (should be preserved)")
+	}
+	if axiosOverride != "npm:@rootio/axios@0.21.2" {
+		t.Errorf("Expected axios override to be preserved, got '%s'", axiosOverride)
+	}
+
+	// Verify new overrides were added
+	lodashOverride, ok := overrides["lodash"].(string)
+	if !ok {
+		t.Fatal("Expected lodash in overrides (should be added)")
+	}
+	if lodashOverride != "npm:@rootio/lodash@4.17.21" {
+		t.Errorf("Expected lodash override 'npm:@rootio/lodash@4.17.21', got '%s'", lodashOverride)
+	}
+
+	expressOverride, ok := overrides["express"].(string)
+	if !ok {
+		t.Fatal("Expected express in overrides (should be added)")
+	}
+	if expressOverride != "npm:@rootio/express@4.18.2" {
+		t.Errorf("Expected express override 'npm:@rootio/express@4.18.2', got '%s'", expressOverride)
+	}
+
+	// Verify total count
+	if len(overrides) != 3 {
+		t.Errorf("Expected 3 overrides total (1 existing + 2 new), got %d", len(overrides))
+	}
+
+	// Verify dependencies were updated
+	deps, ok := pkgJSON["dependencies"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected dependencies field")
+	}
+	lodashDep := deps["lodash"].(string)
+	if lodashDep != "npm:@rootio/lodash@4.17.21" {
+		t.Errorf("Expected lodash dependency updated, got '%s'", lodashDep)
+	}
+	expressDep := deps["express"].(string)
+	if expressDep != "npm:@rootio/express@4.18.2" {
+		t.Errorf("Expected express dependency updated, got '%s'", expressDep)
+	}
+
+	t.Log("Successfully appended new overrides to existing overrides")
 }
