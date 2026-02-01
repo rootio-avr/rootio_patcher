@@ -6,7 +6,7 @@
     "lodash": "^4.17.21"
   },
   "devDependencies": {
-    "diff": "4.0.2",
+    "mocha": "8.0.0",
     "@babel/runtime": "7.25.0"
   }
 }
