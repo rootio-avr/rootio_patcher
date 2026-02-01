@@ -63,6 +63,7 @@ func NewAppWithServices(
 		// Infer package manager from file extension
 		switch {
 		case strings.HasSuffix(lockFilePath, "yarn.lock"):
+			// Will be detected as yarn or yarn2 by the parser
 			packageManager = "yarn"
 		case strings.HasSuffix(lockFilePath, "pnpm-lock.yaml"):
 			packageManager = "pnpm"
