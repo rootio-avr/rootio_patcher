@@ -215,3 +215,8 @@ func (p *MavenParser) Validate(content string) bool {
 	var project Project
 	return xml.Unmarshal([]byte(content), &project) == nil
 }
+
+// UpdatePackageJSON is not applicable for Maven (Maven uses pom.xml, not package.json)
+func (p *MavenParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string) error {
+	return fmt.Errorf("UpdatePackageJSON not supported for Maven - use Update() to modify pom.xml")
+}

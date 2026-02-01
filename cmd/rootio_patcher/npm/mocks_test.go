@@ -54,3 +54,34 @@ func (m *MockParser) FilePatterns() []string {
 func (m *MockParser) CanHandle(fileName string) bool {
 	return fileName == "package-lock.json"
 }
+
+func (m *MockParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string) error {
+	// Mock implementation - does nothing
+	return nil
+}
+
+// MockPnpmParser is a mock that uses real PnpmParser for UpdatePackageJSON but mocks Parse
+type MockPnpmParser struct {
+	*PnpmParser
+	ParseFunc func(ctx context.Context, filePath string) ([]common.PackageInfo, error)
+}
+
+func (m *MockPnpmParser) Parse(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+	if m.ParseFunc != nil {
+		return m.ParseFunc(ctx, filePath)
+	}
+	return []common.PackageInfo{}, nil
+}
+
+// MockNpmParser is a mock that uses real NpmParser for UpdatePackageJSON but mocks Parse
+type MockNpmParser struct {
+	*NpmParser
+	ParseFunc func(ctx context.Context, filePath string) ([]common.PackageInfo, error)
+}
+
+func (m *MockNpmParser) Parse(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+	if m.ParseFunc != nil {
+		return m.ParseFunc(ctx, filePath)
+	}
+	return []common.PackageInfo{}, nil
+}

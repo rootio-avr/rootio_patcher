@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -94,13 +95,21 @@ func TestMavenApp_Run_APIError(t *testing.T) {
 		},
 	}
 
+	mockParser := &MockParser{
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "junit:junit", Version: "4.12"},
+			}, nil
+		},
+	}
+
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
 		pomFile,
 		true,
 		logger,
-		&MockParser{},
+		mockParser,
 		mockAPIClient,
 	)
 
@@ -252,13 +261,23 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 		},
 	}
 
+	// Use MockMavenParser that uses real Update but mocks Parse
+	mockParser := &MockMavenParser{
+		MavenParser: NewParser(),
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "junit:junit", Version: "4.12"},
+			}, nil
+		},
+	}
+
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
 		pomFile,
 		false, // NOT dry-run
 		logger,
-		&MockParser{},
+		mockParser,
 		mockAPIClient,
 	)
 
@@ -318,13 +337,23 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 		},
 	}
 
+	// Use MockMavenParser that uses real Update but mocks Parse
+	mockParser := &MockMavenParser{
+		MavenParser: NewParser(),
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "org.apache.logging.log4j:log4j-core", Version: "2.17.0"},
+			}, nil
+		},
+	}
+
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
 		pomFile,
 		false, // NOT dry-run
 		logger,
-		&MockParser{},
+		mockParser,
 		mockAPIClient,
 	)
 

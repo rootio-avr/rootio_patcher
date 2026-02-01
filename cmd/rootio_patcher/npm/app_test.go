@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -85,13 +86,21 @@ func TestNpmApp_Run_APIError(t *testing.T) {
 		},
 	}
 
+	mockParser := &MockParser{
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "lodash", Version: "4.17.20"},
+			}, nil
+		},
+	}
+
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
 		lockFile,
 		true,
 		logger,
-		&MockParser{},
+		mockParser,
 		mockAPIClient,
 	)
 
@@ -164,6 +173,19 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
 
+	// Create package.json (should not be modified in dry-run)
+	packageJSON := filepath.Join(tmpDir, "package.json")
+	packageContent := `{
+  "name": "test",
+  "version": "1.0.0",
+  "dependencies": {
+    "lodash": "^4.17.20"
+  }
+}`
+	if err := os.WriteFile(packageJSON, []byte(packageContent), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
+	}
+
 	mockAPIClient := &MockAPIClient{
 		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
@@ -171,10 +193,18 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 					{
 						PackageName: "lodash",
 						Version:     "4.17.20",
-						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21"},
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
 						CVEIDs:      []string{"CVE-2021-23337"},
 					},
 				},
+			}, nil
+		},
+	}
+
+	mockParser := &MockParser{
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "lodash", Version: "4.17.20"},
 			}, nil
 		},
 	}
@@ -185,7 +215,7 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 		lockFile,
 		true, // dry-run
 		logger,
-		&MockParser{},
+		mockParser,
 		mockAPIClient,
 	)
 
@@ -194,13 +224,16 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	// Verify file was NOT modified
-	updatedContent, err := os.ReadFile(lockFile)
+	// Verify package.json was NOT modified in dry-run mode
+	updatedContent, err := os.ReadFile(packageJSON)
 	if err != nil {
-		t.Fatalf("Failed to read file: %v", err)
+		t.Fatalf("Failed to read package.json: %v", err)
 	}
-	if !strings.Contains(string(updatedContent), "4.17.20") {
-		t.Error("File should not be modified in dry-run mode")
+	if strings.Contains(string(updatedContent), "overrides") {
+		t.Error("package.json should not be modified in dry-run mode")
+	}
+	if strings.Contains(string(updatedContent), "@rootio/lodash") {
+		t.Error("package.json should not contain patches in dry-run mode")
 	}
 }
 
@@ -210,7 +243,7 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	lockFile := filepath.Join(tmpDir, "package-lock.json")
-	content := `{
+	lockContent := `{
   "name": "test",
   "lockfileVersion": 3,
   "packages": {
@@ -221,9 +254,27 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
     }
   }
 }`
-	if err := os.WriteFile(lockFile, []byte(content), 0644); err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
+	if err := os.WriteFile(lockFile, []byte(lockContent), 0644); err != nil {
+		t.Fatalf("Failed to create lock file: %v", err)
 	}
+
+	// Create package.json
+	packageJSON := filepath.Join(tmpDir, "package.json")
+	packageContent := `{
+  "name": "test",
+  "version": "1.0.0",
+  "dependencies": {
+    "lodash": "^4.17.20"
+  }
+}`
+	if err := os.WriteFile(packageJSON, []byte(packageContent), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
+	}
+
+	// Change to tmpDir so UpdatePackageJSON can find package.json
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
 
 	mockAPIClient := &MockAPIClient{
 		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
@@ -232,10 +283,20 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 					{
 						PackageName: "lodash",
 						Version:     "4.17.20",
-						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21"},
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
 						CVEIDs:      []string{"CVE-2021-23337"},
 					},
 				},
+			}, nil
+		},
+	}
+
+	// Use MockNpmParser that uses real UpdatePackageJSON but mocks Parse
+	mockParser := &MockNpmParser{
+		NpmParser: NewNpmParser(),
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "lodash", Version: "4.17.20"},
 			}, nil
 		},
 	}
@@ -246,7 +307,7 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 		lockFile,
 		false, // NOT dry-run
 		logger,
-		&MockParser{},
+		mockParser,
 		mockAPIClient,
 	)
 
@@ -255,15 +316,16 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	// Verify file was modified
-	updatedContent, err := os.ReadFile(lockFile)
+	// Verify package.json was modified with overrides
+	updatedContent, err := os.ReadFile(packageJSON)
 	if err != nil {
-		t.Fatalf("Failed to read file: %v", err)
+		t.Fatalf("Failed to read package.json: %v", err)
 	}
-	if !strings.Contains(string(updatedContent), "4.17.21") {
-		t.Error("File should contain updated version 4.17.21")
+	content := string(updatedContent)
+	if !strings.Contains(content, "npm:@rootio/lodash@4.17.21") {
+		t.Error("package.json should contain aliased override: npm:@rootio/lodash@4.17.21")
 	}
-	if strings.Contains(string(updatedContent), `"version": "4.17.20"`) {
-		t.Error("File should not contain old version 4.17.20")
+	if !strings.Contains(content, `"overrides"`) {
+		t.Error("package.json should contain overrides field")
 	}
 }

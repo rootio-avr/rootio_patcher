@@ -54,3 +54,21 @@ func (m *MockParser) FilePatterns() []string {
 func (m *MockParser) CanHandle(fileName string) bool {
 	return fileName == "pom.xml"
 }
+
+func (m *MockParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string) error {
+	// Mock implementation - does nothing (Maven doesn't use package.json)
+	return nil
+}
+
+// MockMavenParser is a mock that uses real MavenParser for Update but allows mocking Parse
+type MockMavenParser struct {
+	*MavenParser
+	ParseFunc func(ctx context.Context, filePath string) ([]common.PackageInfo, error)
+}
+
+func (m *MockMavenParser) Parse(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+	if m.ParseFunc != nil {
+		return m.ParseFunc(ctx, filePath)
+	}
+	return []common.PackageInfo{}, nil
+}

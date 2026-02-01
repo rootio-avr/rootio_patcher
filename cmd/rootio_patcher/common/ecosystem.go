@@ -43,4 +43,8 @@ type Parser interface {
 
 	// Validate validates the updated content
 	Validate(content string) bool
+
+	// UpdatePackageJSON updates package.json with overrides/resolutions
+	// Each package manager has its own field format (overrides, resolutions, pnpm.overrides)
+	UpdatePackageJSON(ctx context.Context, overrides map[string]string) error
 }

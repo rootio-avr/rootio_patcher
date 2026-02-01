@@ -6,15 +6,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
-
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/pretty"
-	"github.com/tidwall/sjson"
 )
 
 // App handles npm package remediation (pre-install file patching)
@@ -31,13 +26,20 @@ type App struct {
 
 // NewApp creates a new npm application instance
 func NewApp(apiKey, apiURL, packageManager string, dryRun bool, logger *slog.Logger) *App {
+	// Get the appropriate parser for this package manager
+	parser, err := GetParserForPackageManager(packageManager)
+	if err != nil {
+		// Fall back to npm parser
+		parser = NewNpmParser()
+	}
+
 	return NewAppWithServices(
 		apiKey,
 		apiURL,
 		packageManager,
 		dryRun,
 		logger,
-		NewParser(),
+		parser,
 		rootio.NewClient(apiURL, apiKey),
 	)
 }
@@ -209,9 +211,9 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 		fmt.Printf("  - %s: %s → %s@%s\n", patch.PackageName, patch.Version, patch.PatchAlias.Name, patch.PatchAlias.Version)
 	}
 
-	// Update package.json with overrides
+	// Update package.json with overrides using the parser
 	a.logger.DebugContext(ctx, "Updating package.json with overrides", slog.Int("count", len(overrides)))
-	if err := a.updatePackageJSON(overrides); err != nil {
+	if err := a.parser.UpdatePackageJSON(ctx, overrides); err != nil {
 		return fmt.Errorf("failed to update package.json: %w", err)
 	}
 
@@ -219,6 +221,7 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 }
 
 // getOverrideField returns the override field name based on package manager
+// Used only for display purposes in dry-run mode
 func (a *App) getOverrideField() string {
 	switch a.packageManager {
 	case "yarn":
@@ -228,103 +231,4 @@ func (a *App) getOverrideField() string {
 	default:
 		return "overrides"
 	}
-}
-
-// escapeSjsonKey escapes special characters for sjson paths
-// Only @ and . need escaping based on sjson behavior
-func escapeSjsonKey(key string) string {
-	key = strings.ReplaceAll(key, `\`, `\\`)
-	key = strings.ReplaceAll(key, `@`, `\@`)
-	key = strings.ReplaceAll(key, `.`, `\.`)
-	return key
-}
-
-// detectIndentation detects the indentation used in JSON file
-func detectIndentation(content []byte) string {
-	// Look for first indented line after opening brace
-	re := regexp.MustCompile(`\{\s*\n([ \t]+)`)
-	matches := re.FindSubmatch(content)
-	if len(matches) > 1 {
-		return string(matches[1])
-	}
-	// Default to 2 spaces
-	return "  "
-}
-
-// updatePackageJSON updates package.json with version overrides while preserving structure
-func (a *App) updatePackageJSON(overrides map[string]string) error {
-	packageJSONPath := "package.json"
-
-	// Check if package.json exists
-	if _, err := os.Stat(packageJSONPath); err != nil {
-		return fmt.Errorf("package.json not found in current directory")
-	}
-
-	// Read package.json as bytes
-	content, err := os.ReadFile(packageJSONPath)
-	if err != nil {
-		return fmt.Errorf("failed to read package.json: %w", err)
-	}
-
-	// Detect original indentation
-	indent := detectIndentation(content)
-
-	// Update direct dependencies if they exist
-	for pkgName, overrideValue := range overrides {
-		escapedPkg := escapeSjsonKey(pkgName)
-
-		// Check if package exists in dependencies
-		if gjson.GetBytes(content, "dependencies."+escapedPkg).Exists() {
-			content, err = sjson.SetBytes(content, "dependencies."+escapedPkg, overrideValue)
-			if err != nil {
-				return fmt.Errorf("failed to update dependencies.%s: %w", pkgName, err)
-			}
-		}
-
-		// Check if package exists in devDependencies
-		if gjson.GetBytes(content, "devDependencies."+escapedPkg).Exists() {
-			content, err = sjson.SetBytes(content, "devDependencies."+escapedPkg, overrideValue)
-			if err != nil {
-				return fmt.Errorf("failed to update devDependencies.%s: %w", pkgName, err)
-			}
-		}
-	}
-
-	// Add or update overrides based on package manager (for transitive dependencies)
-	overrideField := a.getOverrideField()
-
-	// pnpm requires nested structure: { "pnpm": { "overrides": { ... } } }
-	if a.packageManager == "pnpm" {
-		for pkgName, overrideValue := range overrides {
-			escapedPkg := escapeSjsonKey(pkgName)
-			content, err = sjson.SetBytes(content, "pnpm.overrides."+escapedPkg, overrideValue)
-			if err != nil {
-				return fmt.Errorf("failed to update pnpm.overrides.%s: %w", pkgName, err)
-			}
-		}
-	} else {
-		// npm and yarn use top-level field
-		for pkgName, overrideValue := range overrides {
-			escapedPkg := escapeSjsonKey(pkgName)
-			content, err = sjson.SetBytes(content, overrideField+"."+escapedPkg, overrideValue)
-			if err != nil {
-				return fmt.Errorf("failed to update %s.%s: %w", overrideField, pkgName, err)
-			}
-		}
-	}
-
-	// Pretty-print with detected indentation to fix formatting
-	content = pretty.PrettyOptions(content, &pretty.Options{
-		Width:    80,
-		Prefix:   "",
-		Indent:   indent,
-		SortKeys: false,
-	})
-
-	// Write to file
-	if err := os.WriteFile(packageJSONPath, content, 0644); err != nil {
-		return fmt.Errorf("failed to write package.json: %w", err)
-	}
-
-	return nil
 }

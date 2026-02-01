@@ -210,7 +210,7 @@ func TestNpmParser_UpdateRealLockFile(t *testing.T) {
 // TestYarnParser_ParseRealLockFile tests parsing a real yarn-generated yarn.lock
 func TestYarnParser_ParseRealLockFile(t *testing.T) {
 	ctx := context.Background()
-	parser := NewParser()
+	parser := NewYarnParser()
 
 	lockFile := filepath.Join("testdata", "yarn", "yarn.lock")
 
@@ -265,7 +265,7 @@ func TestYarnParser_ParseRealLockFile(t *testing.T) {
 // TestYarnParser_ParseRealLockFile_Count tests package count from yarn.lock
 func TestYarnParser_ParseRealLockFile_Count(t *testing.T) {
 	ctx := context.Background()
-	parser := NewParser()
+	parser := NewYarnParser()
 
 	lockFile := filepath.Join("testdata", "yarn", "yarn.lock")
 
@@ -285,7 +285,7 @@ func TestYarnParser_ParseRealLockFile_Count(t *testing.T) {
 // TestPnpmParser_ParseRealLockFile tests parsing a real pnpm-generated pnpm-lock.yaml
 func TestPnpmParser_ParseRealLockFile(t *testing.T) {
 	ctx := context.Background()
-	parser := NewParser()
+	parser := NewPnpmParser()
 
 	lockFile := filepath.Join("testdata", "pnpm", "pnpm-lock.yaml")
 
@@ -340,7 +340,7 @@ func TestPnpmParser_ParseRealLockFile(t *testing.T) {
 // TestPnpmParser_ParseRealLockFile_Count tests package count from pnpm-lock.yaml
 func TestPnpmParser_ParseRealLockFile_Count(t *testing.T) {
 	ctx := context.Background()
-	parser := NewParser()
+	parser := NewPnpmParser()
 
 	lockFile := filepath.Join("testdata", "pnpm", "pnpm-lock.yaml")
 
@@ -360,7 +360,6 @@ func TestPnpmParser_ParseRealLockFile_Count(t *testing.T) {
 // TestAllLockFiles_SameBasicPackages tests that all three lock files contain the same top-level packages
 func TestAllLockFiles_SameBasicPackages(t *testing.T) {
 	ctx := context.Background()
-	parser := NewParser()
 
 	lockFiles := map[string]string{
 		"npm":  filepath.Join("testdata", "npm", "package-lock.json"),
@@ -371,6 +370,11 @@ func TestAllLockFiles_SameBasicPackages(t *testing.T) {
 	results := make(map[string][]string)
 
 	for pm, lockFile := range lockFiles {
+		parser, err := GetParserForFile(lockFile)
+		if err != nil {
+			t.Fatalf("Failed to get parser for %s: %v", pm, err)
+		}
+
 		packages, err := parser.Parse(ctx, lockFile)
 		if err != nil {
 			t.Fatalf("Failed to parse %s lock file: %v", pm, err)
