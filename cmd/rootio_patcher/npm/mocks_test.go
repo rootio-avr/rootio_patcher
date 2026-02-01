@@ -9,12 +9,12 @@ import (
 
 // MockAPIClient is a mock implementation of APIClient for testing
 type MockAPIClient struct {
-	AnalyzePackagesFunc func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error)
+	AnalyzePackagesFunc func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error)
 }
 
-func (m *MockAPIClient) AnalyzePackages(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+func (m *MockAPIClient) AnalyzePackages(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 	if m.AnalyzePackagesFunc != nil {
-		return m.AnalyzePackagesFunc(ctx, packages)
+		return m.AnalyzePackagesFunc(ctx, packages, ecosystem)
 	}
 	return &rootio.AnalyzePackagesResponse{}, nil
 }

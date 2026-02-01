@@ -15,7 +15,7 @@ type InstalledPackage struct {
 
 // APIClient defines the interface for calling the Root.io API
 type APIClient interface {
-	AnalyzePackages(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error)
+	AnalyzePackages(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error)
 }
 
 // PipExecutorInterface defines the interface for executing pip commands

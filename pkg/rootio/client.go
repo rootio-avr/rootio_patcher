@@ -27,7 +27,7 @@ func NewClient(baseURL, apiKey string) *Client {
 
 // AnalyzePackages sends packages to the backend for vulnerability analysis
 func (c *Client) AnalyzePackages(
-	ctx context.Context, packages []Package,
+	ctx context.Context, packages []Package, ecosystem string,
 ) (*AnalyzePackagesResponse, error) {
 	request := AnalyzePackagesRequest{
 		Packages: packages,
@@ -38,7 +38,7 @@ func (c *Client) AnalyzePackages(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v3/remediate/pypi", c.baseURL)
+	url := fmt.Sprintf("%s/v3/analyze/%s", c.baseURL, ecosystem)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)

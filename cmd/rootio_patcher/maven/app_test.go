@@ -89,7 +89,7 @@ func TestMavenApp_Run_APIError(t *testing.T) {
 
 	expectedError := errors.New("API error")
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return nil, expectedError
 		},
 	}
@@ -134,7 +134,7 @@ func TestMavenApp_Run_NoPatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{},
 			}, nil
@@ -178,7 +178,7 @@ func TestMavenApp_Run_DryRun(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -238,7 +238,7 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -304,7 +304,7 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{

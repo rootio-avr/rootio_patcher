@@ -6,6 +6,7 @@
     "lodash": "^4.17.21"
   },
   "devDependencies": {
-    "jest": "^29.0.0"
+    "diff": "4.0.2",
+    "@babel/runtime": "7.25.0"
   }
 }

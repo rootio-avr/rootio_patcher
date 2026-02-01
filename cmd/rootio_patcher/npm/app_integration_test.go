@@ -40,7 +40,7 @@ func TestNpmApp_UpdatePackageJSON_Npm(t *testing.T) {
 
 	// Create app with mock services
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -146,7 +146,7 @@ func TestNpmApp_UpdatePackageJSON_Yarn(t *testing.T) {
 
 	// Create app with mock services
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -246,7 +246,7 @@ func TestNpmApp_UpdatePackageJSON_Pnpm(t *testing.T) {
 
 	// Create app with mock services
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{

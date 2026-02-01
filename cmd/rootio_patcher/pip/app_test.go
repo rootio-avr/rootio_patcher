@@ -72,7 +72,7 @@ func TestPipApp_Run_APIError(t *testing.T) {
 
 	expectedError := errors.New("API error")
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return nil, expectedError
 		},
 	}
@@ -103,7 +103,7 @@ func TestPipApp_Run_NoPatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{},
 				Skipped: []rootio.SkippedPackage{},
@@ -138,7 +138,7 @@ func TestPipApp_Run_DryRunWithPatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -184,7 +184,7 @@ func TestPipApp_Run_ApplyPatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -230,7 +230,7 @@ func TestPipApp_Run_ApplyPatchError(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -276,7 +276,7 @@ func TestPipApp_Run_PipPackageUsesSpecialHandler(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -323,7 +323,7 @@ func TestPipApp_Run_MultiplePatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{

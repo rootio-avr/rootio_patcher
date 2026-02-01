@@ -88,7 +88,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 4. Call backend API to analyze vulnerabilities
 	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages)
+	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, "maven")
 	if err != nil {
 		return fmt.Errorf("failed to analyze packages: %w", err)
 	}
