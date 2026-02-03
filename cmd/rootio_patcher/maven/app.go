@@ -149,12 +149,14 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) error {
 	// Build updates map: package name -> new groupId:artifactId:version
 	// This format supports changing the groupId for Root.io patched packages
+	// Use PatchAlias to get the io.root.* namespace
 	updates := make(map[string]string)
 	for _, patch := range patches {
 		// Format: "newGroupId:artifactId:newVersion"
-		updateValue := patch.Patch.Name + ":" + patch.Patch.Version
+		// Use PatchAlias for Maven to get io.root.{groupId} namespace
+		updateValue := patch.PatchAlias.Name + ":" + patch.PatchAlias.Version
 		updates[patch.PackageName] = updateValue
-		fmt.Printf("  - %s: %s → %s:%s\n", patch.PackageName, patch.Version, patch.Patch.Name, patch.Patch.Version)
+		fmt.Printf("  - %s: %s → %s:%s\n", patch.PackageName, patch.Version, patch.PatchAlias.Name, patch.PatchAlias.Version)
 	}
 
 	// Update the file
