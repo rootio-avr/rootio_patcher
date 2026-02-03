@@ -1,0 +1,13 @@
+{
+  "name": "test-project",
+  "version": "1.0.0",
+  "description": "Test case for npm remediation",
+  "dependencies": {
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "@babel/runtime": "7.25.0",
+    "mocha": "8.0.0"
+  },
+  "packageManager": "yarn@4.12.0"
+}
