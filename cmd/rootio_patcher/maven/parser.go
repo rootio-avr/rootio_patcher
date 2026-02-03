@@ -596,6 +596,15 @@ func (p *MavenParser) Update(ctx context.Context, filePath string, updates map[s
 	// Work with raw content to preserve formatting
 	updatedContent := string(content)
 
+	// Track which dependencies are already in the POM
+	existingDeps := make(map[string]bool)
+	for _, dep := range project.Dependencies.Dependency {
+		if dep.GroupID != "" && dep.ArtifactID != "" {
+			existingDeps[fmt.Sprintf("%s:%s", dep.GroupID, dep.ArtifactID)] = true
+		}
+	}
+
+	// Step 1: Update existing direct dependencies
 	for _, dep := range project.Dependencies.Dependency {
 		if dep.GroupID == "" || dep.ArtifactID == "" {
 			continue
@@ -631,7 +640,60 @@ func (p *MavenParser) Update(ctx context.Context, filePath string, updates map[s
 		}
 	}
 
+	// Step 2: Add explicit Root.io dependencies for transitive ones (not already in POM)
+	// This matches Python behavior: maven_dependency_updater.py lines 350-367
+	for originalName, updateValue := range updates {
+		// Parse the original name and update value
+		originalParts := strings.SplitN(originalName, ":", 2)
+		if len(originalParts) != 2 {
+			continue
+		}
+		originalGroupID := originalParts[0]
+		artifactID := originalParts[1]
+
+		// Parse update value: "newGroupId:artifactId:newVersion"
+		updateParts := strings.Split(updateValue, ":")
+		if len(updateParts) < 3 {
+			continue // Skip if not in the expected format
+		}
+		newGroupID := strings.Join(updateParts[:len(updateParts)-2], ":")
+		newVersion := updateParts[len(updateParts)-1]
+
+		// Check if this dependency is already in the POM (either original or updated form)
+		originalKey := fmt.Sprintf("%s:%s", originalGroupID, artifactID)
+		newKey := fmt.Sprintf("%s:%s", newGroupID, artifactID)
+
+		if !existingDeps[originalKey] && !existingDeps[newKey] {
+			// This is a transitive dependency - add it explicitly to the POM
+			// Insert after <dependencies> tag
+			updatedContent = p.addDependency(updatedContent, newGroupID, artifactID, newVersion)
+			// Track that we've added it
+			existingDeps[newKey] = true
+		}
+	}
+
 	return updatedContent, nil
+}
+
+// addDependency adds a new dependency to the <dependencies> section
+// This is used for transitive dependencies that need to be made explicit
+func (p *MavenParser) addDependency(content, groupID, artifactID, version string) string {
+	// Create the new dependency block with proper indentation
+	newDep := fmt.Sprintf(`
+        <dependency>
+            <groupId>%s</groupId>
+            <artifactId>%s</artifactId>
+            <version>%s</version>
+        </dependency>`, groupID, artifactID, version)
+
+	// Find the <dependencies> section and insert after the opening tag
+	// Pattern: <dependencies> with optional whitespace
+	pattern := regexp.MustCompile(`(<dependencies>\s*)`)
+	if pattern.MatchString(content) {
+		content = pattern.ReplaceAllString(content, "${1}"+newDep+"\n        ")
+	}
+
+	return content
 }
 
 // replaceDependencyGroupIDAndVersion replaces both groupId and version for a specific dependency
