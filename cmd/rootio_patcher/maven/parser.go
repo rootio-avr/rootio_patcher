@@ -49,6 +49,12 @@ type Project struct {
 	Version      string       `xml:"version"`
 	Properties   Properties   `xml:"properties"`
 	Dependencies Dependencies `xml:"dependencies"`
+	Modules      Modules      `xml:"modules"`
+}
+
+// Modules represents the modules section
+type Modules struct {
+	Module []string `xml:"module"`
 }
 
 // Properties represents Maven properties
@@ -95,28 +101,85 @@ type Dependency struct {
 }
 
 // Parse parses pom.xml and returns all dependencies (direct and transitive)
+// Implements the full multi-module logic from dependency-updater-go
 func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
-	// Get source directory (parent of pom.xml)
-	sourceDir := filepath.Dir(filePath)
+	// Get source directory (parent of pom.xml or project root)
+	sourceDir := p.findProjectRoot(filePath)
+
+	fmt.Printf("Scanning Maven project from: %s\n", sourceDir)
 
 	// Track unique dependencies by groupId:artifactId
 	dependenciesMap := make(map[string]common.PackageInfo)
 
-	// Step 1: Parse direct dependencies from pom.xml
-	directDeps, err := p.parseDirectDependencies(filePath)
-	if err != nil {
-		return nil, err
+	// Step 1: Find all pom.xml files in the project
+	pomFiles, err := p.findAllPomFiles(sourceDir)
+	if err != nil || len(pomFiles) == 0 {
+		return nil, fmt.Errorf("no Maven POM files found. Expected pom.xml files")
 	}
 
-	// Add direct dependencies to map
-	for _, dep := range directDeps {
-		key := dep.Name
-		dep.Direct = true
-		dependenciesMap[key] = dep
+	fmt.Printf("Found %d POM file(s)\n", len(pomFiles))
+
+	// Step 2: Find the root/aggregator POM using smart detection
+	rootPom := p.findRootPom(pomFiles, sourceDir)
+
+	if rootPom != "" {
+		// We found a root POM - generate single effective POM from it
+		relPath, _ := filepath.Rel(sourceDir, rootPom)
+		fmt.Printf("Using root POM: %s\n", relPath)
+
+		effectivePom := p.tryGenerateEffectivePom(sourceDir, rootPom)
+		if effectivePom != "" {
+			deps, _ := p.parseDirectDependencies(effectivePom)
+			for _, dep := range deps {
+				key := dep.Name
+				dep.Direct = true
+				dependenciesMap[key] = dep
+			}
+
+			// Clean up temporary effective POM (only if it's not the original)
+			if effectivePom != rootPom {
+				os.Remove(effectivePom)
+			}
+		}
+	} else {
+		// No clear root found - process all POMs individually
+		fmt.Printf("⚠ Could not determine root POM, processing all %d POM file(s) individually\n", len(pomFiles))
+
+		for _, pomFile := range pomFiles {
+			relPath, _ := filepath.Rel(sourceDir, pomFile)
+			fmt.Printf("  Processing: %s\n", relPath)
+
+			effectivePom := p.tryGenerateEffectivePom(sourceDir, pomFile)
+			if effectivePom != "" {
+				deps, _ := p.parseDirectDependencies(effectivePom)
+				for _, dep := range deps {
+					key := dep.Name
+					dep.Direct = true
+					dependenciesMap[key] = dep
+				}
+
+				// Clean up temporary effective POM (only if it's not the original)
+				if effectivePom != pomFile {
+					os.Remove(effectivePom)
+				}
+			}
+		}
 	}
 
-	// Step 2: Parse transitive dependencies using mvn dependency:tree
-	transitiveDeps := p.parseTransitiveDependencies(ctx, filePath)
+	fmt.Printf("Parsed %d unique direct dependencies\n", len(dependenciesMap))
+
+	// Step 3: Parse transitive dependencies using mvn dependency:tree
+	pomToUse := rootPom
+	if pomToUse == "" {
+		// Use the originally provided file if no root found
+		pomToUse = filePath
+	}
+
+	transitiveDeps, treeSuccess := p.parseTransitiveDependencies(ctx, pomToUse)
+	if !treeSuccess {
+		fmt.Printf("Warning: mvn dependency:tree failed, results may be incomplete\n")
+	}
+
 	for _, dep := range transitiveDeps {
 		key := dep.Name
 		// Only add if not already present (direct deps take precedence)
@@ -126,24 +189,7 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 		}
 	}
 
-	// Step 3: Try to use effective POM for better version resolution
-	effectivePom := p.tryGenerateEffectivePom(sourceDir, filePath)
-	if effectivePom != "" && effectivePom != filePath {
-		// Parse effective POM to get resolved versions
-		effectiveDeps, err := p.parseDirectDependencies(effectivePom)
-		if err == nil {
-			// Update versions from effective POM
-			for _, dep := range effectiveDeps {
-				if existing, exists := dependenciesMap[dep.Name]; exists && dep.Version != "" {
-					existing.Version = dep.Version
-					existing.VersionConstraint = dep.Version
-					dependenciesMap[dep.Name] = existing
-				}
-			}
-		}
-		// Clean up effective POM
-		os.Remove(effectivePom)
-	}
+	fmt.Printf("Total unique dependencies (direct + transitive): %d\n", len(dependenciesMap))
 
 	// Convert map to slice
 	var packages []common.PackageInfo
@@ -237,8 +283,128 @@ func (p *MavenParser) tryGenerateEffectivePom(sourceDir, pomFile string) string 
 	}
 }
 
+// findProjectRoot determines the project root directory from a given pom.xml path
+// Walks up the directory tree to find the topmost directory containing a pom.xml
+func (p *MavenParser) findProjectRoot(filePath string) string {
+	dir := filepath.Dir(filePath)
+	lastDirWithPom := dir
+
+	// Walk up to find the topmost directory with a pom.xml
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached filesystem root
+			break
+		}
+
+		parentPom := filepath.Join(parent, "pom.xml")
+		if _, err := os.Stat(parentPom); err == nil {
+			lastDirWithPom = parent
+			dir = parent
+		} else {
+			break
+		}
+	}
+
+	return lastDirWithPom
+}
+
+// findAllPomFiles scans directory tree for all pom.xml files (excluding target directories)
+func (p *MavenParser) findAllPomFiles(sourceDir string) ([]string, error) {
+	var pomFiles []string
+	err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip target directories, build directories, and hidden directories
+		if info.IsDir() {
+			name := info.Name()
+			if name == "target" || name == "build" || name == ".git" || strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Collect pom.xml files
+		if info.Name() == "pom.xml" {
+			pomFiles = append(pomFiles, path)
+		}
+
+		return nil
+	})
+	return pomFiles, err
+}
+
+// PomProjectInfo holds parsed POM metadata for root detection
+type PomProjectInfo struct {
+	XMLName xml.Name `xml:"project"`
+	Modules struct {
+		Module []string `xml:"module"`
+	} `xml:"modules"`
+	Parent *struct{} `xml:"parent"`
+}
+
+// findRootPom finds the root/aggregator POM using smart detection logic
+// This is the full algorithm from dependency-updater-go
+func (p *MavenParser) findRootPom(pomFiles []string, sourceDir string) string {
+	var candidates []string
+
+	for _, pomFile := range pomFiles {
+		data, err := os.ReadFile(pomFile)
+		if err != nil {
+			continue
+		}
+
+		var project PomProjectInfo
+		if err := xml.Unmarshal(data, &project); err != nil {
+			continue
+		}
+
+		hasModules := len(project.Modules.Module) > 0
+		hasParent := project.Parent != nil
+
+		// Aggregator POM: has modules but no parent (or is topmost parent)
+		if hasModules && !hasParent {
+			return pomFile
+		}
+
+		// Collect POMs with modules as candidates
+		if hasModules {
+			candidates = append(candidates, pomFile)
+		}
+	}
+
+	// If we found candidates with modules, return the shallowest one (closest to source_dir)
+	if len(candidates) > 0 {
+		minDepth := -1
+		var shallowest string
+		for _, candidate := range candidates {
+			relPath, _ := filepath.Rel(sourceDir, candidate)
+			depth := len(strings.Split(relPath, string(filepath.Separator)))
+			if minDepth == -1 || depth < minDepth {
+				minDepth = depth
+				shallowest = candidate
+			}
+		}
+		return shallowest
+	}
+
+	// No aggregator found, try to find POM at source_dir root
+	rootPom := filepath.Join(sourceDir, "pom.xml")
+	for _, pom := range pomFiles {
+		if pom == rootPom {
+			return rootPom
+		}
+	}
+
+	// No clear root found
+	return ""
+}
+
 // parseTransitiveDependencies parses transitive dependencies using mvn dependency:tree
-func (p *MavenParser) parseTransitiveDependencies(ctx context.Context, pomFile string) []common.PackageInfo {
+// Returns dependencies and a boolean indicating if the command succeeded
+func (p *MavenParser) parseTransitiveDependencies(ctx context.Context, pomFile string) ([]common.PackageInfo, bool) {
 	args := []string{
 		"dependency:tree",
 		"-f", pomFile,
@@ -252,7 +418,16 @@ func (p *MavenParser) parseTransitiveDependencies(ctx context.Context, pomFile s
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// If dependency:tree fails, return empty list (not fatal)
-		return []common.PackageInfo{}
+		fmt.Printf("mvn dependency:tree failed: %v\n", err)
+		if len(output) > 0 {
+			// Show first 500 chars of error output
+			errMsg := string(output)
+			if len(errMsg) > 500 {
+				errMsg = errMsg[:500] + "..."
+			}
+			fmt.Printf("Maven output: %s\n", errMsg)
+		}
+		return []common.PackageInfo{}, false
 	}
 
 	var dependencies []common.PackageInfo
@@ -288,7 +463,8 @@ func (p *MavenParser) parseTransitiveDependencies(ctx context.Context, pomFile s
 		}
 	}
 
-	return dependencies
+	fmt.Printf("Found %d transitive dependencies via mvn dependency:tree\n", len(dependencies))
+	return dependencies, true
 }
 
 // resolveProperty resolves Maven property references like ${log4j.version}
