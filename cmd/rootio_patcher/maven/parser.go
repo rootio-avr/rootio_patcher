@@ -119,6 +119,15 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 
 	fmt.Printf("Found %d POM file(s)\n", len(pomFiles))
 
+	// Step 1.5: Build module registry to filter out inter-module dependencies
+	projectGroupIDs, projectModules := p.buildModuleRegistry(pomFiles)
+	if len(projectGroupIDs) > 0 {
+		fmt.Printf("Project groupId(s): %v\n", projectGroupIDs)
+	}
+	if len(projectModules) > 0 {
+		fmt.Printf("Project modules: %d artifact(s)\n", len(projectModules))
+	}
+
 	// Step 2: Find the root/aggregator POM using smart detection
 	rootPom := p.findRootPom(pomFiles, sourceDir)
 
@@ -191,13 +200,43 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 
 	fmt.Printf("Total unique dependencies (direct + transitive): %d\n", len(dependenciesMap))
 
-	// Convert map to slice
+	// Convert map to slice, filtering out inter-module dependencies
 	var packages []common.PackageInfo
+	filteredCount := 0
 	for _, pkg := range dependenciesMap {
 		// Only include packages with resolved versions
-		if pkg.Version != "" {
-			packages = append(packages, pkg)
+		if pkg.Version == "" {
+			continue
 		}
+
+		// Filter out inter-module dependencies
+		// Format is "groupId:artifactId"
+		parts := strings.SplitN(pkg.Name, ":", 2)
+		if len(parts) == 2 {
+			groupID := parts[0]
+			artifactID := parts[1]
+
+			// Check if this is an inter-module dependency
+			isProjectGroupID := false
+			for _, projectGroupID := range projectGroupIDs {
+				if groupID == projectGroupID {
+					isProjectGroupID = true
+					break
+				}
+			}
+
+			if isProjectGroupID && projectModules[artifactID] {
+				// This is an inter-module dependency, skip it
+				filteredCount++
+				continue
+			}
+		}
+
+		packages = append(packages, pkg)
+	}
+
+	if filteredCount > 0 {
+		fmt.Printf("Filtered out %d inter-module dependencies\n", filteredCount)
 	}
 
 	return packages, nil
@@ -316,6 +355,48 @@ func (p *MavenParser) findProjectRoot(filePath string) string {
 	return lastDirWithPom
 }
 
+// buildModuleRegistry builds a registry of all module artifactIds and groupIds in the project
+// This is used to filter out inter-module dependencies (internal project dependencies)
+// Returns: (projectGroupIDs, projectModules)
+func (p *MavenParser) buildModuleRegistry(pomFiles []string) ([]string, map[string]bool) {
+	groupIDSet := make(map[string]bool)
+	moduleSet := make(map[string]bool)
+
+	// Extract all groupIds and artifactIds from all POMs
+	for _, pomFile := range pomFiles {
+		data, err := os.ReadFile(pomFile)
+		if err != nil {
+			continue
+		}
+
+		var project PomProjectInfo
+		if err := xml.Unmarshal(data, &project); err != nil {
+			continue
+		}
+
+		// Extract groupId (may be in <groupId> or inherited from <parent>)
+		if project.GroupID != "" {
+			groupIDSet[project.GroupID] = true
+		}
+		if project.Parent != nil && project.Parent.GroupID != "" {
+			groupIDSet[project.Parent.GroupID] = true
+		}
+
+		// Extract artifactId (for module registry)
+		if project.ArtifactID != "" {
+			moduleSet[project.ArtifactID] = true
+		}
+	}
+
+	// Convert groupID set to slice
+	groupIDs := make([]string, 0, len(groupIDSet))
+	for groupID := range groupIDSet {
+		groupIDs = append(groupIDs, groupID)
+	}
+
+	return groupIDs, moduleSet
+}
+
 // findAllPomFiles scans directory tree for all pom.xml files (excluding target directories)
 func (p *MavenParser) findAllPomFiles(sourceDir string) ([]string, error) {
 	var pomFiles []string
@@ -343,13 +424,17 @@ func (p *MavenParser) findAllPomFiles(sourceDir string) ([]string, error) {
 	return pomFiles, err
 }
 
-// PomProjectInfo holds parsed POM metadata for root detection
+// PomProjectInfo holds parsed POM metadata for root detection and module registry
 type PomProjectInfo struct {
-	XMLName xml.Name `xml:"project"`
-	Modules struct {
+	XMLName    xml.Name `xml:"project"`
+	GroupID    string   `xml:"groupId"`
+	ArtifactID string   `xml:"artifactId"`
+	Modules    struct {
 		Module []string `xml:"module"`
 	} `xml:"modules"`
-	Parent *struct{} `xml:"parent"`
+	Parent *struct {
+		GroupID string `xml:"groupId"`
+	} `xml:"parent"`
 }
 
 // findRootPom finds the root/aggregator POM using smart detection logic
