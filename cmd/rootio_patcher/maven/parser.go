@@ -286,7 +286,14 @@ func (p *MavenParser) tryGenerateEffectivePom(sourceDir, pomFile string) string 
 // findProjectRoot determines the project root directory from a given pom.xml path
 // Walks up the directory tree to find the topmost directory containing a pom.xml
 func (p *MavenParser) findProjectRoot(filePath string) string {
-	dir := filepath.Dir(filePath)
+	// Convert to absolute path if relative
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		// Fall back to original if abs() fails
+		absPath = filePath
+	}
+
+	dir := filepath.Dir(absPath)
 	lastDirWithPom := dir
 
 	// Walk up to find the topmost directory with a pom.xml
