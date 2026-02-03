@@ -620,22 +620,13 @@ func (p *MavenParser) Update(ctx context.Context, filePath string, updates map[s
 
 			oldVersion := dep.Version
 
-			// If it's a property reference, update the property instead
-			if strings.HasPrefix(oldVersion, "${") {
-				propName := strings.TrimSuffix(strings.TrimPrefix(oldVersion, "${"), "}")
-				if _, exists := project.Properties.Properties[propName]; exists {
-					// Replace property value in content
-					pattern := fmt.Sprintf(`(<%s>)[^<]*(</[^>]*>)`, regexp.QuoteMeta(propName))
-					re := regexp.MustCompile(pattern)
-					updatedContent = re.ReplaceAllString(updatedContent, fmt.Sprintf("${1}%s${2}", newVersion))
-				}
+			// Always replace both groupId and version, even if version is a property reference
+			// This matches Python behavior: property references like ${netty.version} are
+			// replaced with hardcoded Root.io versions like 4.1.118.Final-root.io.3
+			if newGroupID != dep.GroupID {
+				updatedContent = p.replaceDependencyGroupIDAndVersion(updatedContent, dep.GroupID, dep.ArtifactID, oldVersion, newGroupID, newVersion)
 			} else {
-				// Direct version - replace both groupId and version if needed
-				if newGroupID != dep.GroupID {
-					updatedContent = p.replaceDependencyGroupIDAndVersion(updatedContent, dep.GroupID, dep.ArtifactID, oldVersion, newGroupID, newVersion)
-				} else {
-					updatedContent = p.replaceDependencyVersion(updatedContent, dep.GroupID, dep.ArtifactID, oldVersion, newVersion)
-				}
+				updatedContent = p.replaceDependencyVersion(updatedContent, dep.GroupID, dep.ArtifactID, oldVersion, newVersion)
 			}
 		}
 	}
@@ -643,29 +634,44 @@ func (p *MavenParser) Update(ctx context.Context, filePath string, updates map[s
 	return updatedContent, nil
 }
 
-// replaceDependencyGroupIDAndVersion replaces both groupId and version for a specific dependency
-func (p *MavenParser) replaceDependencyGroupIDAndVersion(content, oldGroupID, artifactID, oldVersion, newGroupID, newVersion string) string {
-	// Pattern to match a dependency block and replace both groupId and version
+// replaceGroupID replaces only the groupId for a specific dependency (leaves version unchanged)
+func (p *MavenParser) replaceGroupID(content, oldGroupID, artifactID, newGroupID string) string {
+	// Pattern to match a dependency block and replace only the groupId
 	pattern := fmt.Sprintf(
-		`(<dependency>\s*)<groupId>%s</groupId>(\s*<artifactId>%s</artifactId>\s*<version>)%s(</version>)`,
+		`(<dependency>\s*)<groupId>%s</groupId>(\s*<artifactId>%s</artifactId>)`,
 		regexp.QuoteMeta(oldGroupID),
 		regexp.QuoteMeta(artifactID),
-		regexp.QuoteMeta(oldVersion),
 	)
 
 	re := regexp.MustCompile(pattern)
-	replacement := fmt.Sprintf("${1}<groupId>%s</groupId>${2}%s${3}", newGroupID, newVersion)
+	replacement := fmt.Sprintf("${1}<groupId>%s</groupId>${2}", newGroupID)
+	return re.ReplaceAllString(content, replacement)
+}
+
+// replaceDependencyGroupIDAndVersion replaces both groupId and version for a specific dependency
+func (p *MavenParser) replaceDependencyGroupIDAndVersion(content, oldGroupID, artifactID, oldVersion, newGroupID, newVersion string) string {
+	// Pattern to match a dependency block and replace both groupId and version
+	// Use [^<]+ to match ANY version content (literal or property reference like ${netty.version})
+	// This is copied from dependency-updater-go/maven.go line 383
+	pattern := fmt.Sprintf(
+		`(<dependency>\s*)<groupId>%s</groupId>(\s*<artifactId>%s</artifactId>\s*<version>)([^<]+)(</version>)`,
+		regexp.QuoteMeta(oldGroupID),
+		regexp.QuoteMeta(artifactID),
+	)
+
+	re := regexp.MustCompile(pattern)
+	replacement := fmt.Sprintf("${1}<groupId>%s</groupId>${2}%s${4}", newGroupID, newVersion)
 	return re.ReplaceAllString(content, replacement)
 }
 
 // replaceDependencyVersion replaces version for a specific dependency
 func (p *MavenParser) replaceDependencyVersion(content, groupID, artifactID, oldVersion, newVersion string) string {
 	// Pattern to match a dependency block and replace its version
+	// Use [^<]+ to match ANY version content (literal or property reference)
 	pattern := fmt.Sprintf(
-		`(<dependency>\s*<groupId>%s</groupId>\s*<artifactId>%s</artifactId>\s*<version>)%s(</version>)`,
+		`(<dependency>\s*<groupId>%s</groupId>\s*<artifactId>%s</artifactId>\s*<version>)([^<]+)(</version>)`,
 		regexp.QuoteMeta(groupID),
 		regexp.QuoteMeta(artifactID),
-		regexp.QuoteMeta(oldVersion),
 	)
 
 	re := regexp.MustCompile(pattern)
