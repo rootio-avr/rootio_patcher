@@ -440,6 +440,10 @@ func (p *MavenParser) parseTransitiveDependencies(ctx context.Context, pomFile s
 	var dependencies []common.PackageInfo
 	outputStr := string(output)
 
+	// Strip ANSI color codes from Maven output
+	ansiPattern := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	outputStr = ansiPattern.ReplaceAllString(outputStr, "")
+
 	// Parse output looking for lines like:
 	// [INFO] |  +- io.netty:netty-common:jar:4.1.118.Final:compile
 	// [INFO] |  \- io.netty:netty-codec:jar:4.1.118.Final:compile
