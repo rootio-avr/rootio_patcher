@@ -470,21 +470,33 @@ rootio_patcher maven remediate --file=./submodule/pom.xml --dry-run=false
 - ✅ Maven projects (`pom.xml`)
 - ❌ Gradle projects (coming soon)
 
-**Known Issue - Duplicate Class Warnings:**
+**How It Works:**
 
-In certain cases, after the Java CLI has run and you build your Maven project, you may encounter warnings about duplicate classes from both aliased and non-aliased packages. These warnings indicate that classes with the same fully-qualified names (FQNs) exist in both the original package and the Root.io aliased package.
+The Maven patcher implements a comprehensive strategy to eliminate duplicate dependencies:
 
-**Important:** These are build **warnings**, not failures. Your project will still build successfully and the Root.io patches will be applied correctly. The warnings can be safely ignored.
+1. **Direct dependencies**: Updates vulnerable packages to use Root.io aliased versions (e.g., `io.netty:netty-codec-http2` → `io.root.io.netty:netty-codec-http2`)
 
-**Example Warning:**
+2. **Transitive dependencies**: Explicitly adds Root.io patched versions for packages that are transitively included
+
+3. **Exclusions**: Adds `<exclusions>` to all dependencies that are NOT being patched, preventing them from transitively pulling in vulnerable versions
+
+**Example:**
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-webflux</artifactId>
+    <version>2.7.0</version>
+    <exclusions>
+        <!-- Prevents spring from pulling in vulnerable netty -->
+        <exclusion>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-codec-http2</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
 ```
-[WARNING] Found duplicate classes in dependencies:
-  - org.example.MyClass found in:
-    - io.root.io.example:my-package:1.2.3-root.io.1
-    - io.example:my-package:1.2.0
-```
 
-We're actively working on improving the patching strategy to eliminate these warnings in future releases.
+This strategy ensures that only Root.io patched versions are used throughout your dependency tree, eliminating duplicate class warnings.
 
 ### Debug Mode
 
