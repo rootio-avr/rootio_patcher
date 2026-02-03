@@ -29,7 +29,7 @@ func NewApp(apiKey, apiURL, filePath string, dryRun bool, logger *slog.Logger) *
 		filePath,
 		dryRun,
 		logger,
-		NewParser(),
+		NewParser(logger),
 		rootio.NewClient(apiURL, apiKey),
 	)
 }

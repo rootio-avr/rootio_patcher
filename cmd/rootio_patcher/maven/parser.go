@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,11 +15,15 @@ import (
 )
 
 // Parser handles parsing of Maven pom.xml files
-type MavenParser struct{}
+type MavenParser struct {
+	logger *slog.Logger
+}
 
 // NewParser creates a new Maven parser
-func NewParser() *MavenParser {
-	return &MavenParser{}
+func NewParser(logger *slog.Logger) *MavenParser {
+	return &MavenParser{
+		logger: logger,
+	}
 }
 
 // Ecosystem returns the ecosystem name
@@ -106,7 +111,7 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 	// Get source directory (parent of pom.xml or project root)
 	sourceDir := p.findProjectRoot(filePath)
 
-	fmt.Printf("Scanning Maven project from: %s\n", sourceDir)
+	p.logger.InfoContext(ctx, "Scanning Maven project", slog.String("source_dir", sourceDir))
 
 	// Track unique dependencies by groupId:artifactId
 	dependenciesMap := make(map[string]common.PackageInfo)
@@ -117,15 +122,15 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 		return nil, fmt.Errorf("no Maven POM files found. Expected pom.xml files")
 	}
 
-	fmt.Printf("Found %d POM file(s)\n", len(pomFiles))
+	p.logger.InfoContext(ctx, "Found POM files", slog.Int("count", len(pomFiles)))
 
 	// Step 1.5: Build module registry to filter out inter-module dependencies
 	projectGroupIDs, projectModules := p.buildModuleRegistry(pomFiles)
 	if len(projectGroupIDs) > 0 {
-		fmt.Printf("Project groupId(s): %v\n", projectGroupIDs)
+		p.logger.DebugContext(ctx, "Found project groupIds", slog.Any("group_ids", projectGroupIDs))
 	}
 	if len(projectModules) > 0 {
-		fmt.Printf("Project modules: %d artifact(s)\n", len(projectModules))
+		p.logger.DebugContext(ctx, "Found project modules", slog.Int("count", len(projectModules)))
 	}
 
 	// Step 2: Find the root/aggregator POM using smart detection
@@ -134,7 +139,7 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 	if rootPom != "" {
 		// We found a root POM - generate single effective POM from it
 		relPath, _ := filepath.Rel(sourceDir, rootPom)
-		fmt.Printf("Using root POM: %s\n", relPath)
+		p.logger.InfoContext(ctx, "Using root POM", slog.String("path", relPath))
 
 		effectivePom := p.tryGenerateEffectivePom(sourceDir, rootPom)
 		if effectivePom != "" {
@@ -152,11 +157,11 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 		}
 	} else {
 		// No clear root found - process all POMs individually
-		fmt.Printf("⚠ Could not determine root POM, processing all %d POM file(s) individually\n", len(pomFiles))
+		p.logger.WarnContext(ctx, "Could not determine root POM, processing all POMs individually", slog.Int("count", len(pomFiles)))
 
 		for _, pomFile := range pomFiles {
 			relPath, _ := filepath.Rel(sourceDir, pomFile)
-			fmt.Printf("  Processing: %s\n", relPath)
+			p.logger.DebugContext(ctx, "Processing POM", slog.String("path", relPath))
 
 			effectivePom := p.tryGenerateEffectivePom(sourceDir, pomFile)
 			if effectivePom != "" {
@@ -175,7 +180,7 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 		}
 	}
 
-	fmt.Printf("Parsed %d unique direct dependencies\n", len(dependenciesMap))
+	p.logger.InfoContext(ctx, "Parsed direct dependencies", slog.Int("count", len(dependenciesMap)))
 
 	// Step 3: Parse transitive dependencies using mvn dependency:tree
 	pomToUse := rootPom
@@ -186,7 +191,7 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 
 	transitiveDeps, treeSuccess := p.parseTransitiveDependencies(ctx, pomToUse)
 	if !treeSuccess {
-		fmt.Printf("Warning: mvn dependency:tree failed, results may be incomplete\n")
+		p.logger.WarnContext(ctx, "mvn dependency:tree failed, results may be incomplete")
 	}
 
 	for _, dep := range transitiveDeps {
@@ -198,7 +203,7 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 		}
 	}
 
-	fmt.Printf("Total unique dependencies (direct + transitive): %d\n", len(dependenciesMap))
+	p.logger.InfoContext(ctx, "Total unique dependencies", slog.Int("count", len(dependenciesMap)))
 
 	// Convert map to slice, filtering out inter-module dependencies
 	var packages []common.PackageInfo
@@ -236,7 +241,7 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 	}
 
 	if filteredCount > 0 {
-		fmt.Printf("Filtered out %d inter-module dependencies\n", filteredCount)
+		p.logger.InfoContext(ctx, "Filtered out inter-module dependencies", slog.Int("count", filteredCount))
 	}
 
 	return packages, nil
@@ -510,14 +515,14 @@ func (p *MavenParser) parseTransitiveDependencies(ctx context.Context, pomFile s
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// If dependency:tree fails, return empty list (not fatal)
-		fmt.Printf("mvn dependency:tree failed: %v\n", err)
+		p.logger.ErrorContext(ctx, "mvn dependency:tree failed", slog.Any("error", err))
 		if len(output) > 0 {
 			// Show first 500 chars of error output
 			errMsg := string(output)
 			if len(errMsg) > 500 {
 				errMsg = errMsg[:500] + "..."
 			}
-			fmt.Printf("Maven output: %s\n", errMsg)
+			p.logger.DebugContext(ctx, "Maven output", slog.String("output", errMsg))
 		}
 		return []common.PackageInfo{}, false
 	}
@@ -559,7 +564,7 @@ func (p *MavenParser) parseTransitiveDependencies(ctx context.Context, pomFile s
 		}
 	}
 
-	fmt.Printf("Found %d transitive dependencies via mvn dependency:tree\n", len(dependencies))
+	p.logger.InfoContext(ctx, "Found transitive dependencies", slog.Int("count", len(dependencies)))
 	return dependencies, true
 }
 

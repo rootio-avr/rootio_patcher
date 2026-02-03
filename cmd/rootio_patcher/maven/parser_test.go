@@ -2,6 +2,8 @@ package maven
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,15 +12,20 @@ import (
 	"rootio_patcher/cmd/rootio_patcher/common"
 )
 
+// testLogger creates a logger for tests that discards output
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
 func TestMavenParser_Ecosystem(t *testing.T) {
-	parser := NewParser()
+	parser := NewParser(testLogger())
 	if parser.Ecosystem() != common.EcosystemMaven {
 		t.Errorf("Expected ecosystem 'maven', got '%s'", parser.Ecosystem())
 	}
 }
 
 func TestMavenParser_FilePatterns(t *testing.T) {
-	parser := NewParser()
+	parser := NewParser(testLogger())
 	patterns := parser.FilePatterns()
 
 	if len(patterns) != 1 {
@@ -31,7 +38,7 @@ func TestMavenParser_FilePatterns(t *testing.T) {
 }
 
 func TestMavenParser_CanHandle(t *testing.T) {
-	parser := NewParser()
+	parser := NewParser(testLogger())
 
 	tests := []struct {
 		fileName string
@@ -55,7 +62,7 @@ func TestMavenParser_CanHandle(t *testing.T) {
 
 func TestMavenParser_Parse(t *testing.T) {
 	ctx := context.Background()
-	parser := NewParser()
+	parser := NewParser(testLogger())
 
 	tmpDir := t.TempDir()
 	pomFile := filepath.Join(tmpDir, "pom.xml")
@@ -135,7 +142,7 @@ func TestMavenParser_Parse(t *testing.T) {
 
 func TestMavenParser_Parse_WithoutNamespace(t *testing.T) {
 	ctx := context.Background()
-	parser := NewParser()
+	parser := NewParser(testLogger())
 
 	tmpDir := t.TempDir()
 	pomFile := filepath.Join(tmpDir, "pom.xml")
@@ -177,7 +184,7 @@ func TestMavenParser_Parse_WithoutNamespace(t *testing.T) {
 
 func TestMavenParser_Parse_FileNotFound(t *testing.T) {
 	ctx := context.Background()
-	parser := NewParser()
+	parser := NewParser(testLogger())
 
 	_, err := parser.Parse(ctx, "/nonexistent/pom.xml")
 	if err == nil {
@@ -187,7 +194,7 @@ func TestMavenParser_Parse_FileNotFound(t *testing.T) {
 
 func TestMavenParser_Parse_InvalidXML(t *testing.T) {
 	ctx := context.Background()
-	parser := NewParser()
+	parser := NewParser(testLogger())
 
 	tmpDir := t.TempDir()
 	pomFile := filepath.Join(tmpDir, "pom.xml")
@@ -205,7 +212,7 @@ func TestMavenParser_Parse_InvalidXML(t *testing.T) {
 
 func TestMavenParser_Update_DirectVersion(t *testing.T) {
 	ctx := context.Background()
-	parser := NewParser()
+	parser := NewParser(testLogger())
 
 	tmpDir := t.TempDir()
 	pomFile := filepath.Join(tmpDir, "pom.xml")
@@ -247,7 +254,7 @@ func TestMavenParser_Update_DirectVersion(t *testing.T) {
 
 func TestMavenParser_Update_PropertyVersion(t *testing.T) {
 	ctx := context.Background()
-	parser := NewParser()
+	parser := NewParser(testLogger())
 
 	tmpDir := t.TempDir()
 	pomFile := filepath.Join(tmpDir, "pom.xml")
@@ -286,7 +293,7 @@ func TestMavenParser_Update_PropertyVersion(t *testing.T) {
 }
 
 func TestMavenParser_Validate(t *testing.T) {
-	parser := NewParser()
+	parser := NewParser(testLogger())
 
 	tests := []struct {
 		name     string
@@ -321,7 +328,7 @@ func TestMavenParser_Validate(t *testing.T) {
 }
 
 func TestMavenParser_ResolveProperty(t *testing.T) {
-	parser := NewParser()
+	parser := NewParser(testLogger())
 
 	properties := map[string]string{
 		"foo.version": "1.2.3",
