@@ -634,20 +634,6 @@ func (p *MavenParser) Update(ctx context.Context, filePath string, updates map[s
 	return updatedContent, nil
 }
 
-// replaceGroupID replaces only the groupId for a specific dependency (leaves version unchanged)
-func (p *MavenParser) replaceGroupID(content, oldGroupID, artifactID, newGroupID string) string {
-	// Pattern to match a dependency block and replace only the groupId
-	pattern := fmt.Sprintf(
-		`(<dependency>\s*)<groupId>%s</groupId>(\s*<artifactId>%s</artifactId>)`,
-		regexp.QuoteMeta(oldGroupID),
-		regexp.QuoteMeta(artifactID),
-	)
-
-	re := regexp.MustCompile(pattern)
-	replacement := fmt.Sprintf("${1}<groupId>%s</groupId>${2}", newGroupID)
-	return re.ReplaceAllString(content, replacement)
-}
-
 // replaceDependencyGroupIDAndVersion replaces both groupId and version for a specific dependency
 func (p *MavenParser) replaceDependencyGroupIDAndVersion(content, oldGroupID, artifactID, oldVersion, newGroupID, newVersion string) string {
 	// Pattern to match a dependency block and replace both groupId and version
