@@ -462,6 +462,30 @@ Next steps:
 rootio_patcher maven remediate --file=./submodule/pom.xml --dry-run=false
 ```
 
+### Java (Maven) Support - Beta Status
+
+⚠️ **Beta Notice**: Java support is currently in beta.
+
+**Current Support:**
+- ✅ Maven projects (`pom.xml`)
+- ❌ Gradle projects (coming soon)
+
+**Known Issue - Duplicate Class Warnings:**
+
+In certain cases, after the Java CLI has run and you build your Maven project, you may encounter warnings about duplicate classes from both aliased and non-aliased packages. These warnings indicate that classes with the same fully-qualified names (FQNs) exist in both the original package and the Root.io aliased package.
+
+**Important:** These are build **warnings**, not failures. Your project will still build successfully and the Root.io patches will be applied correctly. The warnings can be safely ignored.
+
+**Example Warning:**
+```
+[WARNING] Found duplicate classes in dependencies:
+  - org.example.MyClass found in:
+    - io.root.io.example:my-package:1.2.3-root.io.1
+    - io.example:my-package:1.2.0
+```
+
+We're actively working on improving the patching strategy to eliminate these warnings in future releases.
+
 ### Debug Mode
 
 Get detailed information about what's happening for any package manager:
