@@ -601,6 +601,25 @@ func (p *MavenParser) Update(ctx context.Context, filePath string, updates map[s
 	// Work with raw content to preserve formatting
 	updatedContent := string(content)
 
+	// Build a list of all packages being patched (original groupId:artifactId)
+	// These will be used for exclusions
+	patchedPackages := make(map[string]struct {
+		originalGroupID string
+		artifactID      string
+	})
+	for originalName := range updates {
+		parts := strings.SplitN(originalName, ":", 2)
+		if len(parts) == 2 {
+			patchedPackages[originalName] = struct {
+				originalGroupID string
+				artifactID      string
+			}{
+				originalGroupID: parts[0],
+				artifactID:      parts[1],
+			}
+		}
+	}
+
 	// Track which dependencies are already in the POM
 	existingDeps := make(map[string]bool)
 	for _, dep := range project.Dependencies.Dependency {
@@ -609,7 +628,11 @@ func (p *MavenParser) Update(ctx context.Context, filePath string, updates map[s
 		}
 	}
 
-	// Step 1: Update existing direct dependencies
+	exclusionsAdded := 0
+	dependenciesUpdated := 0
+
+	// Step 1: Update existing direct dependencies and add exclusions
+	// For each dependency: either update it (if being patched) or add exclusions (if not)
 	for _, dep := range project.Dependencies.Dependency {
 		if dep.GroupID == "" || dep.ArtifactID == "" {
 			continue
@@ -618,7 +641,7 @@ func (p *MavenParser) Update(ctx context.Context, filePath string, updates map[s
 		name := fmt.Sprintf("%s:%s", dep.GroupID, dep.ArtifactID)
 
 		if updateValue, ok := updates[name]; ok {
-			// Parse update value: can be either "newVersion" or "newGroupId:artifactId:newVersion"
+			// This dependency is being patched - update groupId and version
 			var newGroupID, newVersion string
 			updateParts := strings.Split(updateValue, ":")
 
@@ -642,8 +665,18 @@ func (p *MavenParser) Update(ctx context.Context, filePath string, updates map[s
 			} else {
 				updatedContent = p.replaceDependencyVersion(updatedContent, dep.GroupID, dep.ArtifactID, oldVersion, newVersion)
 			}
+			dependenciesUpdated++
+		} else {
+			// This dependency is NOT being patched - add exclusions for all patched packages
+			// This prevents this dependency from transitively pulling in vulnerable versions
+			count := p.addExclusionsToDependency(&updatedContent, dep.GroupID, dep.ArtifactID, patchedPackages)
+			exclusionsAdded += count
 		}
 	}
+
+	p.logger.InfoContext(ctx, "Updated dependencies and added exclusions",
+		slog.Int("updated", dependenciesUpdated),
+		slog.Int("exclusions_added", exclusionsAdded))
 
 	// Step 2: Add explicit Root.io dependencies for transitive ones (not already in POM)
 	// This matches Python behavior: maven_dependency_updater.py lines 350-367
@@ -678,6 +711,103 @@ func (p *MavenParser) Update(ctx context.Context, filePath string, updates map[s
 	}
 
 	return updatedContent, nil
+}
+
+// addExclusionsToDependency adds exclusions to a specific dependency
+// This prevents the dependency from transitively pulling in vulnerable versions
+// Returns the number of exclusions added
+func (p *MavenParser) addExclusionsToDependency(content *string, depGroupID, depArtifactID string, patchedPackages map[string]struct {
+	originalGroupID string
+	artifactID      string
+}) int {
+	exclusionsAdded := 0
+
+	// Find the dependency block for this specific groupId:artifactId
+	// Pattern matches: <dependency>...groupId...artifactId...</dependency>
+	depPattern := fmt.Sprintf(
+		`(?s)(<dependency>\s*)(<groupId>%s</groupId>\s*<artifactId>%s</artifactId>)(.*?)(</dependency>)`,
+		regexp.QuoteMeta(depGroupID),
+		regexp.QuoteMeta(depArtifactID),
+	)
+
+	depRe := regexp.MustCompile(depPattern)
+	depMatch := depRe.FindStringSubmatch(*content)
+	if depMatch == nil {
+		// Dependency not found, skip
+		return 0
+	}
+
+	depBlockContent := depMatch[3] // The content between artifactId and </dependency>
+
+	// Check if this dependency already has an <exclusions> section
+	hasExclusions := strings.Contains(depBlockContent, "<exclusions>")
+
+	var exclusionsContent string
+	if hasExclusions {
+		// Extract existing exclusions content
+		exclusionsPattern := regexp.MustCompile(`(?s)<exclusions>(.*?)</exclusions>`)
+		exclusionsMatch := exclusionsPattern.FindStringSubmatch(depBlockContent)
+		if exclusionsMatch != nil {
+			exclusionsContent = exclusionsMatch[1]
+		}
+	}
+
+	// For each patched package, add an exclusion if not already present
+	newExclusions := ""
+	for _, pkg := range patchedPackages {
+		// Check if exclusion already exists
+		exclusionPattern := fmt.Sprintf(
+			`<exclusion>\s*<groupId>%s</groupId>\s*<artifactId>%s</artifactId>\s*</exclusion>`,
+			regexp.QuoteMeta(pkg.originalGroupID),
+			regexp.QuoteMeta(pkg.artifactID),
+		)
+		exclusionRe := regexp.MustCompile(exclusionPattern)
+		if exclusionRe.MatchString(exclusionsContent) {
+			// Exclusion already exists, skip
+			continue
+		}
+
+		// Add new exclusion
+		newExclusions += fmt.Sprintf(`
+            <exclusion>
+                <groupId>%s</groupId>
+                <artifactId>%s</artifactId>
+            </exclusion>`, pkg.originalGroupID, pkg.artifactID)
+		exclusionsAdded++
+	}
+
+	if exclusionsAdded > 0 {
+		if hasExclusions {
+			// Append to existing exclusions section
+			*content = strings.Replace(*content, depMatch[0],
+				depMatch[1]+depMatch[2]+strings.Replace(depBlockContent,
+					"</exclusions>",
+					newExclusions+"\n        </exclusions>",
+					1)+depMatch[4],
+				1)
+		} else {
+			// Create new exclusions section after <version> (or after artifactId if no version)
+			exclusionsBlock := fmt.Sprintf(`
+        <exclusions>%s
+        </exclusions>`, newExclusions)
+
+			// Insert exclusions after version tag (if exists) or after artifactId
+			versionPattern := regexp.MustCompile(`(<version>[^<]+</version>)`)
+			if versionPattern.MatchString(depBlockContent) {
+				newDepBlockContent := versionPattern.ReplaceAllString(depBlockContent, "${1}"+exclusionsBlock)
+				*content = strings.Replace(*content, depMatch[0],
+					depMatch[1]+depMatch[2]+newDepBlockContent+depMatch[4],
+					1)
+			} else {
+				// No version tag, insert right after artifactId
+				*content = strings.Replace(*content, depMatch[0],
+					depMatch[1]+depMatch[2]+exclusionsBlock+depBlockContent+depMatch[4],
+					1)
+			}
+		}
+	}
+
+	return exclusionsAdded
 }
 
 // addDependency adds a new dependency to the <dependencies> section
