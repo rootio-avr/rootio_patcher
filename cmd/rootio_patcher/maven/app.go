@@ -141,7 +141,7 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	}
 
 	fmt.Println("To apply these patches:")
-	fmt.Printf("  1. Run: DRY_RUN=false rootio_patcher maven remediate\n")
+	fmt.Printf("  1. Run: rootio_patcher maven remediate --dry-run=false\n")
 	fmt.Println("  2. Then run: mvn clean install")
 }
 
