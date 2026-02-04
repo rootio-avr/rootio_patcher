@@ -462,6 +462,42 @@ Next steps:
 rootio_patcher maven remediate --file=./submodule/pom.xml --dry-run=false
 ```
 
+### Java (Maven) Support - Beta Status
+
+⚠️ **Beta Notice**: Java support is currently in beta.
+
+**Current Support:**
+- ✅ Maven projects (`pom.xml`)
+- ❌ Gradle projects (coming soon)
+
+**How It Works:**
+
+The Maven patcher implements a comprehensive strategy to eliminate duplicate dependencies:
+
+1. **Direct dependencies**: Updates vulnerable packages to use Root.io aliased versions (e.g., `io.netty:netty-codec-http2` → `io.root.io.netty:netty-codec-http2`)
+
+2. **Transitive dependencies**: Explicitly adds Root.io patched versions for packages that are transitively included
+
+3. **Exclusions**: Adds `<exclusions>` to all dependencies that are NOT being patched, preventing them from transitively pulling in vulnerable versions
+
+**Example:**
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-webflux</artifactId>
+    <version>2.7.0</version>
+    <exclusions>
+        <!-- Prevents spring from pulling in vulnerable netty -->
+        <exclusion>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-codec-http2</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+```
+
+This strategy ensures that only Root.io patched versions are used throughout your dependency tree, eliminating duplicate class warnings.
+
 ### Debug Mode
 
 Get detailed information about what's happening for any package manager:

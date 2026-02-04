@@ -29,7 +29,7 @@ func NewApp(apiKey, apiURL, filePath string, dryRun bool, logger *slog.Logger) *
 		filePath,
 		dryRun,
 		logger,
-		NewParser(),
+		NewParser(logger),
 		rootio.NewClient(apiURL, apiKey),
 	)
 }
@@ -141,17 +141,22 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	}
 
 	fmt.Println("To apply these patches:")
-	fmt.Printf("  1. Run: DRY_RUN=false rootio_patcher maven remediate\n")
+	fmt.Printf("  1. Run: rootio_patcher maven remediate --dry-run=false\n")
 	fmt.Println("  2. Then run: mvn clean install")
 }
 
 // applyPatches updates the pom.xml file with patched versions
 func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) error {
-	// Build updates map: package name -> new version
+	// Build updates map: package name -> new groupId:artifactId:version
+	// This format supports changing the groupId for Root.io patched packages
+	// Use PatchAlias to get the io.root.* namespace
 	updates := make(map[string]string)
 	for _, patch := range patches {
-		updates[patch.PackageName] = patch.Patch.Version
-		fmt.Printf("  - %s: %s → %s\n", patch.PackageName, patch.Version, patch.Patch.Version)
+		// Format: "newGroupId:artifactId:newVersion"
+		// Use PatchAlias for Maven to get io.root.{groupId} namespace
+		updateValue := patch.PatchAlias.Name + ":" + patch.PatchAlias.Version
+		updates[patch.PackageName] = updateValue
+		fmt.Printf("  - %s: %s → %s:%s\n", patch.PackageName, patch.Version, patch.PatchAlias.Name, patch.PatchAlias.Version)
 	}
 
 	// Update the file

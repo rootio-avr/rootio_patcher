@@ -254,6 +254,7 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 						PackageName: "junit:junit",
 						Version:     "4.12",
 						Patch:       rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
+						PatchAlias:  rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
 						CVEIDs:      []string{"CVE-2020-15250"},
 					},
 				},
@@ -263,7 +264,7 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 
 	// Use MockMavenParser that uses real Update but mocks Parse
 	mockParser := &MockMavenParser{
-		MavenParser: NewParser(),
+		MavenParser: NewParser(logger),
 		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
 			return []common.PackageInfo{
 				{Name: "junit:junit", Version: "4.12"},
@@ -330,6 +331,7 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 						PackageName: "org.apache.logging.log4j:log4j-core",
 						Version:     "2.17.0",
 						Patch:       rootio.PatchInfo{Name: "org.apache.logging.log4j:log4j-core", Version: "2.17.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "org.apache.logging.log4j:log4j-core", Version: "2.17.1"},
 						CVEIDs:      []string{"CVE-2021-44832"},
 					},
 				},
@@ -339,7 +341,7 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 
 	// Use MockMavenParser that uses real Update but mocks Parse
 	mockParser := &MockMavenParser{
-		MavenParser: NewParser(),
+		MavenParser: NewParser(logger),
 		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
 			return []common.PackageInfo{
 				{Name: "org.apache.logging.log4j:log4j-core", Version: "2.17.0"},
