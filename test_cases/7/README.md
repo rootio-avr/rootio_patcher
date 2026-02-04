@@ -65,10 +65,32 @@ ROOTIO_API_KEY=your_key rootio_patcher npm remediate --package-manager yarn --dr
 
 - `package.json` - NPM package manifest
 - `yarn.lock` - Yarn 2+ lock file (YAML format)
-- `.yarnrc.yml` - Yarn configuration (created by `yarn set version`)
+- `.yarnrc.yml` - **Yarn 2+ configuration** (replaces `.npmrc` for scoped registries)
 - `.yarn/` - Yarn installation directory
 - `setup.sh` - Setup script for this test case
 - `.gitignore` - Ignores Yarn 2+ cache files
+
+## Configuration Differences
+
+**Important**: Yarn 2+ does **not** use `.npmrc` for registry configuration!
+
+| Config | Yarn 1 (test_cases/5) | Yarn 2+ (test_cases/7) |
+|--------|----------------------|------------------------|
+| Registry config | `.npmrc` | `.yarnrc.yml` |
+| Scoped packages | `@rootio:registry=...` | `npmScopes.rootio.npmRegistryServer` |
+| Basic auth | `//pkg.root.io/npm/:_auth=...` | `npmScopes.rootio.npmAuthIdent` |
+| Auth type | Base64(username:token) | Base64(username:token) |
+
+Example `.yarnrc.yml` for @rootio scoped packages:
+```yaml
+npmScopes:
+  rootio:
+    npmRegistryServer: "https://pkg.root.io/npm/"
+    npmAlwaysAuth: true
+    npmAuthIdent: "base64-encoded-username:token"
+```
+
+**Note**: Use `npmAuthIdent` for basic auth (username:password), not `npmAuthToken` (which is for bearer tokens).
 
 ## Yarn Version Information
 
