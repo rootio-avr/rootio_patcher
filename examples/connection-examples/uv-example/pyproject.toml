@@ -1,0 +1,14 @@
+[project]
+name = "uv-example"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests==2.25.1",
+]
+
+
+[[tool.uv.index]]
+name = "root"
+url = "https://pkg.root.io/pypi/simple/"

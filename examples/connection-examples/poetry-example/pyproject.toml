@@ -1,0 +1,26 @@
+[project]
+name = "poetry-example"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Dmitry Rubinstein",email = "rubinsteindb@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = ["requests (==2.25.1)"]
+
+[tool.poetry]
+packages = [{include = "poetry_example", from = "src"}]
+
+[[tool.poetry.source]]
+name = "root"
+url = "https://pkg.root.io/pypi/simple/"
+priority = "primary"
+
+[[tool.poetry.source]]
+name = "PyPI"
+priority = "supplemental"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

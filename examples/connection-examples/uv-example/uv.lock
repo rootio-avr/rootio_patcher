@@ -1,0 +1,65 @@
+version = 1
+revision = 3
+requires-python = ">=3.10"
+
+[[package]]
+name = "certifi"
+version = "2025.11.12"
+source = { registry = "https://pkg.root.io/pypi/simple/" }
+sdist = { url = "https://pkg.root.io/pypi/simple/certifi/2025.11.12/certifi-2025.11.12.tar.gz", hash = "sha256:d8ab5478f2ecd78af242878415affce761ca6bc54a22a27e026d7c25357c3316" }
+wheels = [
+    { url = "https://pkg.root.io/pypi/simple/certifi/2025.11.12/certifi-2025.11.12-py3-none-any.whl", hash = "sha256:97de8790030bbd5c2d96b7ec782fc2f7820ef8dba6db909ccf95449f2d062d4b" },
+]
+
+[[package]]
+name = "chardet"
+version = "4.0.0"
+source = { registry = "https://pkg.root.io/pypi/simple/" }
+sdist = { url = "https://pkg.root.io/pypi/simple/chardet/4.0.0/chardet-4.0.0.tar.gz", hash = "sha256:0d6f53a15db4120f2b08c94f11e7d93d2c911ee118b6b30a04ec3ee8310179fa" }
+wheels = [
+    { url = "https://pkg.root.io/pypi/simple/chardet/4.0.0/chardet-4.0.0-py2.py3-none-any.whl", hash = "sha256:f864054d66fd9118f2e67044ac8981a54775ec5b67aed0441892edb553d21da5" },
+]
+
+[[package]]
+name = "idna"
+version = "2.10"
+source = { registry = "https://pkg.root.io/pypi/simple/" }
+sdist = { url = "https://pkg.root.io/pypi/simple/idna/2.10/idna-2.10.tar.gz", hash = "sha256:b307872f855b18632ce0c21c5e45be78c0ea7ae4c15c828c20788b26921eb3f6" }
+wheels = [
+    { url = "https://pkg.root.io/pypi/simple/idna/2.10/idna-2.10-py2.py3-none-any.whl", hash = "sha256:b97d804b1e9b523befed77c48dacec60e6dcb0b5391d57af6a65a312a90648c0" },
+]
+
+[[package]]
+name = "requests"
+version = "2.25.1+root.io.1"
+source = { registry = "https://pkg.root.io/pypi/simple/" }
+dependencies = [
+    { name = "certifi" },
+    { name = "chardet" },
+    { name = "idna" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://pkg.root.io/pypi/simple/requests/2.25.1+root.io.1/requests-2.25.1+root.io.1.tar.gz", hash = "sha256:e3abec3eb20693dd46586b322d508bfb2cb18dca7bae8da7a3a06bfb4ee4db10" }
+wheels = [
+    { url = "https://pkg.root.io/pypi/simple/requests/2.25.1+root.io.1/requests-2.25.1+root.io.1-py2.py3-none-any.whl", hash = "sha256:96346c1f8c6f588731a41700cb45e62f62645e2ac91f06cc0b03f0d712329e30" },
+]
+
+[[package]]
+name = "urllib3"
+version = "1.26.20"
+source = { registry = "https://pkg.root.io/pypi/simple/" }
+sdist = { url = "https://pkg.root.io/pypi/simple/urllib3/1.26.20/urllib3-1.26.20.tar.gz", hash = "sha256:40c2dc0c681e47eb8f90e7e27bf6ff7df2e677421fd46756da1161c39ca70d32" }
+wheels = [
+    { url = "https://pkg.root.io/pypi/simple/urllib3/1.26.20/urllib3-1.26.20-py2.py3-none-any.whl", hash = "sha256:0ed14ccfbf1c30a9072c7ca157e4319b70d65f623e91e7b32fadb2853431016e" },
+]
+
+[[package]]
+name = "uv-example"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "requests" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "requests", specifier = "==2.25.1" }]
