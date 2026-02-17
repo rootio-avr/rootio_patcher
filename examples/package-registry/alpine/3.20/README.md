@@ -6,21 +6,33 @@ This example demonstrates how to configure Alpine Linux to use the Root.io packa
 
 ### In a Dockerfile
 
+**Part 1: Configure Root.io repository**
+
 ```dockerfile
 ARG ALPINE_VERSION=3.20
 FROM alpine:${ALPINE_VERSION}
 
-# Install the Alpine public key for package signature verification
-RUN echo "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUFvcG1yUjR1em95WEFiTHFiRUE3cwpBNWQrVytnUzE0TzEwMlJHUjhxa0h0cDhSUEs2b3FvZkhJZzNYSWpnSVlzalQwYTk1VXNzbGFlL2FDWU1UeFBVCmhnSmxkTVU1SnlzZmYxT1BEQld4R2ZCOFJCL081cjA1cU9JLzJ3QlgwQjl5NjhhU0xQZi9UWEE3akY5STRKL3EKdjArWVF2c3owRWdqUEFjeVN2MlgvOHE2R2RoOHRkWG4rbTVBYjJoUU5YUE1TdTM3aXMwUVR3Uk9DSFV4ZXZLeAo0OUZ5UGkvQUR5UDB6bVFYaUtCQW52alN6YVNQNmZPQm1yYlNNY05wYnVPV2lwUUJoajRnVE5KOVNzaDZSQmdmCmJVUlFhdmlwWlAyL0RiNTNiLzJ5UTJJU21QMEo1cmdjWnkrdXoyZndTWmtHb3pUa0ErZDE1dHludlJRVFQwbGkKWXdJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==" | \
-    base64 -d > /etc/apk/keys/root@alpinelinux.org-67b85bd5.rsa.pub
+# Install signing key, configure Root.io repository
+RUN --mount=type=secret,id=rootio_api_key \
+    # Install Alpine public key for package signature verification
+    echo "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUFvcG1yUjR1em95WEFiTHFiRUE3cwpBNWQrVytnUzE0TzEwMlJHUjhxa0h0cDhSUEs2b3FvZkhJZzNYSWpnSVlzalQwYTk1VXNzbGFlL2FDWU1UeFBVCmhnSmxkTVU1SnlzZmYxT1BEQld4R2ZCOFJCL081cjA1cU9JLzJ3QlgwQjl5NjhhU0xQZi9UWEE3akY5STRKL3EKdjArWVF2c3owRWdqUEFjeVN2MlgvOHE2R2RoOHRkWG4rbTVBYjJoUU5YUE1TdTM3aXMwUVR3Uk9DSFV4ZXZLeAo0OUZ5UGkvQUR5UDB6bVFYaUtCQW52alN6YVNQNmZPQm1yYlNNY05wYnVPV2lwUUJoajRnVE5KOVNzaDZSQmdmCmJVUlFhdmlwWlAyL0RiNTNiLzJ5UTJJU21QMEo1cmdjWnkrdXoyZndTWmtHb3pUa0ErZDE1dHludlJRVFQwbGkKWXdJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==" | \
+    base64 -d > /etc/apk/keys/root@alpinelinux.org-67b85bd5.rsa.pub && \
+    \
+    # Add pkg.root.io as repository with authentication from secret
+    echo "https://root:$(cat /run/secrets/rootio_api_key)@pkg.root.io/alpine/${ALPINE_VERSION}" >> /etc/apk/repositories && \
+    \
+    # Update package index
+    apk update && \
+    \
+    # <... install packages here ...>
+    \
+    # Remove Root.io repository line with credentials from repositories file
+    sed -i '/pkg\.root\.io/d' /etc/apk/repositories
+```
 
-# Add pkg.root.io as SECONDARY repository (append, don't replace)
-ARG ROOTIO_API_KEY
-RUN echo "https://root:${ROOTIO_API_KEY}@pkg.root.io/alpine/${ALPINE_VERSION}" >> /etc/apk/repositories
+**Part 2: Install packages with aliasing fallback**
 
-# Update package index
-RUN apk update
-
+```dockerfile
 # Install packages with fallback to unaliased packages
 # This loop checks for rootio-prefixed packages first, then falls back to standard packages
 RUN for pkg in curl git vim bash libgit2-dev tini; do \

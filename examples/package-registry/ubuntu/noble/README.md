@@ -6,24 +6,45 @@ This example demonstrates how to configure Ubuntu to use the Root.io APT package
 
 ### In a Dockerfile
 
+**Part 1: Configure Root.io repository**
+
 ```dockerfile
 FROM ubuntu:noble
 
-# Install required dependencies
-RUN apt-get update && apt-get install -y \
-    gnupg \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Add Root.io GPG key and repository
-ARG ROOTIO_API_KEY
-RUN echo "LS0tLS1CRUdJTiBQR1AgUFVCTElDIEtFWSBCTE9DSy0tLS0tCgptRE1FYVlIQ1dSWUpLd1lCQkFIYVJ3OEJBUWRBcDdXVHNLMTVrWTNmQ0pxOUNRVnlxODluRzFoNEw4OHZvVndqCnB0NGNXSjYwSkZKdmIzUXVhVzhnUVZCVUlGSmxjRzl6YVhSdmNua2dQR0Z3ZEVCeWIyOTBMbWx2UG9pVEJCTVcKQ2dBN0ZpRUUzSVVhWTlLRDFsTUhKYTdNZ09RM004RHd3c2tGQW1tQndsa0NHd01GQ3drSUJ3SUNJZ0lHRlFvSgpDQXNDQkJZQ0F3RUNIZ2NDRjRBQUNna1FnT1EzTThEd3dzbGY2d0QrSWxqSGRkVmFKM2xKYjBsSE0rZVFubWNvCnlmTTlpWis5cXI0SjBNYnZsNG9CQUtOL0pYZkJvR2JGYzgzM0ZmN1I5R3M5UXU2bm1EUVZlSDI4eHEwdDRwWU4KPWs3ZHMKLS0tLS1FTkQgUEdQIFBVQkxJQyBLRVkgQkxPQ0stLS0tLQo=" | \
+# Install dependencies, configure Root.io repository
+RUN --mount=type=secret,id=rootio_api_key \
+    DEBIAN_FRONTEND=noninteractive apt-get update && \
+    # Install minimal dependencies for adding repositories
+    apt-get install -y --no-install-recommends gnupg ca-certificates && \
+    \
+    # Initialize keyring and add Root.io GPG key
+    mkdir -p /etc/apt/keyrings && \
+    echo "LS0tLS1CRUdJTiBQR1AgUFVCTElDIEtFWSBCTE9DSy0tLS0tCgptRE1FYVlIQ1dSWUpLd1lCQkFIYVJ3OEJBUWRBcDdXVHNLMTVrWTNmQ0pxOUNRVnlxODluRzFoNEw4OHZvVndqCnB0NGNXSjYwSkZKdmIzUXVhVzhnUVZCVUlGSmxjRzl6YVhSdmNua2dQR0Z3ZEVCeWIyOTBMbWx2UG9pVEJCTVcKQ2dBN0ZpRUUzSVVhWTlLRDFsTUhKYTdNZ09RM004RHd3c2tGQW1tQndsa0NHd01GQ3drSUJ3SUNJZ0lHRlFvSgpDQXNDQkJZQ0F3RUNIZ2NDRjRBQUNna1FnT1EzTThEd3dzbGY2d0QrSWxqSGRkVmFKM2xKYjBsSE0rZVFubWNvCnlmTTlpWis5cXI0SjBNYnZsNG9CQUtOL0pYZkJvR2JGYzgzM0ZmN1I5R3M5UXU2bm1EUVZlSDI4eHEwdDRwWU4KPWs3ZHMKLS0tLS1FTkQgUEdQIFBVQkxJQyBLRVkgQkxPQ0stLS0tLQo=" | \
     base64 -d | gpg --dearmor -o /etc/apt/keyrings/rootio.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/rootio.gpg] https://root:${ROOTIO_API_KEY}@pkg.root.io/ubuntu/noble noble main" > /etc/apt/sources.list.d/rootio.list
+    \
+    # Create APT auth.conf.d entry for Root.io repository using the API key from Docker secrets
+    mkdir -p /etc/apt/auth.conf.d && \
+    printf "machine pkg.root.io\nlogin root\npassword %s\n" \
+    "$(cat /run/secrets/rootio_api_key)" > /etc/apt/auth.conf.d/rootio.conf && \
+    chmod 600 /etc/apt/auth.conf.d/rootio.conf && \
+    \
+    # Configure APT to use the Root.io repository with authentication and GPG key
+    echo "deb [signed-by=/etc/apt/keyrings/rootio.gpg] https://pkg.root.io/ubuntu/noble noble main" \
+    > /etc/apt/sources.list.d/rootio.list && \
+    \
+    # Update package lists
+    DEBIAN_FRONTEND=noninteractive apt-get update && \
+    \
+    # <... install packages here ...>
+    \
+    # Remove credentials file
+    rm -f /etc/apt/auth.conf.d/rootio.conf && \
+    rm -rf /var/lib/apt/lists/*
+```
 
-# Update package index
-RUN apt-get update
+**Part 2: Install packages with aliasing fallback**
 
+```dockerfile
 # Install packages with fallback to unaliased packages
 # This loop checks for rootio-prefixed packages first, then falls back to standard packages
 RUN for pkg in curl git vim bash libgit2-dev tini; do \
@@ -32,8 +53,7 @@ RUN for pkg in curl git vim bash libgit2-dev tini; do \
     else \
       apt-get install -y --no-install-recommends "$pkg"; \
     fi; \
-    done && \
-    rm -rf /var/lib/apt/lists/*
+    done
 ```
 
 **Build with:**
