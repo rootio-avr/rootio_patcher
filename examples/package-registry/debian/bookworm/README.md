@@ -23,6 +23,17 @@ RUN echo "LS0tLS1CRUdJTiBQR1AgUFVCTElDIEtFWSBCTE9DSy0tLS0tCgptRE1FYVlIQ1dSWUpLd1
 
 # Update package index
 RUN apt-get update
+
+# Install packages with fallback to unaliased packages
+# This loop checks for rootio-prefixed packages first, then falls back to standard packages
+RUN for pkg in curl git vim bash libgit2-dev tini; do \
+    if apt-cache show "rootio-$pkg" >/dev/null 2>&1; then \
+      apt-get install -y --no-install-recommends "rootio-$pkg"; \
+    else \
+      apt-get install -y --no-install-recommends "$pkg"; \
+    fi; \
+    done && \
+    rm -rf /var/lib/apt/lists/*
 ```
 
 **Build with:**
@@ -50,6 +61,15 @@ echo "deb [signed-by=/etc/apt/keyrings/rootio.gpg] https://root:YOUR_API_KEY@pkg
 
 # Update package index
 sudo apt-get update
+
+# Install packages with fallback to unaliased packages
+for pkg in curl git vim bash libgit2-dev tini; do
+  if apt-cache show "rootio-$pkg" >/dev/null 2>&1; then
+    sudo apt-get install -y --no-install-recommends "rootio-$pkg"
+  else
+    sudo apt-get install -y --no-install-recommends "$pkg"
+  fi
+done
 ```
 
 ## Configuration Details
@@ -72,6 +92,14 @@ The Base64-encoded public key is the Root.io APT signing key used to verify pack
 ### Repository File Location
 
 Configuration is stored in `/etc/apt/sources.list.d/rootio.list`, keeping it separate from the main sources list for easier management.
+
+### Package Aliasing
+
+Root.io uses package aliasing with the `rootio-` prefix for patched packages:
+- Patched packages are named `rootio-<package>` (e.g., `rootio-curl`)
+- Original packages remain available without the prefix (e.g., `curl`)
+- Use a for loop to check for aliased packages and fall back to standard packages
+- This pattern works in both Dockerfiles and on running systems
 
 ## Supported Debian Releases
 

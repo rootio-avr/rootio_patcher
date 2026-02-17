@@ -20,6 +20,16 @@ RUN echo "https://root:${ROOTIO_API_KEY}@pkg.root.io/alpine/${ALPINE_VERSION}" >
 
 # Update package index
 RUN apk update
+
+# Install packages with fallback to unaliased packages
+# This loop checks for rootio-prefixed packages first, then falls back to standard packages
+RUN for pkg in curl git vim bash libgit2-dev tini; do \
+    if apk search -e "rootio-$pkg" | grep -q "rootio-$pkg"; then \
+      apk add --no-cache "rootio-$pkg"; \
+    else \
+      apk add --no-cache "$pkg"; \
+    fi; \
+    done
 ```
 
 **Build with:**
@@ -39,6 +49,15 @@ echo "https://root:YOUR_API_KEY@pkg.root.io/alpine/3.20" >> /etc/apk/repositorie
 
 # Update package index
 apk update
+
+# Install packages with fallback to unaliased packages
+for pkg in curl git vim bash libgit2-dev tini; do
+  if apk search -e "rootio-$pkg" | grep -q "rootio-$pkg"; then
+    apk add --no-cache "rootio-$pkg"
+  else
+    apk add --no-cache "$pkg"
+  fi
+done
 ```
 
 ## Configuration Details
@@ -62,6 +81,14 @@ By **appending** the Root.io repository to `/etc/apk/repositories` (using `>>`),
 - Alpine's official repositories are checked first
 - Root.io packages are used when patches are available
 - This prevents conflicts with official packages
+
+### Package Aliasing
+
+Root.io uses package aliasing with the `rootio-` prefix for patched packages:
+- Patched packages are named `rootio-<package>` (e.g., `rootio-curl`)
+- Original packages remain available without the prefix (e.g., `curl`)
+- Use a for loop to check for aliased packages and fall back to standard packages
+- This pattern works in both Dockerfiles and on running systems
 
 ## Supported Versions
 

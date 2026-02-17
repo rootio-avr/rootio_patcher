@@ -12,9 +12,16 @@ RUN --mount=type=secret,id=rootio_api_key \
     # Add pkg.root.io as repository with authentication from secret
     echo "https://root:$(cat /run/secrets/rootio_api_key)@pkg.root.io/alpine/${ALPINE_VERSION}" >> /etc/apk/repositories && \
     \
-    # Update package index and install packages
+    # Update package index and install packages, preferring Root.io versions if available
     apk update && \
-    apk add --no-cache curl git vim bash libgit2-dev tini && \
+    \
+    for pkg in curl git vim bash libgit2-dev tini; do \
+    if apk search -e "rootio-$pkg" | grep -q "rootio-$pkg"; then \
+    apk add --no-cache "rootio-$pkg"; \
+    else \
+    apk add --no-cache "$pkg"; \
+    fi; \
+    done && \
     \
     # Remove Root.io repository line with credentials from repositories file
     sed -i '/pkg\.root\.io/d' /etc/apk/repositories && \
