@@ -34,7 +34,7 @@ RUN for pkg in curl git vim bash libgit2-dev tini; do \
 
 **Build with:**
 ```bash
-docker build --build-arg ROOTIO_API_KEY=${ROOTIO_API_KEY} -t your-image .
+DOCKER_BUILDKIT=1 docker build --secret id=rootio_api_key,env=ROOTIO_API_KEY -t your-image .
 ```
 
 ### On a Running System
