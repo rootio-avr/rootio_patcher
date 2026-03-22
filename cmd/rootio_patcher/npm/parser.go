@@ -1,8 +1,10 @@
 package npm
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
@@ -10,19 +12,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// NewParser creates the appropriate parser based on file name or package manager
-// Returns NpmParser by default for backwards compatibility
-func NewParser() common.Parser {
+// npmParser is the interface required by the npm App — it extends the common Parser
+// with npm-specific package.json patching. Defined here (not in common) to avoid
+// polluting the shared interface with JS/npm concerns (e.g. Maven shouldn't need this).
+type npmParser interface {
+	common.Parser
+	UpdatePackageJSON(ctx context.Context, overrides map[string]string, packageJSONPath string) error
+}
+
+// NewParser creates a default npm parser.
+func NewParser() npmParser {
 	return NewNpmParser()
 }
 
-// GetParserForFile returns the appropriate parser for the given file
-func GetParserForFile(filePath string) (common.Parser, error) {
+// GetParserForFile returns the appropriate parser for the given lock file path.
+func GetParserForFile(filePath string) (npmParser, error) {
 	if strings.HasSuffix(filePath, "package-lock.json") {
 		return NewNpmParser(), nil
 	}
 	if strings.HasSuffix(filePath, "yarn.lock") {
-		// Need to detect if it's Yarn 1 or Yarn 2+
 		return detectYarnVersion(filePath)
 	}
 	if strings.HasSuffix(filePath, "pnpm-lock.yaml") {
@@ -31,20 +39,24 @@ func GetParserForFile(filePath string) (common.Parser, error) {
 	return nil, fmt.Errorf("unsupported lock file: %s", filePath)
 }
 
-// GetParserForPackageManager returns the appropriate parser for the given package manager
-// For yarn, it auto-detects the version from yarn.lock on disk
-func GetParserForPackageManager(packageManager string) (common.Parser, error) {
+// GetParserForPackageManager returns the appropriate parser for the given package manager.
+// For yarn, it auto-detects the version from yarn.lock in the current directory.
+func GetParserForPackageManager(packageManager string) (npmParser, error) {
+	return GetParserForPackageManagerInDir(packageManager, ".")
+}
+
+// GetParserForPackageManagerInDir returns the appropriate parser for the given package manager,
+// looking for the yarn.lock file in directory to detect Yarn v1 vs v2+.
+func GetParserForPackageManagerInDir(packageManager, directory string) (npmParser, error) {
 	switch packageManager {
 	case "npm":
 		return NewNpmParser(), nil
 	case "yarn":
-		// Auto-detect Yarn version from yarn.lock file on disk
-		lockFilePath := "yarn.lock"
+		lockFilePath := filepath.Join(directory, "yarn.lock")
 		if _, err := os.Stat(lockFilePath); err == nil {
-			// File exists, detect version
 			return detectYarnVersion(lockFilePath)
 		}
-		// If file doesn't exist, default to Yarn 1 for backwards compatibility
+		// File doesn't exist yet — default to Yarn 1 for backwards compatibility
 		return NewYarnParser(), nil
 	case "pnpm":
 		return NewPnpmParser(), nil
@@ -53,8 +65,8 @@ func GetParserForPackageManager(packageManager string) (common.Parser, error) {
 	}
 }
 
-// detectYarnVersion detects whether a yarn.lock file is Yarn 1 or Yarn 2+
-func detectYarnVersion(filePath string) (common.Parser, error) {
+// detectYarnVersion detects whether a yarn.lock file is Yarn 1 or Yarn 2+.
+func detectYarnVersion(filePath string) (npmParser, error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read yarn.lock: %w", err)

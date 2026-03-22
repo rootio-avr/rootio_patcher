@@ -195,11 +195,12 @@ func (p *NpmParser) Validate(content string) bool {
 }
 
 // UpdatePackageJSON updates package.json with npm overrides
-func (p *NpmParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string) error {
+func (p *NpmParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string, packageJSONPath string) error {
 	patcher := NewPackageJSONPatcher()
 	return patcher.Patch(ctx, PatchOptions{
 		Updates:                  overrides,
 		UpdateDirectDependencies: true,
 		OverridesPath:            "overrides",
+		PackageJSONPath:          packageJSONPath,
 	})
 }
