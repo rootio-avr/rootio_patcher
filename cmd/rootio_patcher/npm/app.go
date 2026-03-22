@@ -14,29 +14,32 @@ import (
 
 // App handles npm package remediation (pre-install file patching)
 type App struct {
-	apiKey         string
-	apiURL         string
-	packageManager string
-	lockFilePath   string
-	dryRun         bool
-	logger         *slog.Logger
-	parser         common.Parser
-	apiClient      common.APIClient
+	apiKey          string
+	apiURL          string
+	packageManager  string
+	lockFilePath    string
+	packageJSONPath string
+	dryRun          bool
+	logger          *slog.Logger
+	parser          npmParser
+	apiClient       common.APIClient
 }
 
-// NewApp creates a new npm application instance
-func NewApp(apiKey, apiURL, packageManager string, dryRun bool, logger *slog.Logger) *App {
-	// Get the appropriate parser for this package manager
-	parser, err := GetParserForPackageManager(packageManager)
+// NewApp creates a new npm application instance.
+// directory is the project root where the lock file and package.json live (use "." for CWD).
+func NewApp(apiKey, apiURL, packageManager, directory string, dryRun bool, logger *slog.Logger) *App {
+	lockFileName := lockFileNameForPackageManager(packageManager)
+	lockFilePath := filepath.Join(directory, lockFileName)
+
+	parser, err := GetParserForPackageManagerInDir(packageManager, directory)
 	if err != nil {
-		// Fall back to npm parser
 		parser = NewNpmParser()
 	}
 
 	return NewAppWithServices(
 		apiKey,
 		apiURL,
-		packageManager,
+		lockFilePath,
 		dryRun,
 		logger,
 		parser,
@@ -44,13 +47,26 @@ func NewApp(apiKey, apiURL, packageManager string, dryRun bool, logger *slog.Log
 	)
 }
 
-// NewAppWithServices creates a new npm app with injected services (for testing)
-// For testing: if packageManager is an absolute path, it's treated as a lock file path
+// lockFileNameForPackageManager returns the default lock file name for a package manager.
+func lockFileNameForPackageManager(packageManager string) string {
+	switch packageManager {
+	case "yarn":
+		return "yarn.lock"
+	case "pnpm":
+		return "pnpm-lock.yaml"
+	default:
+		return "package-lock.json"
+	}
+}
+
+// NewAppWithServices creates a new npm app with injected services (for testing).
+// packageManagerOrPath accepts either a package manager name ("npm", "yarn", "pnpm")
+// or an absolute/relative lock file path (used in tests).
 func NewAppWithServices(
 	apiKey, apiURL, packageManagerOrPath string,
 	dryRun bool,
 	logger *slog.Logger,
-	parser common.Parser,
+	parser npmParser,
 	apiClient common.APIClient,
 ) *App {
 	var packageManager string
@@ -63,7 +79,6 @@ func NewAppWithServices(
 		// Infer package manager from file extension
 		switch {
 		case strings.HasSuffix(lockFilePath, "yarn.lock"):
-			// Will be detected as yarn or yarn2 by the parser
 			packageManager = "yarn"
 		case strings.HasSuffix(lockFilePath, "pnpm-lock.yaml"):
 			packageManager = "pnpm"
@@ -73,28 +88,22 @@ func NewAppWithServices(
 	} else {
 		// It's a package manager name
 		packageManager = packageManagerOrPath
-		// Determine lock file path based on package manager
-		switch packageManager {
-		case "npm":
-			lockFilePath = "package-lock.json"
-		case "yarn":
-			lockFilePath = "yarn.lock"
-		case "pnpm":
-			lockFilePath = "pnpm-lock.yaml"
-		default:
-			lockFilePath = "package-lock.json"
-		}
+		lockFilePath = lockFileNameForPackageManager(packageManager)
 	}
 
+	// Derive package.json path from the directory containing the lock file
+	packageJSONPath := filepath.Join(filepath.Dir(lockFilePath), "package.json")
+
 	return &App{
-		apiKey:         apiKey,
-		apiURL:         apiURL,
-		packageManager: packageManager,
-		lockFilePath:   lockFilePath,
-		dryRun:         dryRun,
-		logger:         logger,
-		parser:         parser,
-		apiClient:      apiClient,
+		apiKey:          apiKey,
+		apiURL:          apiURL,
+		packageManager:  packageManager,
+		lockFilePath:    lockFilePath,
+		packageJSONPath: packageJSONPath,
+		dryRun:          dryRun,
+		logger:          logger,
+		parser:          parser,
+		apiClient:       apiClient,
 	}
 }
 
@@ -214,7 +223,7 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 
 	// Update package.json with overrides using the parser
 	a.logger.DebugContext(ctx, "Updating package.json with overrides", slog.Int("count", len(overrides)))
-	if err := a.parser.UpdatePackageJSON(ctx, overrides); err != nil {
+	if err := a.parser.UpdatePackageJSON(ctx, overrides, a.packageJSONPath); err != nil {
 		return fmt.Errorf("failed to update package.json: %w", err)
 	}
 

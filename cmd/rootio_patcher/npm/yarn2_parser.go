@@ -206,11 +206,12 @@ func (p *Yarn2Parser) Validate(content string) bool {
 }
 
 // UpdatePackageJSON updates package.json with yarn resolutions
-func (p *Yarn2Parser) UpdatePackageJSON(ctx context.Context, overrides map[string]string) error {
+func (p *Yarn2Parser) UpdatePackageJSON(ctx context.Context, overrides map[string]string, packageJSONPath string) error {
 	patcher := NewPackageJSONPatcher()
 	return patcher.Patch(ctx, PatchOptions{
 		Updates:                  overrides,
 		UpdateDirectDependencies: true,
 		OverridesPath:            "resolutions",
+		PackageJSONPath:          packageJSONPath,
 	})
 }

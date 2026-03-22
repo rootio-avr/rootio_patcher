@@ -27,4 +27,4 @@ npm list --depth=0
 echo ""
 echo "To run rootio_patcher remediation:"
 echo "  cd $SCRIPT_DIR"
-echo "  rootio_patcher npm remediate --file package-lock.json --dry-run=false"
+echo "  rootio_patcher npm remediate --dry-run=false"

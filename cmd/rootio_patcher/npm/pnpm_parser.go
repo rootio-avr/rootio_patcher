@@ -152,11 +152,12 @@ func (p *PnpmParser) Validate(content string) bool {
 }
 
 // UpdatePackageJSON updates package.json with pnpm overrides (nested under "pnpm")
-func (p *PnpmParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string) error {
+func (p *PnpmParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string, packageJSONPath string) error {
 	patcher := NewPackageJSONPatcher()
 	return patcher.Patch(ctx, PatchOptions{
 		Updates:                  overrides,
 		UpdateDirectDependencies: true,
 		OverridesPath:            "pnpm.overrides",
+		PackageJSONPath:          packageJSONPath,
 	})
 }

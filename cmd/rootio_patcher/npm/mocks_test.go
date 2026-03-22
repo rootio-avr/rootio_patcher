@@ -55,7 +55,7 @@ func (m *MockParser) CanHandle(fileName string) bool {
 	return fileName == "package-lock.json"
 }
 
-func (m *MockParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string) error {
+func (m *MockParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string, packageJSONPath string) error {
 	// Mock implementation - does nothing
 	return nil
 }

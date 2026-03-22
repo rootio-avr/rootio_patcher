@@ -140,6 +140,7 @@ rootio_patcher npm remediate [FLAGS]
 
 **Flags:**
 - `--package-manager` - Package manager to use: `npm`, `yarn`, or `pnpm` (default: `npm`)
+- `--directory`, `-C` - Project directory containing the lock file and `package.json` (default: `.` — current directory)
 - `--dry-run` - Preview changes without applying (default: `true`)
 
 **How it works:** Pre-install patching - updates `package.json` with overrides/resolutions. After running, execute `npm install` to apply patches.
@@ -402,6 +403,18 @@ rootio_patcher npm remediate --package-manager=yarn --dry-run=false
 ```bash
 rootio_patcher npm remediate --package-manager=pnpm --dry-run=false
 # Then run: pnpm install
+```
+
+#### Run Against a Project in Another Directory
+
+Use `--directory` (or `-C`) to point at a project outside the current working directory:
+
+```bash
+rootio_patcher npm remediate --package-manager=npm --directory=/path/to/project --dry-run=false
+# Then run: npm install inside that directory
+
+# Relative paths work too
+rootio_patcher npm remediate --package-manager=yarn -C ../frontend --dry-run=false
 ```
 
 ### Maven Examples
@@ -759,19 +772,25 @@ rootio_patcher pip remediate --dry-run=false
 
 #### "lock file not found: package-lock.json"
 
-**Solution:** Make sure you're running the command from your project root, or the lock file doesn't exist yet:
+**Solution:** Either run from your project root, use `--directory` to point at it, or generate the lock file first:
 ```bash
-# For npm - generate lock file first
-npm install
+# Run from the project directory
+cd /path/to/project && rootio_patcher npm remediate
 
-# Then run patcher
+# Or use --directory / -C
+rootio_patcher npm remediate --directory=/path/to/project
+
+# If the lock file doesn't exist yet, generate it first
+npm install
 rootio_patcher npm remediate
 ```
 
 #### "package.json not found in current directory"
 
-**Solution:** Navigate to your project root where package.json exists, or create one:
+**Solution:** Navigate to your project root, use `--directory`, or create a package.json:
 ```bash
+rootio_patcher npm remediate --directory=/path/to/project
+# or
 npm init -y
 ```
 
