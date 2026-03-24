@@ -20,6 +20,10 @@ gradlePlugin {
     }
 }
 
+repositories {
+    mavenCentral()
+}
+
 dependencies {
     testImplementation(gradleTestKit())
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
