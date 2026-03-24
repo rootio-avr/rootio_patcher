@@ -47,3 +47,8 @@ Thumbs.db
 ./rootio_patcher
 ./rootio_patcher.exe
 rootio_patcher
+
+# Gradle plugin
+gradle-plugin/.gradle/
+gradle-plugin/build/
+gradle-plugin/.gradle/rootio-cache/
