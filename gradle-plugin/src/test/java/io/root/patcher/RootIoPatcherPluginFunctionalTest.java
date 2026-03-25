@@ -116,6 +116,60 @@ class RootIoPatcherPluginFunctionalTest {
             "Expected error message about HTTP 500 in output:\n" + result.getOutput());
     }
 
+    @Test
+    void resolvesFromAutoRegisteredPkgRepo() throws IOException {
+        // The plugin must auto-register {pkgUrl}/maven-patches so patched artifacts resolve
+        // without the user needing to add the repository manually.
+        setupServerResponse(200,
+            "{\"patches\":[{" +
+            "\"package_name\":\"io.test:my-lib\",\"version\":\"1.0.0\"," +
+            "\"patch_alias\":{\"name\":\"io.root.io.test:my-lib\",\"version\":\"1.0.0-patched\"}," +
+            "\"cve_ids\":[]}]," +
+            "\"skipped\":[]}");
+
+        // Original artifact in the project's own repo; patched artifact ONLY in the pkg repo.
+        // The build script does NOT declare the pkg repo — the plugin must add it automatically.
+        File repoDir = new File(projectDir, "local-repo");
+        File pkgRepoDir = new File(projectDir, "pkg-repo");
+        createFakeArtifact(repoDir, "io.test", "my-lib", "1.0.0");
+        // Plugin appends /maven-patches to pkgUrl, so the artifact must live in that subdirectory.
+        createFakeArtifact(new File(pkgRepoDir, "maven-patches"), "io.root.io.test", "my-lib", "1.0.0-patched");
+
+        Files.writeString(new File(projectDir, "settings.gradle.kts").toPath(),
+            "rootProject.name = \"test-project\"\n");
+        Files.writeString(new File(projectDir, "build.gradle.kts").toPath(),
+            "plugins {\n" +
+            "    java\n" +
+            "    id(\"io.root.patcher\")\n" +
+            "}\n" +
+            "repositories {\n" +
+            "    maven { url = uri(\"" + repoDir.toURI() + "\") }\n" +
+            "}\n" +
+            "dependencies {\n" +
+            "    implementation(\"io.test:my-lib:1.0.0\")\n" +
+            "}\n" +
+            "rootio {\n" +
+            "    apiKey.set(\"test-key\")\n" +
+            "    apiUrl.set(\"http://localhost:" + port + "\")\n" +
+            "    pkgUrl.set(\"" + pkgRepoDir.toURI().toString().replaceAll("/$", "") + "\")\n" +
+            "}\n" +
+            "tasks.register(\"forceResolve\") {\n" +
+            "    doLast {\n" +
+            "        configurations[\"compileClasspath\"].files\n" +
+            "    }\n" +
+            "}\n");
+
+        BuildResult result = GradleRunner.create()
+            .withProjectDir(projectDir)
+            .withPluginClasspath()
+            .withGradleVersion("9.4.1")
+            .withArguments("forceResolve")
+            .build();
+
+        assertTrue(result.getOutput().contains("BUILD SUCCESSFUL"),
+            "Expected patched artifact to resolve from auto-registered pkg repo:\n" + result.getOutput());
+    }
+
     // Note: the empty-version skip (fix for HTTP 400 on BOM/Kotlin-plugin-managed deps) is
     // enforced in RootIoPatcherPlugin.java via `if (version == null || version.isEmpty()) return`.
     // A functional test that injects an empty version before the plugin's eachDependency hook

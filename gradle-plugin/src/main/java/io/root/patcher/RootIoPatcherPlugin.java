@@ -23,8 +23,27 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
 
         RootIoExtension ext = project.getExtensions().create("rootio", RootIoExtension.class);
         ext.getApiUrl().convention("https://api.root.io");
+        ext.getPkgUrl().convention("https://pkg.root.io");
         ext.getTtlHours().convention(24L);
         ext.getVerbose().convention(false);
+
+        // Auto-register the Root.io patches Maven repository so patched artifacts resolve
+        // without users needing to add it manually. Done in afterEvaluate so apiKey/pkgUrl
+        // are fully configured by the time we read them.
+        project.afterEvaluate(p -> {
+            String pkgBase = ext.getPkgUrl().get().replaceAll("/$", "");
+            p.getRepositories().maven(repo -> {
+                repo.setName("Root.io patches");
+                repo.setUrl(pkgBase + "/maven-patches");
+                // Credentials only apply to HTTP(S) — file:// repos (e.g. in tests) reject them.
+                if (pkgBase.startsWith("http://") || pkgBase.startsWith("https://")) {
+                    repo.credentials(creds -> {
+                        creds.setUsername(ext.getApiKey().get());
+                        creds.setPassword("");
+                    });
+                }
+            });
+        });
 
         Logger logger = project.getLogger();
 

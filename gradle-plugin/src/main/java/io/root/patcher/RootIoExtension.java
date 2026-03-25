@@ -14,4 +14,7 @@ public abstract class RootIoExtension {
 
     /** Enable verbose lifecycle logging. Default: false. */
     public abstract Property<Boolean> getVerbose();
+
+    /** Root.io package registry base URL. Default: https://pkg.root.io */
+    public abstract Property<String> getPkgUrl();
 }
