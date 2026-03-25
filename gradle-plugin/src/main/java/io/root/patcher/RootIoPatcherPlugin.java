@@ -33,11 +33,18 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
             ext.getApiKey().convention(envApiKey);
         }
 
+        Logger logger = project.getLogger();
+
         // Auto-register the Root.io patches Maven repository so patched artifacts resolve
         // without users needing to add it manually. Done in afterEvaluate so apiKey/pkgUrl
         // are fully configured by the time we read them.
         project.afterEvaluate(p -> {
             String pkgBase = ext.getPkgUrl().get().replaceAll("/$", "");
+            if (ext.getVerbose().get()) {
+                String key = ext.getApiKey().getOrElse("(not set)");
+                String masked = key.length() > 8 ? key.substring(0, 4) + "..." + key.substring(key.length() - 4) : "(too short or not set)";
+                logger.lifecycle("[Root.io] Registering repo: {}/maven (apiKey: {})", pkgBase, masked);
+            }
             p.getRepositories().maven(repo -> {
                 repo.setName("Root.io patches");
                 repo.setUrl(pkgBase + "/maven");
@@ -54,8 +61,6 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                 }
             });
         });
-
-        Logger logger = project.getLogger();
 
         project.getConfigurations().all(config -> {
             // Only hook resolvable configurations — non-resolvable ones (e.g. `api`, `implementation`)
