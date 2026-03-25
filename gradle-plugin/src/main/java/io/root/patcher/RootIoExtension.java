@@ -11,4 +11,7 @@ public abstract class RootIoExtension {
 
     /** Cache TTL in hours. Default: 24. Set to 0 for no caching. */
     public abstract Property<Long> getTtlHours();
+
+    /** Enable verbose lifecycle logging. Default: false. */
+    public abstract Property<Boolean> getVerbose();
 }

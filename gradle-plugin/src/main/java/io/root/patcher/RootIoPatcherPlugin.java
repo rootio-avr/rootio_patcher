@@ -4,6 +4,7 @@ import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.ModuleVersionSelector;
+import org.gradle.api.logging.Logger;
 
 import java.util.Map;
 
@@ -23,6 +24,9 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         RootIoExtension ext = project.getExtensions().create("rootio", RootIoExtension.class);
         ext.getApiUrl().convention("https://api.root.io");
         ext.getTtlHours().convention(24L);
+        ext.getVerbose().convention(false);
+
+        Logger logger = project.getLogger();
 
         project.getConfigurations().all(config -> {
             // Only hook resolvable configurations — non-resolvable ones (e.g. `api`, `implementation`)
@@ -31,7 +35,19 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
 
             config.getResolutionStrategy().eachDependency(details -> {
                 ModuleVersionSelector req = details.getRequested();
-                String coords = req.getGroup() + ":" + req.getName() + ":" + req.getVersion();
+                String version = req.getVersion();
+
+                // Skip deps with no version — these are BOM/platform-managed or Kotlin-plugin-managed
+                // deps whose version is resolved separately. Sending an empty version to the API
+                // produces a 400.
+                if (version == null || version.isEmpty()) {
+                    if (ext.getVerbose().get()) {
+                        logger.lifecycle("[Root.io] Skipping {}:{} (no version)", req.getGroup(), req.getName());
+                    }
+                    return;
+                }
+
+                String coords = req.getGroup() + ":" + req.getName() + ":" + version;
 
                 String patched = DepCache.lookup(
                     coords,
@@ -44,11 +60,16 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                     // Split "group:artifact:version" for useTarget map
                     int firstColon = patched.indexOf(':');
                     int lastColon  = patched.lastIndexOf(':');
-                    String group   = patched.substring(0, firstColon);
-                    String name    = patched.substring(firstColon + 1, lastColon);
-                    String version = patched.substring(lastColon + 1);
-                    details.useTarget(Map.of("group", group, "name", name, "version", version));
+                    String pGroup   = patched.substring(0, firstColon);
+                    String pName    = patched.substring(firstColon + 1, lastColon);
+                    String pVersion = patched.substring(lastColon + 1);
+                    details.useTarget(Map.of("group", pGroup, "name", pName, "version", pVersion));
                     details.because("Root.io security patch");
+                    if (ext.getVerbose().get()) {
+                        logger.lifecycle("[Root.io] Patching {} -> {}", coords, patched);
+                    }
+                } else if (ext.getVerbose().get()) {
+                    logger.lifecycle("[Root.io] No patch for {}", coords);
                 }
             });
         });
