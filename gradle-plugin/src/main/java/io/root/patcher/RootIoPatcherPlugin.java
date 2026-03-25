@@ -54,8 +54,8 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                 // returns 403 directly for unauthenticated requests.
                 if (pkgBase.startsWith("http://") || pkgBase.startsWith("https://")) {
                     repo.credentials(creds -> {
-                        creds.setUsername(ext.getApiKey().get());
-                        creds.setPassword("");
+                        creds.setUsername("token");
+                        creds.setPassword(ext.getApiKey().get());
                     });
                     repo.authentication(auth -> auth.create("basic", BasicAuthentication.class));
                 }
