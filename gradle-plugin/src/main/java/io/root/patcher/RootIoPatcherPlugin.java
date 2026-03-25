@@ -22,10 +22,15 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         }
 
         RootIoExtension ext = project.getExtensions().create("rootio", RootIoExtension.class);
-        ext.getApiUrl().convention("https://api.root.io");
-        ext.getPkgUrl().convention("https://pkg.root.io");
+        ext.getApiUrl().convention(envOrDefault("ROOTIO_API_URL", "https://api.root.io"));
+        ext.getPkgUrl().convention(envOrDefault("ROOTIO_PKG_URL", "https://pkg.root.io"));
         ext.getTtlHours().convention(24L);
         ext.getVerbose().convention(false);
+        // apiKey has no hardcoded default — it must come from env or build script
+        String envApiKey = System.getenv("ROOTIO_API_KEY");
+        if (envApiKey != null && !envApiKey.isEmpty()) {
+            ext.getApiKey().convention(envApiKey);
+        }
 
         // Auto-register the Root.io patches Maven repository so patched artifacts resolve
         // without users needing to add it manually. Done in afterEvaluate so apiKey/pkgUrl
@@ -92,5 +97,10 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                 }
             });
         });
+    }
+
+    private static String envOrDefault(String name, String defaultValue) {
+        String val = System.getenv(name);
+        return (val != null && !val.isEmpty()) ? val : defaultValue;
     }
 }
