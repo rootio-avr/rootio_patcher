@@ -132,8 +132,8 @@ class RootIoPatcherPluginFunctionalTest {
         File repoDir = new File(projectDir, "local-repo");
         File pkgRepoDir = new File(projectDir, "pkg-repo");
         createFakeArtifact(repoDir, "io.test", "my-lib", "1.0.0");
-        // Plugin appends /maven-patches to pkgUrl, so the artifact must live in that subdirectory.
-        createFakeArtifact(new File(pkgRepoDir, "maven-patches"), "io.root.io.test", "my-lib", "1.0.0-patched");
+        // Plugin appends /maven to pkgUrl, so the artifact must live in that subdirectory.
+        createFakeArtifact(new File(pkgRepoDir, "maven"), "io.root.io.test", "my-lib", "1.0.0-patched");
 
         Files.writeString(new File(projectDir, "settings.gradle.kts").toPath(),
             "rootProject.name = \"test-project\"\n");

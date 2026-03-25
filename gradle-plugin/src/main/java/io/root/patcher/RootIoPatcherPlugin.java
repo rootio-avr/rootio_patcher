@@ -34,7 +34,7 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
             String pkgBase = ext.getPkgUrl().get().replaceAll("/$", "");
             p.getRepositories().maven(repo -> {
                 repo.setName("Root.io patches");
-                repo.setUrl(pkgBase + "/maven-patches");
+                repo.setUrl(pkgBase + "/maven");
                 // Credentials only apply to HTTP(S) — file:// repos (e.g. in tests) reject them.
                 if (pkgBase.startsWith("http://") || pkgBase.startsWith("https://")) {
                     repo.credentials(creds -> {
