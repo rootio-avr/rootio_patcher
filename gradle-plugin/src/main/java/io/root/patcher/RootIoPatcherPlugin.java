@@ -5,6 +5,7 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.ModuleVersionSelector;
 import org.gradle.api.logging.Logger;
+import org.gradle.authentication.http.BasicAuthentication;
 
 import java.util.Map;
 
@@ -41,11 +42,15 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                 repo.setName("Root.io patches");
                 repo.setUrl(pkgBase + "/maven");
                 // Credentials only apply to HTTP(S) — file:// repos (e.g. in tests) reject them.
+                // BasicAuthentication forces preemptive auth so credentials are sent on the
+                // first request. Without it, Gradle waits for a 401 challenge, but artrepo
+                // returns 403 directly for unauthenticated requests.
                 if (pkgBase.startsWith("http://") || pkgBase.startsWith("https://")) {
                     repo.credentials(creds -> {
                         creds.setUsername(ext.getApiKey().get());
                         creds.setPassword("");
                     });
+                    repo.authentication(auth -> auth.create("basic", BasicAuthentication.class));
                 }
             });
         });
