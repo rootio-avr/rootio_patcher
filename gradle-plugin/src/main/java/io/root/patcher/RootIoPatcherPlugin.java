@@ -83,11 +83,17 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
 
                 String coords = req.getGroup() + ":" + req.getName() + ":" + version;
 
+                long[] queryMs = {-1};
                 String patched = DepCache.lookup(
                     coords,
                     project.getRootDir(), // always rootDir so subprojects share the cache
                     ext.getTtlHours().get(),
-                    () -> RootIoClient.query(coords, ext.getApiUrl().get(), ext.getApiKey().get())
+                    () -> {
+                        long start = System.currentTimeMillis();
+                        String result = RootIoClient.query(coords, ext.getApiUrl().get(), ext.getApiKey().get());
+                        queryMs[0] = System.currentTimeMillis() - start;
+                        return result;
+                    }
                 );
 
                 if (patched != null) {
@@ -100,10 +106,18 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                     details.useTarget(Map.of("group", pGroup, "name", pName, "version", pVersion));
                     details.because("Root.io security patch");
                     if (ext.getVerbose().get()) {
-                        logger.lifecycle("[Root.io] Patching {} -> {}", coords, patched);
+                        if (queryMs[0] >= 0) {
+                            logger.lifecycle("[Root.io] Patching {} -> {} ({}ms)", coords, patched, queryMs[0]);
+                        } else {
+                            logger.lifecycle("[Root.io] Patching {} -> {}", coords, patched);
+                        }
                     }
                 } else if (ext.getVerbose().get()) {
-                    logger.lifecycle("[Root.io] No patch for {}", coords);
+                    if (queryMs[0] >= 0) {
+                        logger.lifecycle("[Root.io] No patch for {} ({}ms)", coords, queryMs[0]);
+                    } else {
+                        logger.lifecycle("[Root.io] No patch for {}", coords);
+                    }
                 }
             });
         });
