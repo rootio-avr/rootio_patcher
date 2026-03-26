@@ -3,14 +3,19 @@ package io.root.patcher;
 import org.gradle.api.GradleException;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 public class RootIoClient {
+
+    // Shared across all query() calls within a build — reuses TLS connections
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+        .version(HttpClient.Version.HTTP_2)
+        .build();
 
     /**
      * Query the Root.io API for a patch for the given dependency.
@@ -30,31 +35,29 @@ public class RootIoClient {
         String requestBody = "{\"packages\":[{\"name\":\"" + groupArtifact + "\",\"version\":\"" + version + "\"}]}";
         String endpoint = apiUrl.replaceAll("/$", "") + "/v3/analyze/maven";
 
+        String credentials = Base64.getEncoder()
+            .encodeToString((apiKey + ":").getBytes(StandardCharsets.UTF_8));
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(endpoint))
+            .header("Content-Type", "application/json")
+            .header("Authorization", "Basic " + credentials)
+            .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
+            .build();
+
         try {
-            HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
-            String credentials = Base64.getEncoder()
-                .encodeToString((apiKey + ":").getBytes(StandardCharsets.UTF_8));
-            conn.setRequestProperty("Authorization", "Basic " + credentials);
-            conn.setDoOutput(true);
-
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(requestBody.getBytes(StandardCharsets.UTF_8));
-            }
-
-            int status = conn.getResponseCode();
-            if (status != 200) {
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() != 200) {
                 throw new GradleException(
-                    "Root.io API returned HTTP " + status + " for " + coords);
+                    "Root.io API returned HTTP " + response.statusCode() + " for " + coords);
             }
-
-            try (InputStream is = conn.getInputStream()) {
-                String response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                return extractPatchedCoords(response);
-            }
+            return extractPatchedCoords(response.body());
         } catch (GradleException e) {
             throw e;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new GradleException(
+                "Root.io API request interrupted for " + coords, e);
         } catch (IOException e) {
             throw new GradleException(
                 "Root.io API request failed for " + coords + ": " + e.getMessage(), e);
