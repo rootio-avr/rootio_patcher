@@ -1,6 +1,6 @@
 module rootio_patcher
 
-go 1.24.0
+go 1.24.13
 
 require (
 	github.com/alecthomas/kong v1.13.0
