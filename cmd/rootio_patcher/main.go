@@ -13,6 +13,7 @@ import (
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/cmd/rootio_patcher/config"
+	golang "rootio_patcher/cmd/rootio_patcher/golang"
 	"rootio_patcher/cmd/rootio_patcher/maven"
 	"rootio_patcher/cmd/rootio_patcher/npm"
 	"rootio_patcher/cmd/rootio_patcher/pip"
@@ -24,9 +25,10 @@ var version = "dev"
 type CLI struct {
 	Version kong.VersionFlag `short:"v" help:"Print version information"`
 
-	Pip   PipCmd   `cmd:"" help:"Python/pip package remediation"`
-	Npm   NpmCmd   `cmd:"" help:"npm package remediation"`
-	Maven MavenCmd `cmd:"" help:"Maven package remediation"`
+	Pip    PipCmd    `cmd:"" help:"Python/pip package remediation"`
+	Npm    NpmCmd    `cmd:"" help:"npm package remediation"`
+	Maven  MavenCmd  `cmd:"" help:"Maven package remediation"`
+	Golang GolangCmd `cmd:"" help:"Go module remediation"`
 }
 
 // PipCmd handles pip-related commands
@@ -153,5 +155,24 @@ func (cmd *MavenRemediateCmd) Run(ctx context.Context, cfg *config.Config, logge
 	logger.InfoContext(ctx, "Starting Maven remediation", slog.String("file", cmd.File))
 
 	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cmd.File, cmd.DryRun, logger)
+	return app.Run(ctx)
+}
+
+// GolangCmd handles Go module commands
+type GolangCmd struct {
+	Remediate GolangRemediateCmd `cmd:"" help:"Remediate Go modules (pre-build patching of go.mod with replace directives)"`
+}
+
+// GolangRemediateCmd remediates Go modules by adding replace directives to go.mod
+type GolangRemediateCmd struct {
+	GoMod  string `default:"go.mod" help:"Path to go.mod"`
+	DryRun bool   `default:"true" help:"Preview changes without applying them"`
+}
+
+// Run executes the golang remediate command
+func (cmd *GolangRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	logger.InfoContext(ctx, "Starting Go module remediation", slog.String("go_mod", cmd.GoMod))
+
+	app := golang.NewApp(cfg.APIKey, cfg.APIURL, cmd.GoMod, cmd.DryRun, logger)
 	return app.Run(ctx)
 }
