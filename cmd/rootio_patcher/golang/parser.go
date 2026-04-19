@@ -1,13 +1,13 @@
 package golang
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"regexp"
-	"strings"
+
+	"golang.org/x/mod/modfile"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 )
@@ -42,70 +42,20 @@ func NewGoModParser(logger *slog.Logger) *GoModParser {
 // Parse reads go.mod and returns all require entries with pinned semver versions.
 // Entries with pseudo-versions or non-semver versions are skipped and logged at debug level.
 func (p *GoModParser) Parse(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
-	f, err := os.Open(filePath)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", filePath, err)
+		return nil, fmt.Errorf("read %s: %w", filePath, err)
 	}
-	defer f.Close()
+
+	f, err := modfile.Parse(filePath, data, nil)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", filePath, err)
+	}
 
 	var packages []common.PackageInfo
-	scanner := bufio.NewScanner(f)
-
-	inBlock := false
-	blockType := ""
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-
-		// Detect block start: "keyword ("
-		if !inBlock {
-			for _, kw := range []string{"require", "replace", "exclude", "retract"} {
-				if trimmed == kw+" (" {
-					inBlock = true
-					blockType = kw
-					break
-				}
-			}
-			if inBlock {
-				continue
-			}
-		}
-
-		// Detect block end
-		if inBlock && trimmed == ")" {
-			inBlock = false
-			blockType = ""
-			continue
-		}
-
-		var modPath, version string
-		var isIndirect bool
-
-		if inBlock {
-			if blockType != "require" {
-				continue
-			}
-			// format inside require block: "module version [// indirect]"
-			parts := strings.Fields(trimmed)
-			if len(parts) < 2 {
-				continue
-			}
-			modPath = parts[0]
-			version = parts[1]
-			isIndirect = strings.Contains(trimmed, "// indirect")
-		} else if rest, ok := strings.CutPrefix(trimmed, "require "); ok {
-			// standalone: "require module version [// indirect]"
-			parts := strings.Fields(rest)
-			if len(parts) < 2 {
-				continue
-			}
-			modPath = parts[0]
-			version = parts[1]
-			isIndirect = strings.Contains(trimmed, "// indirect")
-		} else {
-			continue
-		}
+	for _, req := range f.Require {
+		modPath := req.Mod.Path
+		version := req.Mod.Version
 
 		if !isPinnedVersion(version) {
 			p.logger.DebugContext(ctx, "skipping require entry with unpinned version",
@@ -119,12 +69,8 @@ func (p *GoModParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 			Name:      modPath,
 			Version:   version,
 			Ecosystem: common.EcosystemGolang,
-			Direct:    !isIndirect,
+			Direct:    !req.Indirect,
 		})
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan %s: %w", filePath, err)
 	}
 
 	return packages, nil
@@ -138,101 +84,18 @@ func (p *GoModParser) Patch(ctx context.Context, filePath string, updates []GoMo
 		return "", fmt.Errorf("read %s: %w", filePath, err)
 	}
 
-	// Build lookup: "module version" → update index
-	updateKeys := make(map[string]int, len(updates))
-	for i, u := range updates {
-		updateKeys[u.Module+" "+u.CurrentVersion] = i
+	f, err := modfile.Parse(filePath, data, nil)
+	if err != nil {
+		return "", fmt.Errorf("parse %s: %w", filePath, err)
 	}
 
-	lines := strings.Split(string(data), "\n")
-	applied := make([]bool, len(updates))
-
-	var result []string
-	inReplaceBlock := false
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		if trimmed == "replace (" {
-			inReplaceBlock = true
-			result = append(result, line)
-			continue
-		}
-
-		if inReplaceBlock {
-			if trimmed == ")" {
-				inReplaceBlock = false
-				result = append(result, line)
-				continue
-			}
-			if newLine, idx, ok := matchBlockReplace(trimmed, updates, updateKeys); ok {
-				result = append(result, newLine)
-				applied[idx] = true
-			} else {
-				result = append(result, line)
-			}
-			continue
-		}
-
-		if newLine, idx, ok := matchStandaloneReplace(trimmed, updates, updateKeys); ok {
-			result = append(result, newLine)
-			applied[idx] = true
-		} else {
-			result = append(result, line)
+	for _, u := range updates {
+		if err := f.AddReplace(u.Module, u.CurrentVersion, u.AliasName, u.AliasVersion); err != nil {
+			return "", fmt.Errorf("add replace for %s %s: %w", u.Module, u.CurrentVersion, err)
 		}
 	}
 
-	// Append updates that had no existing replace directive
-	for i, u := range updates {
-		if !applied[i] {
-			result = append(result, fmt.Sprintf("replace %s %s => %s %s", u.Module, u.CurrentVersion, u.AliasName, u.AliasVersion))
-		}
-	}
+	out := modfile.Format(f.Syntax)
 
-	return strings.Join(result, "\n"), nil
-}
-
-// matchBlockReplace tries to match a line inside a replace (...) block against known updates.
-// Returns the replacement line, the update index, and whether a match was found.
-func matchBlockReplace(trimmed string, updates []GoModUpdate, updateKeys map[string]int) (string, int, bool) {
-	// Format: "module version => replacement_module replacement_version"
-	parts := strings.SplitN(trimmed, " => ", 2)
-	if len(parts) != 2 {
-		return "", 0, false
-	}
-	lhs := strings.Fields(parts[0])
-	if len(lhs) < 2 {
-		return "", 0, false
-	}
-	key := lhs[0] + " " + lhs[1]
-	idx, ok := updateKeys[key]
-	if !ok {
-		return "", 0, false
-	}
-	u := updates[idx]
-	return fmt.Sprintf("\t%s %s => %s %s", u.Module, u.CurrentVersion, u.AliasName, u.AliasVersion), idx, true
-}
-
-// matchStandaloneReplace tries to match a standalone replace directive against known updates.
-// Returns the replacement line, the update index, and whether a match was found.
-func matchStandaloneReplace(trimmed string, updates []GoModUpdate, updateKeys map[string]int) (string, int, bool) {
-	if !strings.HasPrefix(trimmed, "replace ") {
-		return "", 0, false
-	}
-	rest := strings.TrimPrefix(trimmed, "replace ")
-	parts := strings.SplitN(rest, " => ", 2)
-	if len(parts) != 2 {
-		return "", 0, false
-	}
-	lhs := strings.Fields(parts[0])
-	if len(lhs) < 2 {
-		return "", 0, false
-	}
-	key := lhs[0] + " " + lhs[1]
-	idx, ok := updateKeys[key]
-	if !ok {
-		return "", 0, false
-	}
-	u := updates[idx]
-	return fmt.Sprintf("replace %s %s => %s %s", u.Module, u.CurrentVersion, u.AliasName, u.AliasVersion), idx, true
+	return string(out), nil
 }

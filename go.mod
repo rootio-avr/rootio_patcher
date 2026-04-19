@@ -1,6 +1,6 @@
 module rootio_patcher
 
-go 1.24.13
+go 1.25.0
 
 require (
 	github.com/alecthomas/kong v1.13.0
@@ -9,6 +9,7 @@ require (
 	github.com/tidwall/gjson v1.14.2
 	github.com/tidwall/pretty v1.2.0
 	github.com/tidwall/sjson v1.2.5
+	golang.org/x/mod v0.35.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

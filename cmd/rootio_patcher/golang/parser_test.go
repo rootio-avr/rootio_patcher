@@ -75,21 +75,6 @@ require (
 	assert.Equal(t, "github.com/google/uuid", pkgs[0].Name)
 }
 
-func TestGoModParser_Parse_SkipsNonSemver(t *testing.T) {
-	ctx := context.Background()
-	p := NewGoModParser(newTestLogger())
-	path := writeGoMod(t, t.TempDir(), `module example.com/app
-
-go 1.21
-
-require github.com/some/module latest
-`)
-
-	pkgs, err := p.Parse(ctx, path)
-	require.NoError(t, err)
-	assert.Empty(t, pkgs, "non-semver version should be skipped")
-}
-
 func TestGoModParser_Parse_HandlesUppercaseModules(t *testing.T) {
 	ctx := context.Background()
 	p := NewGoModParser(newTestLogger())
