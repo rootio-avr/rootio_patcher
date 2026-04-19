@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
 )
@@ -23,42 +26,30 @@ func TestGoLangApp_Run_FileNotFound(t *testing.T) {
 	)
 
 	err := app.Run(ctx)
-	if err == nil {
-		t.Fatal("expected error for nonexistent file, got nil")
-	}
+	assert.Error(t, err)
 }
 
 func TestGoLangApp_Run_NoPackages(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	dir := t.TempDir()
-	goModPath := filepath.Join(dir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte("module example.com/app\n\ngo 1.21\n"), 0644); err != nil {
-		t.Fatalf("failed to create go.mod: %v", err)
-	}
+	goModPath := writeGoMod(t, t.TempDir(), "module example.com/app\n\ngo 1.21\n")
 
 	app := NewAppWithServices(
 		"test-key", "https://api.root.io", goModPath, true, logger,
 		&MockGoModParser{}, &MockAPIClient{}, &MockCommandRunner{},
 	)
 
-	if err := app.Run(ctx); err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
+	require.NoError(t, app.Run(ctx))
 }
 
 func TestGoLangApp_Run_APIError(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	dir := t.TempDir()
-	goModPath := filepath.Join(dir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte("module example.com/app\n\ngo 1.21\n"), 0644); err != nil {
-		t.Fatalf("failed to create go.mod: %v", err)
-	}
-
+	goModPath := writeGoMod(t, t.TempDir(), "module example.com/app\n\ngo 1.21\n")
 	apiErr := errors.New("API unavailable")
+
 	app := NewAppWithServices(
 		"test-key", "https://api.root.io", goModPath, true, logger,
 		&MockGoModParser{
@@ -75,23 +66,14 @@ func TestGoLangApp_Run_APIError(t *testing.T) {
 	)
 
 	err := app.Run(ctx)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !errors.Is(err, apiErr) {
-		t.Errorf("expected error to wrap apiErr, got: %v", err)
-	}
+	assert.ErrorIs(t, err, apiErr)
 }
 
 func TestGoLangApp_Run_NoPatches(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	dir := t.TempDir()
-	goModPath := filepath.Join(dir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte("module example.com/app\n\ngo 1.21\n"), 0644); err != nil {
-		t.Fatalf("failed to create go.mod: %v", err)
-	}
+	goModPath := writeGoMod(t, t.TempDir(), "module example.com/app\n\ngo 1.21\n")
 
 	app := NewAppWithServices(
 		"test-key", "https://api.root.io", goModPath, true, logger,
@@ -108,23 +90,17 @@ func TestGoLangApp_Run_NoPatches(t *testing.T) {
 		&MockCommandRunner{},
 	)
 
-	if err := app.Run(ctx); err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
+	require.NoError(t, app.Run(ctx))
 }
 
 func TestGoLangApp_Run_DryRun(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	dir := t.TempDir()
-	goModPath := filepath.Join(dir, "go.mod")
 	originalContent := "module example.com/app\n\ngo 1.21\n\nrequire github.com/google/uuid v1.3.0\n"
-	if err := os.WriteFile(goModPath, []byte(originalContent), 0644); err != nil {
-		t.Fatalf("failed to create go.mod: %v", err)
-	}
-
+	goModPath := writeGoMod(t, t.TempDir(), originalContent)
 	cmdRunner := &MockCommandRunner{}
+
 	app := NewAppWithServices(
 		"test-key", "https://api.root.io", goModPath, true /* dry-run */, logger,
 		&MockGoModParser{
@@ -149,32 +125,19 @@ func TestGoLangApp_Run_DryRun(t *testing.T) {
 		cmdRunner,
 	)
 
-	if err := app.Run(ctx); err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
+	require.NoError(t, app.Run(ctx))
 
-	// File must not be modified
-	content, _ := os.ReadFile(goModPath)
-	if string(content) != originalContent {
-		t.Errorf("go.mod should not be modified in dry-run mode")
-	}
-
-	// No commands should be run
-	if len(cmdRunner.Calls) != 0 {
-		t.Errorf("expected no commands in dry-run mode, got %d", len(cmdRunner.Calls))
-	}
+	content, err := os.ReadFile(goModPath)
+	require.NoError(t, err)
+	assert.Equal(t, originalContent, string(content), "go.mod must not be modified in dry-run mode")
+	assert.Empty(t, cmdRunner.Calls, "no commands should be run in dry-run mode")
 }
 
 func TestGoLangApp_Run_ApplyPatches(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	dir := t.TempDir()
-	goModPath := filepath.Join(dir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte("module example.com/app\n\ngo 1.21\n\nrequire github.com/google/uuid v1.3.0\n"), 0644); err != nil {
-		t.Fatalf("failed to create go.mod: %v", err)
-	}
-
+	goModPath := writeGoMod(t, t.TempDir(), "module example.com/app\n\ngo 1.21\n\nrequire github.com/google/uuid v1.3.0\n")
 	patchedContent := "module example.com/app\n\ngo 1.21\n\nrequire github.com/google/uuid v1.3.0\n\nreplace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1\n"
 	cmdRunner := &MockCommandRunner{}
 
@@ -204,24 +167,15 @@ func TestGoLangApp_Run_ApplyPatches(t *testing.T) {
 		cmdRunner,
 	)
 
-	if err := app.Run(ctx); err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
+	require.NoError(t, app.Run(ctx))
 
-	// File must be updated
-	content, _ := os.ReadFile(goModPath)
-	if string(content) != patchedContent {
-		t.Errorf("go.mod should be patched, got:\n%s", string(content))
-	}
+	content, err := os.ReadFile(goModPath)
+	require.NoError(t, err)
+	assert.Equal(t, patchedContent, string(content))
 
-	// go mod tidy must be called exactly once
-	if len(cmdRunner.Calls) != 1 {
-		t.Fatalf("expected 1 command call, got %d", len(cmdRunner.Calls))
-	}
-	call := cmdRunner.Calls[0]
-	if call.Name != "go" || strings.Join(call.Args, " ") != "mod tidy" {
-		t.Errorf("expected 'go mod tidy', got '%s %s'", call.Name, strings.Join(call.Args, " "))
-	}
+	require.Len(t, cmdRunner.Calls, 1, "expected exactly one command (go mod tidy)")
+	assert.Equal(t, "go", cmdRunner.Calls[0].Name)
+	assert.Equal(t, "mod tidy", strings.Join(cmdRunner.Calls[0].Args, " "))
 }
 
 func TestGoLangApp_Run_ApplyPatches_WithVendor(t *testing.T) {
@@ -229,19 +183,11 @@ func TestGoLangApp_Run_ApplyPatches_WithVendor(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	dir := t.TempDir()
-	goModPath := filepath.Join(dir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte("module example.com/app\n\ngo 1.21\n\nrequire github.com/google/uuid v1.3.0\n"), 0644); err != nil {
-		t.Fatalf("failed to create go.mod: %v", err)
-	}
+	goModPath := writeGoMod(t, dir, "module example.com/app\n\ngo 1.21\n\nrequire github.com/google/uuid v1.3.0\n")
 
-	// Create vendor/modules.txt to simulate a vendored project
 	vendorDir := filepath.Join(dir, "vendor")
-	if err := os.MkdirAll(vendorDir, 0755); err != nil {
-		t.Fatalf("failed to create vendor dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(vendorDir, "modules.txt"), []byte("# vendor modules"), 0644); err != nil {
-		t.Fatalf("failed to create vendor/modules.txt: %v", err)
-	}
+	require.NoError(t, os.MkdirAll(vendorDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(vendorDir, "modules.txt"), []byte("# vendor modules"), 0644))
 
 	cmdRunner := &MockCommandRunner{}
 
@@ -271,31 +217,18 @@ func TestGoLangApp_Run_ApplyPatches_WithVendor(t *testing.T) {
 		cmdRunner,
 	)
 
-	if err := app.Run(ctx); err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
+	require.NoError(t, app.Run(ctx))
 
-	// Expect both go mod tidy and go mod vendor
-	if len(cmdRunner.Calls) != 2 {
-		t.Fatalf("expected 2 command calls (tidy + vendor), got %d", len(cmdRunner.Calls))
-	}
-	if strings.Join(cmdRunner.Calls[0].Args, " ") != "mod tidy" {
-		t.Errorf("first call should be 'go mod tidy', got %v", cmdRunner.Calls[0].Args)
-	}
-	if strings.Join(cmdRunner.Calls[1].Args, " ") != "mod vendor" {
-		t.Errorf("second call should be 'go mod vendor', got %v", cmdRunner.Calls[1].Args)
-	}
+	require.Len(t, cmdRunner.Calls, 2, "expected go mod tidy and go mod vendor")
+	assert.Equal(t, "mod tidy", strings.Join(cmdRunner.Calls[0].Args, " "))
+	assert.Equal(t, "mod vendor", strings.Join(cmdRunner.Calls[1].Args, " "))
 }
 
 func TestGoLangApp_Run_APICalledWithGolangEcosystem(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	dir := t.TempDir()
-	goModPath := filepath.Join(dir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte("module example.com/app\n\ngo 1.21\n"), 0644); err != nil {
-		t.Fatalf("failed to create go.mod: %v", err)
-	}
+	goModPath := writeGoMod(t, t.TempDir(), "module example.com/app\n\ngo 1.21\n")
 
 	var capturedEcosystem string
 	app := NewAppWithServices(
@@ -315,8 +248,5 @@ func TestGoLangApp_Run_APICalledWithGolangEcosystem(t *testing.T) {
 	)
 
 	_ = app.Run(ctx)
-
-	if capturedEcosystem != "golang" {
-		t.Errorf("expected ecosystem 'golang', got %q", capturedEcosystem)
-	}
+	assert.Equal(t, "golang", capturedEcosystem)
 }

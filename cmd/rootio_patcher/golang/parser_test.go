@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestLogger() *slog.Logger {
@@ -16,9 +19,7 @@ func newTestLogger() *slog.Logger {
 func writeGoMod(t *testing.T, dir, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, "go.mod")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write go.mod: %v", err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 	return path
 }
 
@@ -27,8 +28,7 @@ func writeGoMod(t *testing.T, dir, content string) string {
 func TestGoModParser_Parse_BasicRequires(t *testing.T) {
 	ctx := context.Background()
 	p := NewGoModParser(newTestLogger())
-	dir := t.TempDir()
-	path := writeGoMod(t, dir, `module example.com/app
+	path := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
@@ -41,39 +41,25 @@ require github.com/stretchr/testify v1.8.4
 `)
 
 	pkgs, err := p.Parse(ctx, path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pkgs) != 3 {
-		t.Fatalf("expected 3 packages, got %d: %v", len(pkgs), pkgs)
-	}
+	require.NoError(t, err)
+	require.Len(t, pkgs, 3)
 
-	byName := make(map[string]any)
+	byName := make(map[string]bool)
 	for _, pkg := range pkgs {
-		byName[pkg.Name] = struct{}{}
+		byName[pkg.Name] = pkg.Direct
 	}
-	for _, name := range []string{"github.com/google/uuid", "github.com/pkg/errors", "github.com/stretchr/testify"} {
-		if _, ok := byName[name]; !ok {
-			t.Errorf("expected package %q in result", name)
-		}
-	}
+	assert.Contains(t, byName, "github.com/google/uuid")
+	assert.Contains(t, byName, "github.com/pkg/errors")
+	assert.Contains(t, byName, "github.com/stretchr/testify")
 
-	// Check direct/indirect flag
-	for _, pkg := range pkgs {
-		if pkg.Name == "github.com/pkg/errors" && pkg.Direct {
-			t.Errorf("expected github.com/pkg/errors to be indirect")
-		}
-		if pkg.Name == "github.com/google/uuid" && !pkg.Direct {
-			t.Errorf("expected github.com/google/uuid to be direct")
-		}
-	}
+	assert.True(t, byName["github.com/google/uuid"], "uuid should be direct")
+	assert.False(t, byName["github.com/pkg/errors"], "pkg/errors should be indirect")
 }
 
 func TestGoModParser_Parse_SkipsPseudoVersions(t *testing.T) {
 	ctx := context.Background()
 	p := NewGoModParser(newTestLogger())
-	dir := t.TempDir()
-	path := writeGoMod(t, dir, `module example.com/app
+	path := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
@@ -84,22 +70,15 @@ require (
 `)
 
 	pkgs, err := p.Parse(ctx, path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pkgs) != 1 {
-		t.Fatalf("expected 1 package (pseudo-version skipped), got %d: %v", len(pkgs), pkgs)
-	}
-	if pkgs[0].Name != "github.com/google/uuid" {
-		t.Errorf("expected github.com/google/uuid, got %q", pkgs[0].Name)
-	}
+	require.NoError(t, err)
+	require.Len(t, pkgs, 1, "pseudo-version should be skipped")
+	assert.Equal(t, "github.com/google/uuid", pkgs[0].Name)
 }
 
 func TestGoModParser_Parse_SkipsNonSemver(t *testing.T) {
 	ctx := context.Background()
 	p := NewGoModParser(newTestLogger())
-	dir := t.TempDir()
-	path := writeGoMod(t, dir, `module example.com/app
+	path := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
@@ -107,19 +86,14 @@ require github.com/some/module latest
 `)
 
 	pkgs, err := p.Parse(ctx, path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pkgs) != 0 {
-		t.Errorf("expected 0 packages (non-semver skipped), got %d", len(pkgs))
-	}
+	require.NoError(t, err)
+	assert.Empty(t, pkgs, "non-semver version should be skipped")
 }
 
 func TestGoModParser_Parse_HandlesUppercaseModules(t *testing.T) {
 	ctx := context.Background()
 	p := NewGoModParser(newTestLogger())
-	dir := t.TempDir()
-	path := writeGoMod(t, dir, `module example.com/app
+	path := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
@@ -130,29 +104,21 @@ require (
 `)
 
 	pkgs, err := p.Parse(ctx, path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pkgs) != 2 {
-		t.Fatalf("expected 2 packages, got %d: %v", len(pkgs), pkgs)
-	}
+	require.NoError(t, err)
+	require.Len(t, pkgs, 2)
+
 	byName := make(map[string]string)
 	for _, pkg := range pkgs {
 		byName[pkg.Name] = pkg.Version
 	}
-	if v := byName["github.com/Azure/azure-sdk-for-go"]; v != "v68.0.0+incompatible" {
-		t.Errorf("expected v68.0.0+incompatible for Azure SDK, got %q", v)
-	}
-	if v := byName["github.com/BurntSushi/toml"]; v != "v1.3.2" {
-		t.Errorf("expected v1.3.2 for BurntSushi/toml, got %q", v)
-	}
+	assert.Equal(t, "v68.0.0+incompatible", byName["github.com/Azure/azure-sdk-for-go"])
+	assert.Equal(t, "v1.3.2", byName["github.com/BurntSushi/toml"])
 }
 
 func TestGoModParser_Parse_IgnoresNonRequireBlocks(t *testing.T) {
 	ctx := context.Background()
 	p := NewGoModParser(newTestLogger())
-	dir := t.TempDir()
-	path := writeGoMod(t, dir, `module example.com/app
+	path := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
@@ -166,15 +132,9 @@ replace (
 `)
 
 	pkgs, err := p.Parse(ctx, path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pkgs) != 1 {
-		t.Fatalf("expected 1 package (exclude and replace not treated as requires), got %d: %v", len(pkgs), pkgs)
-	}
-	if pkgs[0].Name != "github.com/google/uuid" {
-		t.Errorf("expected github.com/google/uuid, got %q", pkgs[0].Name)
-	}
+	require.NoError(t, err)
+	require.Len(t, pkgs, 1, "exclude and replace blocks should not be parsed as packages")
+	assert.Equal(t, "github.com/google/uuid", pkgs[0].Name)
 }
 
 // --- Patch tests ---
@@ -182,39 +142,29 @@ replace (
 func TestGoModParser_Patch_AddsReplaceDirectives(t *testing.T) {
 	ctx := context.Background()
 	p := NewGoModParser(newTestLogger())
-	dir := t.TempDir()
-	path := writeGoMod(t, dir, `module example.com/app
+	path := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
 require github.com/google/uuid v1.3.0
 `)
 
-	updates := []GoModUpdate{
+	result, err := p.Patch(ctx, path, []GoModUpdate{
 		{
 			Module:         "github.com/google/uuid",
 			CurrentVersion: "v1.3.0",
 			AliasName:      "pkg.root.io/golang/github.com/google/uuid",
 			AliasVersion:   "v1.3.0-rootio.1",
 		},
-	}
-
-	result, err := p.Patch(ctx, path, updates)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"
-	if !containsLine(result, expected) {
-		t.Errorf("expected result to contain line:\n  %q\ngot:\n%s", expected, result)
-	}
+	})
+	require.NoError(t, err)
+	assert.True(t, containsLine(result, "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"))
 }
 
 func TestGoModParser_Patch_OverwritesExistingStandaloneReplace(t *testing.T) {
 	ctx := context.Background()
 	p := NewGoModParser(newTestLogger())
-	dir := t.TempDir()
-	path := writeGoMod(t, dir, `module example.com/app
+	path := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
@@ -223,36 +173,23 @@ require github.com/google/uuid v1.3.0
 replace github.com/google/uuid v1.3.0 => old/replacement v1.3.0-old
 `)
 
-	updates := []GoModUpdate{
+	result, err := p.Patch(ctx, path, []GoModUpdate{
 		{
 			Module:         "github.com/google/uuid",
 			CurrentVersion: "v1.3.0",
 			AliasName:      "pkg.root.io/golang/github.com/google/uuid",
 			AliasVersion:   "v1.3.0-rootio.1",
 		},
-	}
-
-	result, err := p.Patch(ctx, path, updates)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	newDirective := "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"
-	oldDirective := "replace github.com/google/uuid v1.3.0 => old/replacement v1.3.0-old"
-
-	if !containsLine(result, newDirective) {
-		t.Errorf("expected updated replace directive:\n  %q\ngot:\n%s", newDirective, result)
-	}
-	if containsLine(result, oldDirective) {
-		t.Errorf("old replace directive should have been replaced:\n%s", result)
-	}
+	})
+	require.NoError(t, err)
+	assert.True(t, containsLine(result, "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"))
+	assert.False(t, containsLine(result, "replace github.com/google/uuid v1.3.0 => old/replacement v1.3.0-old"))
 }
 
 func TestGoModParser_Patch_OverwritesExistingBlockReplace(t *testing.T) {
 	ctx := context.Background()
 	p := NewGoModParser(newTestLogger())
-	dir := t.TempDir()
-	path := writeGoMod(t, dir, `module example.com/app
+	path := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
@@ -263,33 +200,23 @@ replace (
 )
 `)
 
-	updates := []GoModUpdate{
+	result, err := p.Patch(ctx, path, []GoModUpdate{
 		{
 			Module:         "github.com/google/uuid",
 			CurrentVersion: "v1.3.0",
 			AliasName:      "pkg.root.io/golang/github.com/google/uuid",
 			AliasVersion:   "v1.3.0-rootio.1",
 		},
-	}
-
-	result, err := p.Patch(ctx, path, updates)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !containsLine(result, "\tgithub.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1") {
-		t.Errorf("expected updated replace in block, got:\n%s", result)
-	}
-	if containsLine(result, "old/replacement") {
-		t.Errorf("old replace directive should have been replaced, got:\n%s", result)
-	}
+	})
+	require.NoError(t, err)
+	assert.True(t, containsLine(result, "\tgithub.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"))
+	assert.False(t, strings.Contains(result, "old/replacement"))
 }
 
 func TestGoModParser_Patch_PreservesUnrelatedReplaces(t *testing.T) {
 	ctx := context.Background()
 	p := NewGoModParser(newTestLogger())
-	dir := t.TempDir()
-	path := writeGoMod(t, dir, `module example.com/app
+	path := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
@@ -301,30 +228,17 @@ require (
 replace github.com/pkg/errors v0.9.1 => github.com/pkg/errors-fork v0.9.1
 `)
 
-	updates := []GoModUpdate{
+	result, err := p.Patch(ctx, path, []GoModUpdate{
 		{
 			Module:         "github.com/google/uuid",
 			CurrentVersion: "v1.3.0",
 			AliasName:      "pkg.root.io/golang/github.com/google/uuid",
 			AliasVersion:   "v1.3.0-rootio.1",
 		},
-	}
-
-	result, err := p.Patch(ctx, path, updates)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Both directives must be present
-	newDirective := "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"
-	existing := "replace github.com/pkg/errors v0.9.1 => github.com/pkg/errors-fork v0.9.1"
-
-	if !containsLine(result, newDirective) {
-		t.Errorf("expected new replace directive:\n  %q\ngot:\n%s", newDirective, result)
-	}
-	if !containsLine(result, existing) {
-		t.Errorf("expected unrelated replace directive to be preserved:\n  %q\ngot:\n%s", existing, result)
-	}
+	})
+	require.NoError(t, err)
+	assert.True(t, containsLine(result, "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"))
+	assert.True(t, containsLine(result, "replace github.com/pkg/errors v0.9.1 => github.com/pkg/errors-fork v0.9.1"))
 }
 
 // containsLine reports whether s contains a line equal to want.

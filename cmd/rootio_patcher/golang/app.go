@@ -159,13 +159,6 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to write %s: %w", a.goModPath, err)
 	}
 
-	// 9. Warn about checksum verification
-	fmt.Println()
-	fmt.Println("WARNING: pkg.root.io modules may not be in the Go checksum database.")
-	fmt.Println("  If you encounter checksum errors, set one of:")
-	fmt.Println("    GONOSUMCHECK=pkg.root.io/*")
-	fmt.Println("    GONOSUMDB=pkg.root.io")
-
 	// 10. Run go mod tidy
 	goModDir := filepath.Dir(a.goModPath)
 	a.logger.DebugContext(ctx, "Running go mod tidy", slog.String("dir", goModDir))
@@ -173,7 +166,7 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
-	// 11. If vendor directory exists, run go mod vendor
+	// 11. If a vendor directory exists, run go mod vendor
 	vendorFile := filepath.Join(goModDir, "vendor", "modules.txt")
 	if _, err := os.Stat(vendorFile); err == nil {
 		a.logger.DebugContext(ctx, "Vendor directory detected, running go mod vendor", slog.String("dir", goModDir))
