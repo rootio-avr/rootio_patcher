@@ -17,6 +17,7 @@ import (
 	"rootio_patcher/cmd/rootio_patcher/maven"
 	"rootio_patcher/cmd/rootio_patcher/npm"
 	"rootio_patcher/cmd/rootio_patcher/pip"
+	"rootio_patcher/pkg/rootio"
 )
 
 var version = "dev"
@@ -173,6 +174,11 @@ type GolangRemediateCmd struct {
 func (cmd *GolangRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting Go module remediation", slog.String("go_mod", cmd.GoMod))
 
-	app := golang.NewApp(cfg.APIKey, cfg.APIURL, cmd.GoMod, cmd.DryRun, logger)
+	app := golang.NewApp(
+		cfg.APIKey, cfg.APIURL, cmd.GoMod, cmd.DryRun, logger,
+		golang.NewGoModParser(logger),
+		rootio.NewClient(cfg.APIURL, cfg.APIKey),
+		golang.NewRealCommandRunner(),
+	)
 	return app.Run(ctx)
 }

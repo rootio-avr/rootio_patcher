@@ -19,7 +19,7 @@ func TestGoLangApp_Run_FileNotFound(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	app := NewAppWithServices(
+	app := NewApp(
 		"test-key", "https://api.root.io", "/nonexistent/go.mod", true, logger,
 		NewGoModParser(logger), &MockAPIClient{}, &MockCommandRunner{},
 	)
@@ -39,7 +39,7 @@ go 1.21
 require golang.org/x/sys v0.0.0-20230101000000-abcdef123456 // indirect
 `)
 
-	app := NewAppWithServices(
+	app := NewApp(
 		"test-key", "https://api.root.io", goModPath, true, logger,
 		NewGoModParser(logger), &MockAPIClient{}, &MockCommandRunner{},
 	)
@@ -59,7 +59,7 @@ require github.com/google/uuid v1.3.0
 `)
 	apiErr := errors.New("API unavailable")
 
-	app := NewAppWithServices(
+	app := NewApp(
 		"test-key", "https://api.root.io", goModPath, true, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
@@ -84,7 +84,7 @@ go 1.21
 require github.com/google/uuid v1.3.0
 `)
 
-	app := NewAppWithServices(
+	app := NewApp(
 		"test-key", "https://api.root.io", goModPath, true, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
@@ -106,7 +106,7 @@ func TestGoLangApp_Run_DryRun(t *testing.T) {
 	goModPath := writeGoMod(t, t.TempDir(), originalContent)
 	cmdRunner := &MockCommandRunner{}
 
-	app := NewAppWithServices(
+	app := NewApp(
 		"test-key", "https://api.root.io", goModPath, true /* dry-run */, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
@@ -146,7 +146,7 @@ require github.com/google/uuid v1.3.0
 `)
 	cmdRunner := &MockCommandRunner{}
 
-	app := NewAppWithServices(
+	app := NewApp(
 		"test-key", "https://api.root.io", goModPath, false /* not dry-run */, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
@@ -196,7 +196,7 @@ require github.com/google/uuid v1.3.0
 
 	cmdRunner := &MockCommandRunner{}
 
-	app := NewAppWithServices(
+	app := NewApp(
 		"test-key", "https://api.root.io", goModPath, false, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
@@ -234,7 +234,7 @@ require github.com/google/uuid v1.3.0
 `)
 
 	var capturedEcosystem string
-	app := NewAppWithServices(
+	app := NewApp(
 		"test-key", "https://api.root.io", goModPath, true, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{

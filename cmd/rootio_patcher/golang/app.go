@@ -23,10 +23,13 @@ type CommandRunner interface {
 	Run(ctx context.Context, dir string, name string, args ...string) error
 }
 
-// realCommandRunner runs commands via os/exec.
-type realCommandRunner struct{}
+// RealCommandRunner runs commands via os/exec.
+type RealCommandRunner struct{}
 
-func (r *realCommandRunner) Run(ctx context.Context, dir string, name string, args ...string) error {
+// NewRealCommandRunner returns a CommandRunner backed by os/exec.
+func NewRealCommandRunner() *RealCommandRunner { return &RealCommandRunner{} }
+
+func (r *RealCommandRunner) Run(ctx context.Context, dir string, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
@@ -46,18 +49,8 @@ type App struct {
 	cmdRunner CommandRunner
 }
 
-// NewApp creates a new App with production services.
-func NewApp(apiKey, apiURL, goModPath string, dryRun bool, logger *slog.Logger) *App {
-	return NewAppWithServices(
-		apiKey, apiURL, goModPath, dryRun, logger,
-		NewGoModParser(logger),
-		rootio.NewClient(apiURL, apiKey),
-		&realCommandRunner{},
-	)
-}
-
-// NewAppWithServices creates a new App with injected services (for testing).
-func NewAppWithServices(
+// NewApp creates a new App with injected services.
+func NewApp(
 	apiKey, apiURL, goModPath string,
 	dryRun bool,
 	logger *slog.Logger,

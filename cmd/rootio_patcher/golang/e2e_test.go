@@ -32,7 +32,7 @@ require (
 `)
 	cmdRunner := &MockCommandRunner{}
 
-	app := NewAppWithServices(
+	app := NewApp(
 		"test-key",
 		"https://api.root.io",
 		goModPath,
@@ -97,7 +97,7 @@ require github.com/google/uuid v1.3.0
 
 	cmdRunner := &MockCommandRunner{}
 
-	app := NewAppWithServices(
+	app := NewApp(
 		"test-key",
 		"https://api.root.io",
 		goModPath,
