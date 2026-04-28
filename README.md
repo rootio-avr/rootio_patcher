@@ -1,18 +1,18 @@
 # Root.io Patcher
 
-> Automated security patching for Python, npm, and Maven packages with Root.io
+> Automated security patching for Python, npm, Maven, and Go packages with Root.io
 
 [![Release](https://img.shields.io/github/v/release/rootio-avr/rootio_patcher)](https://github.com/rootio-avr/rootio_patcher/releases)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/rootio-avr/rootio_patcher)](https://golang.org/dl/)
 [![License](https://img.shields.io/github/license/rootio-avr/rootio_patcher)](LICENSE)
 
-`rootio_patcher` is a command-line tool that automatically identifies and patches vulnerabilities in your dependencies using Root.io's security fixes. It supports Python (pip), JavaScript (npm/yarn/pnpm), and Java (Maven) ecosystems, providing comprehensive security remediation across your entire stack.
+`rootio_patcher` is a command-line tool that automatically identifies and patches vulnerabilities in your dependencies using Root.io's security fixes. It supports Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), and Go (modules) ecosystems, providing comprehensive security remediation across your entire stack.
 
 ---
 
 ## Features
 
-- 🔍 **Multi-Ecosystem Support** - Python (pip), JavaScript (npm/yarn/pnpm), and Java (Maven)
+- 🔍 **Multi-Ecosystem Support** - Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), and Go (modules)
 - 🔧 **One-Command Patching** - Applies security fixes with a single command
 - 🌍 **Cross-Platform** - Works on Linux, macOS, and Windows
 - 🔒 **Secure by Default** - Dry-run mode enabled by default to preview changes
@@ -39,10 +39,14 @@ rootio_patcher npm remediate --package-manager=npm
 # For Maven packages
 rootio_patcher maven remediate
 
+# For Go modules
+rootio_patcher golang remediate
+
 # 3. Apply patches for real
 rootio_patcher pip remediate --dry-run=false
 rootio_patcher npm remediate --dry-run=false
 rootio_patcher maven remediate --dry-run=false
+rootio_patcher golang remediate --dry-run=false
 ```
 
 ---
@@ -157,6 +161,20 @@ rootio_patcher maven remediate [FLAGS]
 - `--dry-run` - Preview changes without applying (default: `true`)
 
 **How it works:** Pre-install patching - updates version numbers in `pom.xml`. After running, execute `mvn clean install` to apply patches.
+
+#### Go modules
+
+```bash
+rootio_patcher golang remediate [FLAGS]
+```
+
+**Flags:**
+- `--go-mod` - Path to go.mod (default: `go.mod`)
+- `--dry-run` - Preview changes without applying (default: `true`)
+
+**How it works:** Pre-build patching - adds `replace` directives to `go.mod` pointing to Root.io patched module aliases. The tool automatically runs `go mod tidy` after patching, and `go mod vendor` if a vendor directory is present. After running, execute `go build ./...` to build with patched modules.
+
+> **Note:** Only modules with pinned semver versions (e.g. `v1.2.3`) are analyzed. Modules using pseudo-versions are skipped.
 
 ### Configuration Details
 
@@ -476,6 +494,60 @@ Next steps:
 rootio_patcher maven remediate --file=./submodule/pom.xml --dry-run=false
 ```
 
+### Go Module Examples
+
+#### Basic Usage (Dry Run)
+
+Preview Go module patches:
+
+```bash
+export ROOTIO_API_KEY="your-api-key"
+rootio_patcher golang remediate
+```
+
+**Output:**
+```
+=== DRY-RUN MODE ===
+The following replace directives would be added to go.mod:
+
+1. replace golang.org/x/net v0.17.0 => rootio/golang.org/x/net v0.17.1
+   CVEs Fixed: [CVE-2024-12345]
+
+2. replace github.com/golang-jwt/jwt/v4 v4.5.0 => rootio/github.com/golang-jwt/jwt/v4 v4.5.1
+   CVEs Fixed: [CVE-2024-67890]
+
+To apply these patches:
+  1. Run: rootio_patcher golang remediate --dry-run=false
+  2. Then run: go build ./...
+```
+
+#### Apply Go Module Patches
+
+```bash
+rootio_patcher golang remediate --dry-run=false
+```
+
+**Output:**
+```
+Applying 2 patch(es) to go.mod...
+
+  - replace golang.org/x/net v0.17.0 => rootio/golang.org/x/net v0.17.1
+  - replace github.com/golang-jwt/jwt/v4 v4.5.0 => rootio/github.com/golang-jwt/jwt/v4 v4.5.1
+
+✓ Successfully patched go.mod with 2 replace directive(s)!
+
+Next steps:
+  1. Review the changes in your go.mod
+  2. Run: go build ./...
+  3. Test your application
+```
+
+#### Custom go.mod Path
+
+```bash
+rootio_patcher golang remediate --go-mod=./submodule/go.mod --dry-run=false
+```
+
 ### Java (Maven) Support - Beta Status
 
 ⚠️ **Beta Notice**: Java support is currently in beta.
@@ -521,6 +593,7 @@ export LOG_LEVEL=debug
 rootio_patcher pip remediate
 rootio_patcher npm remediate
 rootio_patcher maven remediate
+rootio_patcher golang remediate
 ```
 
 ### CI/CD Integration (GitHub Actions)
@@ -598,6 +671,48 @@ jobs:
           git config user.name "Root.io Patcher"
           git config user.email "bot@root.io"
           git add package.json package-lock.json
+          git commit -m "chore: apply Root.io security patches" || echo "No changes"
+          git push
+```
+
+#### Go Project
+
+```yaml
+name: Security Patching - Go
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+jobs:
+  patch-go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Download rootio_patcher
+        run: |
+          curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_linux_x86_64.tar.gz | tar xz
+          chmod +x rootio_patcher
+
+      - name: Patch vulnerabilities
+        env:
+          ROOTIO_API_KEY: ${{ secrets.ROOTIO_API_KEY }}
+        run: |
+          ./rootio_patcher golang remediate --dry-run=false
+          go build ./...
+
+      - name: Commit changes
+        run: |
+          git config user.name "Root.io Patcher"
+          git config user.email "bot@root.io"
+          git add go.mod go.sum
           git commit -m "chore: apply Root.io security patches" || echo "No changes"
           git push
 ```
@@ -694,6 +809,33 @@ RUN rootio_patcher npm remediate --package-manager=npm --dry-run=false && \
 # Your application code
 COPY . .
 CMD ["node", "index.js"]
+```
+
+#### Go Dockerfile
+
+```dockerfile
+FROM golang:1.22-bookworm
+
+WORKDIR /app
+
+# Copy module files
+COPY go.mod go.sum ./
+
+# Download rootio_patcher
+RUN curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_linux_x86_64.tar.gz | tar xz && \
+    chmod +x rootio_patcher && \
+    mv rootio_patcher /usr/local/bin/
+
+# Patch vulnerabilities
+ARG ROOTIO_API_KEY
+ENV ROOTIO_API_KEY=${ROOTIO_API_KEY}
+RUN rootio_patcher golang remediate --dry-run=false
+
+# Download dependencies and build
+COPY . .
+RUN go build -o app ./...
+
+CMD ["./app"]
 ```
 
 #### Maven Dockerfile
@@ -944,6 +1086,32 @@ yarn install   # for yarn
 pnpm install   # for pnpm
 ```
 
+### Go Module Issues
+
+#### "file not found: go.mod"
+
+**Solution:** Make sure you're in your Go module root, or specify the path:
+```bash
+rootio_patcher golang remediate --go-mod=./path/to/go.mod
+```
+
+#### "go mod tidy failed"
+
+**Solution:** Ensure `go` is installed and accessible in your PATH, and that the Root.io module proxy is reachable. You may need to configure `GOPROXY` to include Root.io's module proxy.
+
+#### Changes not taking effect after patching
+
+**Solution:** Build your project after patching:
+```bash
+go build ./...
+```
+
+If you use a vendor directory, the tool runs `go mod vendor` automatically after patching.
+
+#### No patches found but vulnerabilities are expected
+
+**Solution:** Modules with pseudo-versions (e.g. `v0.0.0-20230101123456-abcdef012345`) are skipped. Only pinned semver releases (e.g. `v1.2.3`) are analyzed. Upgrade to a pinned release if possible.
+
 ### Maven Issues
 
 #### "file not found: pom.xml"
@@ -996,6 +1164,15 @@ Then contact Root.io support with the package details that caused the issue.
 3. **Reporting**: Displays available patches with CVE information
 4. **Patching**: Updates version numbers directly in `pom.xml`
 5. **Installation**: User runs `mvn clean install` to download patched versions
+
+### Go - Pre-Build Patching
+
+1. **Discovery**: Parses `go.mod` to identify all required modules with pinned semver versions (pseudo-versions are skipped)
+2. **Analysis**: Sends the module list to Root.io API to check for known vulnerabilities
+3. **Reporting**: Displays `replace` directives that would be added with CVE information
+4. **Patching**: Adds `replace` directives to `go.mod` pointing to Root.io patched module aliases
+5. **Tidy**: Automatically runs `go mod tidy` (and `go mod vendor` if a vendor directory exists)
+6. **Build**: User runs `go build ./...` to compile with the patched modules
 
 ---
 
