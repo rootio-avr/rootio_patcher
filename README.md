@@ -40,13 +40,13 @@ rootio_patcher npm remediate --package-manager=npm
 rootio_patcher maven remediate
 
 # For Go modules
-rootio_patcher golang remediate
+rootio_patcher go remediate
 
 # 3. Apply patches for real
 rootio_patcher pip remediate --dry-run=false
 rootio_patcher npm remediate --dry-run=false
 rootio_patcher maven remediate --dry-run=false
-rootio_patcher golang remediate --dry-run=false
+rootio_patcher go remediate --dry-run=false
 ```
 
 ---
@@ -165,7 +165,7 @@ rootio_patcher maven remediate [FLAGS]
 #### Go modules
 
 ```bash
-rootio_patcher golang remediate [FLAGS]
+rootio_patcher go remediate [FLAGS]
 ```
 
 **Flags:**
@@ -502,7 +502,7 @@ Preview Go module patches:
 
 ```bash
 export ROOTIO_API_KEY="your-api-key"
-rootio_patcher golang remediate
+rootio_patcher go remediate
 ```
 
 **Output:**
@@ -517,14 +517,14 @@ The following replace directives would be added to go.mod:
    CVEs Fixed: [CVE-2024-67890]
 
 To apply these patches:
-  1. Run: rootio_patcher golang remediate --dry-run=false
+  1. Run: rootio_patcher go remediate --dry-run=false
   2. Then run: go build ./...
 ```
 
 #### Apply Go Module Patches
 
 ```bash
-rootio_patcher golang remediate --dry-run=false
+rootio_patcher go remediate --dry-run=false
 ```
 
 **Output:**
@@ -545,7 +545,7 @@ Next steps:
 #### Custom go.mod Path
 
 ```bash
-rootio_patcher golang remediate --go-mod=./submodule/go.mod --dry-run=false
+rootio_patcher go remediate --go-mod=./submodule/go.mod --dry-run=false
 ```
 
 ### Java (Maven) Support - Beta Status
@@ -593,7 +593,7 @@ export LOG_LEVEL=debug
 rootio_patcher pip remediate
 rootio_patcher npm remediate
 rootio_patcher maven remediate
-rootio_patcher golang remediate
+rootio_patcher go remediate
 ```
 
 ### CI/CD Integration (GitHub Actions)
@@ -705,7 +705,7 @@ jobs:
         env:
           ROOTIO_API_KEY: ${{ secrets.ROOTIO_API_KEY }}
         run: |
-          ./rootio_patcher golang remediate --dry-run=false
+          ./rootio_patcher go remediate --dry-run=false
           go build ./...
 
       - name: Commit changes
@@ -829,7 +829,7 @@ RUN curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/downlo
 # Patch vulnerabilities
 ARG ROOTIO_API_KEY
 ENV ROOTIO_API_KEY=${ROOTIO_API_KEY}
-RUN rootio_patcher golang remediate --dry-run=false
+RUN rootio_patcher go remediate --dry-run=false
 
 # Download dependencies and build
 COPY . .
@@ -1092,7 +1092,7 @@ pnpm install   # for pnpm
 
 **Solution:** Make sure you're in your Go module root, or specify the path:
 ```bash
-rootio_patcher golang remediate --go-mod=./path/to/go.mod
+rootio_patcher go remediate --go-mod=./path/to/go.mod
 ```
 
 #### "go mod tidy failed"
