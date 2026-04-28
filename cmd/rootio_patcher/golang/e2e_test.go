@@ -35,6 +35,7 @@ require (
 	app := NewApp(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		goModPath,
 		false,
 		logger,
@@ -75,6 +76,8 @@ require (
 	assert.Equal(t, "go", cmdRunner.Calls[0].Name)
 	assert.Equal(t, "mod tidy", strings.Join(cmdRunner.Calls[0].Args, " "))
 	assert.Equal(t, dir, cmdRunner.Calls[0].Dir)
+	assert.Contains(t, cmdRunner.Calls[0].Env, "GOPROXY=https://:test-key@pkg.root.io/gobinary,https://proxy.golang.org,direct")
+	assert.Contains(t, cmdRunner.Calls[0].Env, "GONOSUMDB=pkg.root.io")
 }
 
 // TestGoLangApp_E2E_WithVendor verifies that go mod vendor is also called
@@ -100,6 +103,7 @@ require github.com/google/uuid v1.3.0
 	app := NewApp(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		goModPath,
 		false,
 		logger,

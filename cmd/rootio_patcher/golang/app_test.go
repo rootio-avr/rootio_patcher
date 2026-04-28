@@ -20,7 +20,7 @@ func TestGoLangApp_Run_FileNotFound(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "/nonexistent/go.mod", true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", "/nonexistent/go.mod", true, logger,
 		NewGoModParser(logger), &MockAPIClient{}, &MockCommandRunner{},
 	)
 
@@ -40,7 +40,7 @@ require golang.org/x/sys v0.0.0-20230101000000-abcdef123456 // indirect
 `)
 
 	app := NewApp(
-		"test-key", "https://api.root.io", goModPath, true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
 		NewGoModParser(logger), &MockAPIClient{}, &MockCommandRunner{},
 	)
 
@@ -60,7 +60,7 @@ require github.com/google/uuid v1.3.0
 	apiErr := errors.New("API unavailable")
 
 	app := NewApp(
-		"test-key", "https://api.root.io", goModPath, true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
 			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
@@ -85,7 +85,7 @@ require github.com/google/uuid v1.3.0
 `)
 
 	app := NewApp(
-		"test-key", "https://api.root.io", goModPath, true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
 			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
@@ -107,7 +107,7 @@ func TestGoLangApp_Run_DryRun(t *testing.T) {
 	cmdRunner := &MockCommandRunner{}
 
 	app := NewApp(
-		"test-key", "https://api.root.io", goModPath, true /* dry-run */, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true /* dry-run */, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
 			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
@@ -147,7 +147,7 @@ require github.com/google/uuid v1.3.0
 	cmdRunner := &MockCommandRunner{}
 
 	app := NewApp(
-		"test-key", "https://api.root.io", goModPath, false /* not dry-run */, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false /* not dry-run */, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
 			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
@@ -197,7 +197,7 @@ require github.com/google/uuid v1.3.0
 	cmdRunner := &MockCommandRunner{}
 
 	app := NewApp(
-		"test-key", "https://api.root.io", goModPath, false, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
 			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
@@ -222,6 +222,45 @@ require github.com/google/uuid v1.3.0
 	assert.Equal(t, "mod vendor", strings.Join(cmdRunner.Calls[1].Args, " "))
 }
 
+func TestGoLangApp_Run_ApplyPatches_SetsGoProxyEnv(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	goModPath := writeGoMod(t, t.TempDir(), `module example.com/app
+
+go 1.21
+
+require github.com/google/uuid v1.3.0
+`)
+	cmdRunner := &MockCommandRunner{}
+
+	app := NewApp(
+		"my-api-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, logger,
+		NewGoModParser(logger),
+		&MockAPIClient{
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+				return &rootio.AnalyzePackagesResponse{
+					Patches: []rootio.PackagePatch{
+						{
+							PackageName: "github.com/google/uuid",
+							Version:     "v1.3.0",
+							PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.1"},
+						},
+					},
+				}, nil
+			},
+		},
+		cmdRunner,
+	)
+
+	require.NoError(t, app.Run(ctx))
+
+	require.Len(t, cmdRunner.Calls, 1)
+	env := cmdRunner.Calls[0].Env
+	assert.Contains(t, env, "GOPROXY=https://:my-api-key@pkg.root.io/gobinary,https://proxy.golang.org,direct")
+	assert.Contains(t, env, "GONOSUMDB=pkg.root.io")
+}
+
 func TestGoLangApp_Run_APICalledWithGolangEcosystem(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -235,7 +274,7 @@ require github.com/google/uuid v1.3.0
 
 	var capturedEcosystem string
 	app := NewApp(
-		"test-key", "https://api.root.io", goModPath, true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
 			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {

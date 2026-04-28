@@ -175,7 +175,7 @@ func (cmd *GolangRemediateCmd) Run(ctx context.Context, cfg *config.Config, logg
 	logger.InfoContext(ctx, "Starting Go module remediation", slog.String("go_mod", cmd.GoMod))
 
 	app := golang.NewApp(
-		cfg.APIKey, cfg.APIURL, cmd.GoMod, cmd.DryRun, logger,
+		cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.GoMod, cmd.DryRun, logger,
 		golang.NewGoModParser(logger),
 		rootio.NewClient(cfg.APIURL, cfg.APIKey),
 		golang.NewRealCommandRunner(),

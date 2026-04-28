@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,9 +13,9 @@ import (
 	"rootio_patcher/pkg/rootio"
 )
 
-// CommandRunner runs external commands in a given directory.
+// CommandRunner runs external commands in a given directory with optional extra environment variables.
 type CommandRunner interface {
-	Run(ctx context.Context, dir string, name string, args ...string) error
+	Run(ctx context.Context, dir string, env []string, name string, args ...string) error
 }
 
 // RealCommandRunner runs commands via os/exec.
@@ -23,9 +24,10 @@ type RealCommandRunner struct{}
 // NewRealCommandRunner returns a CommandRunner backed by os/exec.
 func NewRealCommandRunner() *RealCommandRunner { return &RealCommandRunner{} }
 
-func (r *RealCommandRunner) Run(ctx context.Context, dir string, name string, args ...string) error {
+func (r *RealCommandRunner) Run(ctx context.Context, dir string, env []string, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -35,6 +37,7 @@ func (r *RealCommandRunner) Run(ctx context.Context, dir string, name string, ar
 type App struct {
 	apiKey    string
 	apiURL    string
+	pkgURL    string
 	goModPath string
 	dryRun    bool
 	logger    *slog.Logger
@@ -45,7 +48,7 @@ type App struct {
 
 // NewApp creates a new App with injected services.
 func NewApp(
-	apiKey, apiURL, goModPath string,
+	apiKey, apiURL, pkgURL, goModPath string,
 	dryRun bool,
 	logger *slog.Logger,
 	parser GoModParser,
@@ -55,12 +58,31 @@ func NewApp(
 	return &App{
 		apiKey:    apiKey,
 		apiURL:    apiURL,
+		pkgURL:    pkgURL,
 		goModPath: goModPath,
 		dryRun:    dryRun,
 		logger:    logger,
 		parser:    parser,
 		apiClient: apiClient,
 		cmdRunner: cmdRunner,
+	}
+}
+
+// goEnv returns the environment variables needed for go commands to reach the Root.io module proxy.
+func (a *App) goEnv() []string {
+	u, err := url.Parse(a.pkgURL)
+	if err != nil {
+		return nil
+	}
+	proxyURL := &url.URL{
+		Scheme: u.Scheme,
+		User:   url.UserPassword("", a.apiKey),
+		Host:   u.Host,
+		Path:   "/gobinary",
+	}
+	return []string{
+		"GOPROXY=" + proxyURL.String() + ",https://proxy.golang.org,direct",
+		"GONOSUMDB=" + u.Hostname(),
 	}
 }
 
@@ -145,8 +167,9 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 10. Run go mod tidy
 	goModDir := filepath.Dir(a.goModPath)
+	goEnv := a.goEnv()
 	a.logger.DebugContext(ctx, "Running go mod tidy", slog.String("dir", goModDir))
-	if err := a.cmdRunner.Run(ctx, goModDir, "go", "mod", "tidy"); err != nil {
+	if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "mod", "tidy"); err != nil {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
@@ -154,7 +177,7 @@ func (a *App) Run(ctx context.Context) error {
 	vendorFile := filepath.Join(goModDir, "vendor", "modules.txt")
 	if _, err := os.Stat(vendorFile); err == nil {
 		a.logger.DebugContext(ctx, "Vendor directory detected, running go mod vendor", slog.String("dir", goModDir))
-		if err := a.cmdRunner.Run(ctx, goModDir, "go", "mod", "vendor"); err != nil {
+		if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "mod", "vendor"); err != nil {
 			return fmt.Errorf("go mod vendor failed: %w", err)
 		}
 	}
