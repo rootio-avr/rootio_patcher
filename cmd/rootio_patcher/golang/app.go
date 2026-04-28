@@ -12,12 +12,6 @@ import (
 	"rootio_patcher/pkg/rootio"
 )
 
-// goModParser is the interface for parsing and patching go.mod files.
-type goModParser interface {
-	Parse(ctx context.Context, filePath string) ([]common.PackageInfo, error)
-	Patch(ctx context.Context, filePath string, updates []GoModUpdate) (string, error)
-}
-
 // CommandRunner runs external commands in a given directory.
 type CommandRunner interface {
 	Run(ctx context.Context, dir string, name string, args ...string) error
@@ -44,7 +38,7 @@ type App struct {
 	goModPath string
 	dryRun    bool
 	logger    *slog.Logger
-	parser    goModParser
+	parser    GoModParser
 	apiClient common.APIClient
 	cmdRunner CommandRunner
 }
@@ -54,7 +48,7 @@ func NewApp(
 	apiKey, apiURL, goModPath string,
 	dryRun bool,
 	logger *slog.Logger,
-	parser goModParser,
+	parser GoModParser,
 	apiClient common.APIClient,
 	cmdRunner CommandRunner,
 ) *App {
@@ -140,9 +134,6 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 8. Apply patches to go.mod
 	fmt.Printf("\nApplying %d patch(es) to %s...\n\n", len(updates), a.goModPath)
-	for _, u := range updates {
-		fmt.Printf("  - replace %s %s => %s %s\n", u.Module, u.CurrentVersion, u.AliasName, u.AliasVersion)
-	}
 
 	updatedContent, err := a.parser.Patch(ctx, a.goModPath, updates)
 	if err != nil {

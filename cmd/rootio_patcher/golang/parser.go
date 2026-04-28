@@ -29,31 +29,37 @@ func isPinnedVersion(v string) bool {
 	return semverRe.MatchString(v) && !pseudoVersionRe.MatchString(v)
 }
 
-// GoModParser parses and patches go.mod files.
-type GoModParser struct {
+// GoModParser is the interface for parsing and patching go.mod files.
+type GoModParser interface {
+	Parse(ctx context.Context, filePath string) ([]common.PackageInfo, error)
+	Patch(ctx context.Context, filePath string, updates []GoModUpdate) (string, error)
+}
+
+// goModParser parses and patches go.mod files.
+type goModParser struct {
 	logger *slog.Logger
 }
 
-// NewGoModParser creates a new GoModParser.
-func NewGoModParser(logger *slog.Logger) *GoModParser {
-	return &GoModParser{logger: logger}
+// NewGoModParser creates a new goModParser.
+func NewGoModParser(logger *slog.Logger) GoModParser {
+	return &goModParser{logger: logger}
 }
 
 // Parse reads go.mod and returns all require entries with pinned semver versions.
 // Entries with pseudo-versions or non-semver versions are skipped and logged at debug level.
-func (p *GoModParser) Parse(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+func (p *goModParser) Parse(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", filePath, err)
 	}
 
-	f, err := modfile.Parse(filePath, data, nil)
+	parsedModFile, err := modfile.Parse(filePath, data, nil)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", filePath, err)
 	}
 
 	var packages []common.PackageInfo
-	for _, req := range f.Require {
+	for _, req := range parsedModFile.Require {
 		modPath := req.Mod.Path
 		version := req.Mod.Version
 
@@ -78,7 +84,7 @@ func (p *GoModParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 
 // Patch reads go.mod, adds or overwrites version-pinned replace directives for each update,
 // preserves existing replace directives for other modules, and returns the new file content.
-func (p *GoModParser) Patch(ctx context.Context, filePath string, updates []GoModUpdate) (string, error) {
+func (p *goModParser) Patch(ctx context.Context, filePath string, updates []GoModUpdate) (string, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", filePath, err)
@@ -93,6 +99,7 @@ func (p *GoModParser) Patch(ctx context.Context, filePath string, updates []GoMo
 		if err := f.AddReplace(u.Module, u.CurrentVersion, u.AliasName, u.AliasVersion); err != nil {
 			return "", fmt.Errorf("add replace for %s %s: %w", u.Module, u.CurrentVersion, err)
 		}
+		fmt.Printf("  - replace %s %s => %s %s\n", u.Module, u.CurrentVersion, u.AliasName, u.AliasVersion)
 	}
 
 	out := modfile.Format(f.Syntax)

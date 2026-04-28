@@ -246,6 +246,6 @@ require github.com/google/uuid v1.3.0
 		&MockCommandRunner{},
 	)
 
-	_ = app.Run(ctx)
+	require.NoError(t, app.Run(ctx))
 	assert.Equal(t, "golang", capturedEcosystem)
 }
