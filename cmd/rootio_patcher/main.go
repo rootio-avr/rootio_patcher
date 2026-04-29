@@ -80,7 +80,7 @@ func run() int {
 	var cli CLI
 	kongCtx := kong.Parse(&cli,
 		kong.Name("rootio_patcher"),
-		kong.Description("Automated security patching for Python, npm, and Maven packages with Root.io"),
+		kong.Description("Automated security patching for Python, npm, go and Maven packages with Root.io"),
 		kong.UsageOnError(),
 		kong.Vars{"version": version},
 		kong.BindTo(ctx, (*context.Context)(nil)), // Bind context with interface type
