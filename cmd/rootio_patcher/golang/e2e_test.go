@@ -80,6 +80,118 @@ require (
 	assert.Contains(t, cmdRunner.Calls[0].Env, "GONOSUMDB=pkg.root.io")
 }
 
+// TestGoLangApp_E2E_PreservesNonRootioReplaceDirective verifies that a pre-existing replace
+// directive unrelated to Root.io patches is preserved after remediation.
+func TestGoLangApp_E2E_PreservesNonRootioReplaceDirective(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	dir := t.TempDir()
+	goModPath := writeGoMod(t, dir, `module example.com/myapp
+
+go 1.21
+
+require (
+	github.com/google/uuid v1.3.0
+	github.com/pkg/errors v0.9.1
+)
+
+replace github.com/pkg/errors v0.9.1 => github.com/pkg/errors-fork v0.9.1-custom
+`)
+	cmdRunner := &MockCommandRunner{}
+
+	app := NewApp(
+		"test-key",
+		"https://api.root.io",
+		"https://pkg.root.io",
+		goModPath,
+		false,
+		logger,
+		NewGoModParser(logger),
+		&MockAPIClient{
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+				return &rootio.AnalyzePackagesResponse{
+					Patches: []rootio.PackagePatch{
+						{
+							PackageName: "github.com/google/uuid",
+							Version:     "v1.3.0",
+							Patch:       rootio.PatchInfo{Name: "github.com/google/uuid", Version: "v1.3.0-rootio.1"},
+							PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.1"},
+						},
+					},
+				}, nil
+			},
+		},
+		cmdRunner,
+	)
+
+	require.NoError(t, app.Run(ctx))
+
+	content, err := os.ReadFile(goModPath)
+	require.NoError(t, err)
+	got := string(content)
+
+	// rootio replace directive must be added
+	assert.True(t, containsLine(got, "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"))
+	// pre-existing non-rootio replace must be preserved
+	assert.True(t, containsLine(got, "replace github.com/pkg/errors v0.9.1 => github.com/pkg/errors-fork v0.9.1-custom"))
+}
+
+// TestGoLangApp_E2E_UpgradesRootioReplaceRevision verifies that when a go.mod already contains
+// a rootio replace directive from a prior run (e.g. revision 1) and the API responds with a
+// higher revision (e.g. revision 2), only the higher revision remains in go.mod.
+func TestGoLangApp_E2E_UpgradesRootioReplaceRevision(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	dir := t.TempDir()
+	goModPath := writeGoMod(t, dir, `module example.com/myapp
+
+go 1.21
+
+require github.com/google/uuid v1.3.0
+
+replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1
+`)
+	cmdRunner := &MockCommandRunner{}
+
+	app := NewApp(
+		"test-key",
+		"https://api.root.io",
+		"https://pkg.root.io",
+		goModPath,
+		false,
+		logger,
+		NewGoModParser(logger),
+		&MockAPIClient{
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+				return &rootio.AnalyzePackagesResponse{
+					Patches: []rootio.PackagePatch{
+						{
+							PackageName: "github.com/google/uuid",
+							Version:     "v1.3.0",
+							Patch:       rootio.PatchInfo{Name: "github.com/google/uuid", Version: "v1.3.0-rootio.2"},
+							PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.2"},
+						},
+					},
+				}, nil
+			},
+		},
+		cmdRunner,
+	)
+
+	require.NoError(t, app.Run(ctx))
+
+	content, err := os.ReadFile(goModPath)
+	require.NoError(t, err)
+	got := string(content)
+
+	// revision 2 must be present
+	assert.True(t, containsLine(got, "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.2"))
+	// revision 1 must no longer appear
+	assert.False(t, strings.Contains(got, "v1.3.0-rootio.1"))
+}
+
 // TestGoLangApp_E2E_WithVendor verifies that go mod vendor is also called
 // when a vendor/modules.txt file exists.
 func TestGoLangApp_E2E_WithVendor(t *testing.T) {
