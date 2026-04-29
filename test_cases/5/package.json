@@ -7,6 +7,11 @@
   },
   "devDependencies": {
     "mocha": "8.0.0",
-    "@babel/runtime": "7.25.0"
+    "@babel/runtime": "npm:@rootio/babel__runtime@7.25.0-root.io.1"
+  },
+  "overrides": {
+    "@babel/runtime": "npm:@rootio/babel__runtime@7.25.0-root.io.1",
+    "diff": "npm:@rootio/diff@4.0.2-root.io.1",
+    "js-yaml": "npm:@rootio/js-yaml@3.13.1-root.io.1"
   }
 }

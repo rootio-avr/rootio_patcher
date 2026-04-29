@@ -1,0 +1,23 @@
+set +x # Silent for secrets
+    # Configure NPM for Code Artifact
+    CODEARTIFACT_DOMAIN="rn-packages-dev"
+    CODEARTIFACT_REGION="us-east-2"
+
+    echo "Getting Code Artifact Endpoint and Token"
+    CODEARTIFACT_TOKEN="$(aws --region "$CODEARTIFACT_REGION" codeartifact get-authorization-token --domain "$CODEARTIFACT_DOMAIN" --query authorizationToken --duration-seconds 0 --output text)"
+    CODEARTIFACT_ENDPOINT="$(aws --region "$CODEARTIFACT_REGION" codeartifact get-repository-endpoint --domain "$CODEARTIFACT_DOMAIN" --repository relaynetwork-dev --format npm --query repositoryEndpoint --output text)"
+
+    {
+        npm config set @relaynetwork:registry "$CODEARTIFACT_ENDPOINT"
+        npm config set "$${CODEARTIFACT_ENDPOINT#https:}:_authToken=$CODEARTIFACT_TOKEN"
+    } && echo "OK"
+set -x
+
+if [[ -z "$ROOTIO_NPM_KEY" ]]; then
+    echo "WARNING: ROOTIO_NPM_KEY is not set or empty, skipping Root.io npm registry configuration"
+else
+    npm config set @rootio:registry https://pkg.root.io/npm/ --location=project &&
+    npm config set //pkg.root.io/npm/:_auth=[$ROOTIO_NPM_KEY] --location=project
+fi
+
+rootio_patcher npm remediate --package-manager=npm --dry-run=false

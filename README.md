@@ -113,6 +113,7 @@ rootio_patcher --help
 | `ROOTIO_API_KEY` | Your Root.io API key | - | **Yes** |
 | `ROOTIO_API_URL` | Root.io API endpoint | `https://api.root.io` | No |
 | `ROOTIO_PKG_URL` | Root.io package repository URL | `https://pkg.root.io` | No |
+| `ROOTIO_PIP_INDEX_URL` | Override the pip `--index-url` for Python installs (full URL, bypasses `ROOTIO_PKG_URL` construction) | - | No |
 | `LOG_LEVEL` | Logging verbosity (`debug`, `info`, `warn`, `error`) | `info` | No |
 
 ### CLI Commands and Flags

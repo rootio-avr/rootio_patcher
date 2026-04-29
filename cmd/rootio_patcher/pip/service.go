@@ -27,21 +27,23 @@ type Service interface {
 
 // PipService implements Service for pip operations
 type PipService struct {
-	pythonPath string
-	pkgURL     string
-	apiKey     string
-	useAlias   bool
-	logger     *slog.Logger
+	pythonPath  string
+	pkgURL      string
+	apiKey      string
+	pipIndexURL string // overrides constructed index URL when non-empty
+	useAlias    bool
+	logger      *slog.Logger
 }
 
 // NewService creates a new pip service
-func NewService(pythonPath, pkgURL, apiKey string, useAlias bool, logger *slog.Logger) *PipService {
+func NewService(pythonPath, pkgURL, apiKey, pipIndexURL string, useAlias bool, logger *slog.Logger) *PipService {
 	return &PipService{
-		pythonPath: pythonPath,
-		pkgURL:     pkgURL,
-		apiKey:     apiKey,
-		useAlias:   useAlias,
-		logger:     logger,
+		pythonPath:  pythonPath,
+		pkgURL:      pkgURL,
+		apiKey:      apiKey,
+		pipIndexURL: pipIndexURL,
+		useAlias:    useAlias,
+		logger:      logger,
 	}
 }
 
@@ -141,8 +143,13 @@ func (s *PipService) ApplyPatchForPip(ctx context.Context, patch rootio.PackageP
 	return nil
 }
 
-// constructIndexURL builds the authenticated PyPI index URL
+// constructIndexURL builds the authenticated PyPI index URL.
+// If ROOTIO_PIP_INDEX_URL is set it is returned as-is.
 func (s *PipService) constructIndexURL() string {
+	if s.pipIndexURL != "" {
+		return s.pipIndexURL
+	}
+
 	parsedURL, err := url.Parse(s.pkgURL)
 	if err != nil {
 		s.logger.Warn("Failed to parse package URL, using as-is", slog.String("url", s.pkgURL))

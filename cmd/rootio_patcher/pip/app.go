@@ -26,7 +26,7 @@ type App struct {
 
 // NewApp creates a new pip application instance
 func NewApp(cfg *config.Config, pythonPath string, dryRun, useAlias bool, logger *slog.Logger) *App {
-	pipService := NewService(pythonPath, cfg.PKGURL, cfg.APIKey, useAlias, logger)
+	pipService := NewService(pythonPath, cfg.PKGURL, cfg.APIKey, cfg.PipIndexURL, useAlias, logger)
 	apiClient := rootio.NewClient(cfg.APIURL, cfg.APIKey)
 	reporter := common.NewReporter(cfg.PKGURL, logger)
 
