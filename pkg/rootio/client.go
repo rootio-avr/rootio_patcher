@@ -45,7 +45,9 @@ func (c *Client) AnalyzePackages(
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(c.apiKey, "")
+	if c.apiKey != "" {
+		req.SetBasicAuth(c.apiKey, "")
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
