@@ -2,9 +2,38 @@ name: Example — pip vulnerability check
 
 on:
   workflow_dispatch:
+    inputs:
+      use-token:
+        description: 'Run with ROOTIO_API_KEY secret'
+        type: boolean
+        default: true
 
 jobs:
-  pip-check:
+  pip-check-no-token:
+    name: pip check (no API token)
+    if: ${{ !inputs.use-token }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: test_cases/1
+        run: pip install -r requirements.txt
+
+      - name: Check for available patches
+        uses: rootio-avr/rootio_patcher/.github/actions/rootio-patch@main
+        with:
+          api-key: ''
+          ecosystem: pip
+          working-directory: test_cases/1
+
+  pip-check-with-token:
+    name: pip check (with API token)
+    if: ${{ inputs.use-token }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
