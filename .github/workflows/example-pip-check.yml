@@ -1,0 +1,25 @@
+name: Example — pip vulnerability check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pip-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: test_cases/1
+        run: pip install -r requirements.txt
+
+      - name: Check for available patches
+        uses: rootio-avr/rootio_patcher/.github/actions/rootio-patch@main
+        with:
+          api-key: ${{ secrets.ROOTIO_API_KEY }}
+          ecosystem: pip
+          working-directory: test_cases/1
