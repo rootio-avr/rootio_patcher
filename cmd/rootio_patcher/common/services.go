@@ -2,9 +2,14 @@ package common
 
 import (
 	"context"
+	"errors"
 
 	"rootio_patcher/pkg/rootio"
 )
+
+// ErrPatchesAvailable is returned in dry-run mode when patches are available.
+// Callers should map this to exit code 2.
+var ErrPatchesAvailable = errors.New("patches available")
 
 // InstalledPackage represents a package installed in an environment
 type InstalledPackage struct {

@@ -1,0 +1,118 @@
+name: 'Root.io Vulnerability Check'
+description: 'Fail the job if security patches are available for your dependencies. Uses dry-run mode — never modifies files.'
+
+inputs:
+  api-key:
+    description: 'Root.io API key'
+    required: true
+  ecosystem:
+    description: 'Package ecosystem: pip, npm, or maven'
+    required: true
+
+  # npm-specific
+  package-manager:
+    description: '(npm) Package manager: npm, yarn, or pnpm'
+    required: false
+    default: 'npm'
+  directory:
+    description: '(npm) Project directory containing the lock file and package.json'
+    required: false
+    default: '.'
+
+  # pip-specific
+  python-path:
+    description: '(pip) Path to Python interpreter'
+    required: false
+    default: 'python'
+  use-alias:
+    description: '(pip) Use Root.io aliased packages'
+    required: false
+    default: 'true'
+
+  # maven-specific
+  file:
+    description: '(maven) Path to pom.xml'
+    required: false
+    default: 'pom.xml'
+
+  # Advanced overrides — pass via env: on the calling step, not as inputs:
+  #   ROOTIO_API_URL      — Root.io API endpoint (default: https://api.root.io)
+  #   ROOTIO_PKG_URL      — Root.io package registry URL (default: https://pkg.root.io)
+  #   ROOTIO_PIP_INDEX_URL — Custom pip --index-url (pip only)
+  #   LOG_LEVEL           — Logging verbosity: debug | info | warn | error (default: info)
+
+outputs:
+  patches-available:
+    description: '"true" if patches are available, "false" if everything is up to date'
+    value: ${{ steps.check.outputs.patches-available }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download rootio_patcher (Linux / macOS)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        case "${{ runner.os }}" in
+          Linux) OS="linux"  ;;
+          macOS) OS="darwin" ;;
+        esac
+        case "${{ runner.arch }}" in
+          X64)   ARCH="x86_64" ;;
+          ARM64) ARCH="arm64"  ;;
+        esac
+        curl -fsSL \
+          "https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_${OS}_${ARCH}.tar.gz" \
+          | tar xz
+        chmod +x rootio_patcher
+        echo "$PWD" >> "$GITHUB_PATH"
+
+    - name: Download rootio_patcher (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $arch = if ("${{ runner.arch }}" -eq "ARM64") { "arm64" } else { "x86_64" }
+        $url  = "https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_windows_${arch}.zip"
+        Invoke-WebRequest -Uri $url -OutFile rootio_patcher.zip
+        Expand-Archive -Path rootio_patcher.zip -DestinationPath . -Force
+        Add-Content -Path $env:GITHUB_PATH -Value $PWD
+
+    - name: Check for available patches
+      id: check
+      shell: bash
+      env:
+        ROOTIO_API_KEY: ${{ inputs.api-key }}
+      run: |
+        set +e
+        case "${{ inputs.ecosystem }}" in
+          pip)
+            rootio_patcher pip remediate \
+              --python-path="${{ inputs.python-path }}" \
+              --use-alias="${{ inputs.use-alias }}"
+            ;;
+          npm)
+            rootio_patcher npm remediate \
+              --package-manager="${{ inputs.package-manager }}" \
+              --directory="${{ inputs.directory }}"
+            ;;
+          maven)
+            rootio_patcher maven remediate \
+              --file="${{ inputs.file }}"
+            ;;
+          *)
+            echo "Unknown ecosystem '${{ inputs.ecosystem }}'. Must be pip, npm, or maven." >&2
+            exit 1
+            ;;
+        esac
+        EXIT_CODE=$?
+        set -e
+
+        if [ $EXIT_CODE -eq 2 ]; then
+          echo "patches-available=true" >> "$GITHUB_OUTPUT"
+          echo "::error::Security patches are available. Run rootio_patcher with --dry-run=false to apply them."
+          exit 1
+        elif [ $EXIT_CODE -eq 0 ]; then
+          echo "patches-available=false" >> "$GITHUB_OUTPUT"
+        else
+          exit $EXIT_CODE
+        fi

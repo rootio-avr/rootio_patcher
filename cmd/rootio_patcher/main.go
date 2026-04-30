@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/alecthomas/kong"
 
+	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/cmd/rootio_patcher/config"
 	"rootio_patcher/cmd/rootio_patcher/maven"
 	"rootio_patcher/cmd/rootio_patcher/npm"
@@ -93,6 +95,10 @@ func run() int {
 
 	// Execute the selected command, passing cfg and logger
 	if err := kongCtx.Run(cfg, logger); err != nil {
+		if errors.Is(err, common.ErrPatchesAvailable) {
+			// Dry-run found patches: signal to CI that changes are needed
+			return 2
+		}
 		fmt.Fprintf(os.Stderr, "\n✗ Error: %v\n", err)
 		return 1
 	}

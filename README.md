@@ -725,6 +725,144 @@ CMD ["java", "-jar", "target/app.jar"]
 
 ---
 
+## Vulnerability Gate
+
+Use `--dry-run` (the default) as a non-destructive check in CI pipelines. The tool exits with a specific code depending on the outcome:
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | No patches needed — all packages are up to date |
+| `1` | Error (bad config, API failure, unexpected panic) |
+| `2` | Patches are available — action required |
+
+This lets you fail a pipeline, open a ticket, or send an alert purely based on whether vulnerabilities exist, without touching any files.
+
+### Shell
+
+```bash
+rootio_patcher npm remediate  # --dry-run=true is the default
+case $? in
+  0) echo "All packages are up to date." ;;
+  2) echo "Patches available — please remediate." ; exit 1 ;;
+  *) echo "Unexpected error." ; exit 1 ;;
+esac
+```
+
+### CI
+
+```bash
+rootio_patcher npm remediate
+EXIT_CODE=$?
+if [ $EXIT_CODE -eq 2 ]; then
+  echo "Security patches are available. Run with --dry-run=false to apply them."
+  exit 1
+elif [ $EXIT_CODE -ne 0 ]; then
+  echo "rootio_patcher encountered an error."
+  exit 1
+fi
+```
+
+---
+
+## GitHub Action
+
+A reusable composite action is included in this repository. It wraps the vulnerability gate above — runs `rootio_patcher` in dry-run mode and **fails the job** if patches are available. No files are ever modified.
+
+```yaml
+- uses: rootio-avr/rootio_patcher/.github/actions/rootio-patch@main
+  with:
+    api-key: ${{ secrets.ROOTIO_API_KEY }}
+    ecosystem: npm   # pip | npm | maven
+```
+
+### Inputs
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `api-key` | Yes | — | Root.io API key |
+| `ecosystem` | Yes | — | `pip`, `npm`, or `maven` |
+| `package-manager` | No | `npm` | *(npm)* `npm`, `yarn`, or `pnpm` |
+| `directory` | No | `.` | *(npm)* Project directory containing the lock file |
+| `python-path` | No | `python` | *(pip)* Path to Python interpreter |
+| `use-alias` | No | `true` | *(pip)* Use Root.io aliased packages |
+| `file` | No | `pom.xml` | *(maven)* Path to pom.xml |
+
+Advanced settings (`ROOTIO_API_URL`, `ROOTIO_PKG_URL`, `ROOTIO_PIP_INDEX_URL`, `LOG_LEVEL`) are not inputs — pass them as environment variables on the calling step instead:
+
+```yaml
+- uses: rootio-avr/rootio_patcher/.github/actions/rootio-patch@main
+  env:
+    ROOTIO_PIP_INDEX_URL: https://my-private-index.example.com/simple/
+  with:
+    api-key: ${{ secrets.ROOTIO_API_KEY }}
+    ecosystem: pip
+```
+
+### Outputs
+
+| Output | Description |
+|--------|-------------|
+| `patches-available` | `"true"` if patches were found, `"false"` if everything is up to date |
+
+### Examples
+
+#### Block a PR if vulnerabilities exist (npm)
+
+```yaml
+name: Security Check
+
+on: [pull_request]
+
+jobs:
+  vuln-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rootio-avr/rootio_patcher/.github/actions/rootio-patch@main
+        with:
+          api-key: ${{ secrets.ROOTIO_API_KEY }}
+          ecosystem: npm
+          package-manager: npm
+```
+
+#### Python project
+
+```yaml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - uses: rootio-avr/rootio_patcher/.github/actions/rootio-patch@main
+        with:
+          api-key: ${{ secrets.ROOTIO_API_KEY }}
+          ecosystem: pip
+```
+
+#### Maven project
+
+```yaml
+      - uses: rootio-avr/rootio_patcher/.github/actions/rootio-patch@main
+        with:
+          api-key: ${{ secrets.ROOTIO_API_KEY }}
+          ecosystem: maven
+          file: path/to/pom.xml
+```
+
+#### Warn without blocking (using the output)
+
+```yaml
+      - uses: rootio-avr/rootio_patcher/.github/actions/rootio-patch@main
+        id: vuln-check
+        continue-on-error: true
+        with:
+          api-key: ${{ secrets.ROOTIO_API_KEY }}
+          ecosystem: npm
+      - if: steps.vuln-check.outputs.patches-available == 'true'
+        run: echo "Patches available — consider remediating soon."
+```
+
+---
+
 ## Troubleshooting
 
 ### General Issues

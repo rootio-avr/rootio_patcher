@@ -162,7 +162,7 @@ func (a *App) Run(ctx context.Context) error {
 	if a.dryRun {
 		a.logger.DebugContext(ctx, "DRY-RUN MODE: No changes will be made")
 		a.reportDryRun(response.Patches)
-		return nil
+		return common.ErrPatchesAvailable
 	}
 
 	// 7. Apply patches by updating package.json
