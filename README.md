@@ -781,6 +781,7 @@ A reusable composite action is included in this repository. It wraps the vulnera
 |-------|----------|---------|-------------|
 | `api-key` | Yes | — | Root.io API key |
 | `ecosystem` | Yes | — | `pip`, `npm`, or `maven` |
+| `working-directory` | No | `.` | Directory inside the repo where the tool should run (e.g. `services/api`) |
 | `package-manager` | No | `npm` | *(npm)* `npm`, `yarn`, or `pnpm` |
 | `directory` | No | `.` | *(npm)* Project directory containing the lock file |
 | `python-path` | No | `python` | *(pip)* Path to Python interpreter |

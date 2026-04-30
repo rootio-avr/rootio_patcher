@@ -8,6 +8,10 @@ inputs:
   ecosystem:
     description: 'Package ecosystem: pip, npm, or maven'
     required: true
+  working-directory:
+    description: 'Directory inside the repo where the tool should run (e.g. services/api)'
+    required: false
+    default: '.'
 
   # npm-specific
   package-manager:
@@ -80,6 +84,7 @@ runs:
     - name: Check for available patches
       id: check
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
         ROOTIO_API_KEY: ${{ inputs.api-key }}
       run: |
