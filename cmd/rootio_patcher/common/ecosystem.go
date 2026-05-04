@@ -8,9 +8,10 @@ import (
 type Ecosystem string
 
 const (
-	EcosystemPyPI  Ecosystem = "pypi"
-	EcosystemNpm   Ecosystem = "npm"
-	EcosystemMaven Ecosystem = "maven"
+	EcosystemPyPI   Ecosystem = "pypi"
+	EcosystemNpm    Ecosystem = "npm"
+	EcosystemMaven  Ecosystem = "maven"
+	EcosystemGolang Ecosystem = "golang"
 )
 
 // PackageInfo represents a package with its metadata
@@ -43,5 +44,4 @@ type Parser interface {
 
 	// Validate validates the updated content
 	Validate(content string) bool
-
 }

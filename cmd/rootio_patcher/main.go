@@ -13,9 +13,11 @@ import (
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/cmd/rootio_patcher/config"
+	"rootio_patcher/cmd/rootio_patcher/golang"
 	"rootio_patcher/cmd/rootio_patcher/maven"
 	"rootio_patcher/cmd/rootio_patcher/npm"
 	"rootio_patcher/cmd/rootio_patcher/pip"
+	"rootio_patcher/pkg/rootio"
 )
 
 var version = "dev"
@@ -27,6 +29,7 @@ type CLI struct {
 	Pip   PipCmd   `cmd:"" help:"Python/pip package remediation"`
 	Npm   NpmCmd   `cmd:"" help:"npm package remediation"`
 	Maven MavenCmd `cmd:"" help:"Maven package remediation"`
+	Go    GoCmd    `cmd:"" help:"Go module remediation"`
 }
 
 // PipCmd handles pip-related commands
@@ -77,7 +80,7 @@ func run() int {
 	var cli CLI
 	kongCtx := kong.Parse(&cli,
 		kong.Name("rootio_patcher"),
-		kong.Description("Automated security patching for Python, npm, and Maven packages with Root.io"),
+		kong.Description("Automated security patching for Python, npm, go and Maven packages with Root.io"),
 		kong.UsageOnError(),
 		kong.Vars{"version": version},
 		kong.BindTo(ctx, (*context.Context)(nil)), // Bind context with interface type
@@ -153,5 +156,29 @@ func (cmd *MavenRemediateCmd) Run(ctx context.Context, cfg *config.Config, logge
 	logger.InfoContext(ctx, "Starting Maven remediation", slog.String("file", cmd.File))
 
 	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cmd.File, cmd.DryRun, logger)
+	return app.Run(ctx)
+}
+
+// GoCmd handles Go module commands
+type GoCmd struct {
+	Remediate GoRemediateCmd `cmd:"" help:"Remediate Go modules (pre-build patching of go.mod with replace directives)"`
+}
+
+// GoRemediateCmd remediates Go modules by adding replace directives to go.mod
+type GoRemediateCmd struct {
+	GoMod  string `default:"go.mod" help:"Path to go.mod"`
+	DryRun bool   `default:"true" help:"Preview changes without applying them"`
+}
+
+// Run executes the go remediate command
+func (cmd *GoRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	logger.InfoContext(ctx, "Starting Go module remediation", slog.String("go_mod", cmd.GoMod))
+
+	app := golang.NewApp(
+		cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.GoMod, cmd.DryRun, logger,
+		golang.NewGoModParser(logger),
+		rootio.NewClient(cfg.APIURL, cfg.APIKey),
+		golang.NewRealCommandRunner(),
+	)
 	return app.Run(ctx)
 }
