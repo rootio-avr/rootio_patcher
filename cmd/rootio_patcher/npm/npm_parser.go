@@ -8,7 +8,12 @@ import (
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
+
+	"github.com/tidwall/gjson"
 )
+
+// gjsonGet wraps gjson.GetBytes to centralize the dependency import.
+func gjsonGet(content []byte, path string) gjson.Result { return gjson.GetBytes(content, path) }
 
 // NpmParser handles parsing of npm package-lock.json files
 type NpmParser struct{}
@@ -242,6 +247,36 @@ func (p *NpmParser) FindParents(ctx context.Context, lockFilePath, packageName, 
 	return parents, nil
 }
 
+// IsDirectVulnerable reports whether the root package declares packageName
+// as a direct dependency (in dependencies or devDependencies) AND the
+// resolved top-level copy is at the given version. The lock file's root
+// entry "" lists direct deps, and the resolved version of any direct dep
+// lives at packages["node_modules/<name>"].
+func (p *NpmParser) IsDirectVulnerable(ctx context.Context, lockFilePath, packageJSONPath, packageName, version string) (bool, error) {
+	content, err := os.ReadFile(lockFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read file: %w", err)
+	}
+	var lockfile PackageLockJSON
+	if err := json.Unmarshal(content, &lockfile); err != nil {
+		return false, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+	root, ok := lockfile.Packages[""]
+	if !ok {
+		return false, nil
+	}
+	_, inDeps := root.Dependencies[packageName]
+	_, inDev := root.DevDependencies[packageName]
+	if !inDeps && !inDev {
+		return false, nil
+	}
+	topLevel, ok := lockfile.Packages["node_modules/"+packageName]
+	if !ok {
+		return false, nil
+	}
+	return topLevel.Version == version, nil
+}
+
 // resolveNpmDep mimics npm's lookup order: check the consumer's own
 // node_modules first, then walk up each ancestor level, then fall back to
 // the top-level node_modules. Returns "" if no copy is found.
@@ -281,21 +316,44 @@ func extractParentName(pkgPath string) string {
 //
 //	"overrides": { "<parent>": { "<child>": "<alias>" } }
 //
-// When no parent is known the override falls back to a flat top-level entry.
-// Direct dependencies are never modified.
+// When the user's direct dep is itself the vulnerable copy
+// (RewriteDirect=true) the dependencies/devDependencies entry is rewritten
+// to the alias so that direct usage is also patched. The two are
+// independent: a single override can do both for the same package name
+// across different versions.
 func (p *NpmParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
-	sets := make(map[string]string)
-	for _, ov := range overrides {
-		if len(ov.Parents) == 0 {
-			sets[npmOverridesPath+"."+escapeSjsonKey(ov.PackageName)] = ov.Value
-			continue
-		}
-		for _, parent := range ov.Parents {
-			sets[npmOverridesPath+"."+escapeSjsonKey(parent)+"."+escapeSjsonKey(ov.PackageName)] = ov.Value
-		}
+	sets, err := buildNpmOverrideSets(overrides, packageJSONPath)
+	if err != nil {
+		return err
 	}
 	return NewPackageJSONPatcher().Patch(ctx, PatchOptions{
 		Sets:            sets,
 		PackageJSONPath: packageJSONPath,
 	})
+}
+
+func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (map[string]string, error) {
+	sets := make(map[string]string)
+	var pkgContent []byte
+	for _, ov := range overrides {
+		for _, parent := range ov.Parents {
+			sets[npmOverridesPath+"."+escapeSjsonKey(parent)+"."+escapeSjsonKey(ov.PackageName)] = ov.Value
+		}
+		if ov.RewriteDirect {
+			if pkgContent == nil {
+				c, err := os.ReadFile(packageJSONPath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read %s: %w", packageJSONPath, err)
+				}
+				pkgContent = c
+			}
+			for _, field := range []string{"dependencies", "devDependencies"} {
+				path := field + "." + escapeSjsonKey(ov.PackageName)
+				if gjsonGet(pkgContent, path).Exists() {
+					sets[path] = ov.Value
+				}
+			}
+		}
+	}
+	return sets, nil
 }

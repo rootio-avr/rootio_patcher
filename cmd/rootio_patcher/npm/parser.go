@@ -9,6 +9,7 @@ import (
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 
+	"github.com/tidwall/gjson"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,35 +26,70 @@ const (
 // override syntax (parent-nested for npm, slash-paths for yarn, version-scoped
 // flat keys for pnpm).
 //
-// Parents lists the packages that consume PackageName at this Version in the
-// lock file. An empty Parents slice means the vulnerable copy is at the top
-// level (either the user's direct dep or hoisted with no clear parent), in
-// which case ecosystems that need parent-scoping fall back to a flat override.
+// Parents lists the transitive consumers of PackageName at this Version.
+// RewriteDirect is set when the user's own direct dependency resolves to this
+// vulnerable Version — in that case the patcher rewrites the dependencies
+// entry to the alias so the user's own usage is also patched. Parents and
+// RewriteDirect are independent: a single patch can produce both (rewrite the
+// direct line AND emit parent-nested overrides for transitive consumers).
 //
 // Version is consumed only by ecosystems that scope by version (currently
 // pnpm); npm and yarn ignore it.
 type ScopedOverride struct {
-	PackageName string
-	Version     string
-	Value       string
-	Parents     []string
+	PackageName   string
+	Version       string
+	Value         string
+	Parents       []string
+	RewriteDirect bool
 }
 
-// buildResolutionSets builds the sjson-path → value map for yarn and yarn2,
-// which both use the parent/child slash-path resolution shape. Shared so
-// YarnParser and Yarn2Parser don't drift.
-func buildResolutionSets(overrides []ScopedOverride) map[string]string {
+// buildResolutionSetsWithDirect builds the sjson-path → value map for yarn
+// and yarn2, which both use the parent/child slash-path resolution shape.
+// Shared so YarnParser and Yarn2Parser don't drift. When an override has
+// RewriteDirect=true the dependencies/devDependencies entry is also
+// rewritten to the alias.
+func buildResolutionSetsWithDirect(overrides []ScopedOverride, packageJSONPath string) (map[string]string, error) {
 	sets := make(map[string]string)
+	var pkgContent []byte
 	for _, ov := range overrides {
-		if len(ov.Parents) == 0 {
-			sets[yarnResolutionsPath+"."+escapeSjsonKey(ov.PackageName)] = ov.Value
-			continue
-		}
 		for _, parent := range ov.Parents {
 			sets[yarnResolutionsPath+"."+escapeSjsonKey(parent+"/"+ov.PackageName)] = ov.Value
 		}
+		if ov.RewriteDirect {
+			if pkgContent == nil {
+				c, err := os.ReadFile(packageJSONPath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read %s: %w", packageJSONPath, err)
+				}
+				pkgContent = c
+			}
+			for _, field := range []string{"dependencies", "devDependencies"} {
+				path := field + "." + escapeSjsonKey(ov.PackageName)
+				if gjsonGet(pkgContent, path).Exists() {
+					sets[path] = ov.Value
+				}
+			}
+		}
 	}
-	return sets
+	return sets, nil
+}
+
+// readDirectDepSpecs returns the spec strings under dependencies and
+// devDependencies for the given package name in package.json, or nil if
+// the package isn't a direct dep.
+func readDirectDepSpecs(packageJSONPath, packageName string) ([]string, error) {
+	content, err := os.ReadFile(packageJSONPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", packageJSONPath, err)
+	}
+	var specs []string
+	for _, field := range []string{"dependencies", "devDependencies"} {
+		v := gjsonGet(content, field+"."+escapeSjsonKey(packageName))
+		if v.Exists() && v.Type == gjson.String {
+			specs = append(specs, v.String())
+		}
+	}
+	return specs, nil
 }
 
 // npmParser is the interface required by the npm App — it extends the common Parser
@@ -65,9 +101,15 @@ type npmParser interface {
 	// packageName at the given version. Empty result means no parent scoping
 	// is possible (the vulnerable copy is at the top level).
 	FindParents(ctx context.Context, lockFilePath, packageName, version string) ([]string, error)
+	// IsDirectVulnerable reports whether the user's package.json declares
+	// packageName as a direct dependency that resolves to the given
+	// vulnerable version. The caller uses this to decide whether to rewrite
+	// the dependencies entry to an alias.
+	IsDirectVulnerable(ctx context.Context, lockFilePath, packageJSONPath, packageName, version string) (bool, error)
 	// UpdatePackageJSON writes the given overrides to package.json using the
-	// appropriate ecosystem-specific override shape. It never touches the
-	// dependencies/devDependencies fields.
+	// appropriate ecosystem-specific override shape. When ScopedOverride
+	// has RewriteDirect=true it also rewrites the dependencies/devDependencies
+	// entry for that package to the alias value.
 	UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error
 }
 

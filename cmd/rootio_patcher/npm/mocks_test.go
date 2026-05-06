@@ -63,6 +63,10 @@ func (m *MockParser) FindParents(ctx context.Context, lockFilePath, packageName,
 	return nil, nil
 }
 
+func (m *MockParser) IsDirectVulnerable(ctx context.Context, lockFilePath, packageJSONPath, packageName, version string) (bool, error) {
+	return false, nil
+}
+
 // MockPnpmParser is a mock that uses real PnpmParser for UpdatePackageJSON but mocks Parse
 type MockPnpmParser struct {
 	*PnpmParser

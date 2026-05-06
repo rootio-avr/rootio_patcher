@@ -158,18 +158,65 @@ func (p *PnpmParser) FindParents(ctx context.Context, lockFilePath, packageName,
 	return nil, nil
 }
 
+// IsDirectVulnerable reports whether the user's package.json declares
+// packageName as a direct dep that pnpm resolves to the given version.
+// We read pnpm-lock.yaml's importers."." block to find the resolved version.
+func (p *PnpmParser) IsDirectVulnerable(ctx context.Context, lockFilePath, packageJSONPath, packageName, version string) (bool, error) {
+	specs, err := readDirectDepSpecs(packageJSONPath, packageName)
+	if err != nil || len(specs) == 0 {
+		return false, err
+	}
+	content, err := os.ReadFile(lockFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read file: %w", err)
+	}
+	var lockfile PnpmLockFile
+	if err := yaml.Unmarshal(content, &lockfile); err != nil {
+		return false, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+	for _, importer := range lockfile.Importers {
+		entry, ok := importer.Dependencies[packageName]
+		if !ok {
+			entry, ok = importer.DevDependencies[packageName]
+		}
+		if !ok {
+			continue
+		}
+		if entry.Version == version {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // UpdatePackageJSON writes pnpm overrides as version-scoped flat keys:
 //
 //	"pnpm": { "overrides": { "<name>@<version>": "<alias>" } }
 //
 // This form is documented by pnpm and only matches the exact vulnerable
-// version, so unrelated copies of the same package (e.g. the user's direct
-// dependency at a different major) are untouched. Direct dependencies are
-// never modified.
+// version. When the user's direct dep is at the vulnerable version
+// (RewriteDirect=true) the dependencies/devDependencies entry is rewritten
+// to the alias as well.
 func (p *PnpmParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
 	sets := make(map[string]string)
+	var pkgContent []byte
 	for _, ov := range overrides {
 		sets[pnpmOverridesPath+"."+escapeSjsonKey(ov.PackageName+"@"+ov.Version)] = ov.Value
+		if ov.RewriteDirect {
+			if pkgContent == nil {
+				c, err := os.ReadFile(packageJSONPath)
+				if err != nil {
+					return fmt.Errorf("failed to read %s: %w", packageJSONPath, err)
+				}
+				pkgContent = c
+			}
+			for _, field := range []string{"dependencies", "devDependencies"} {
+				path := field + "." + escapeSjsonKey(ov.PackageName)
+				if gjsonGet(pkgContent, path).Exists() {
+					sets[path] = ov.Value
+				}
+			}
+		}
 	}
 	return NewPackageJSONPatcher().Patch(ctx, PatchOptions{
 		Sets:            sets,

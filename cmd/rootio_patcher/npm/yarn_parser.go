@@ -193,10 +193,47 @@ func (p *YarnParser) FindParents(ctx context.Context, lockFilePath, packageName,
 // When no parent is known the entry falls back to a flat "<child>" key.
 // Direct dependencies are never modified.
 func (p *YarnParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
+	sets, err := buildResolutionSetsWithDirect(overrides, packageJSONPath)
+	if err != nil {
+		return err
+	}
 	return NewPackageJSONPatcher().Patch(ctx, PatchOptions{
-		Sets:            buildResolutionSets(overrides),
+		Sets:            sets,
 		PackageJSONPath: packageJSONPath,
 	})
+}
+
+// IsDirectVulnerable reports whether the user's package.json declares
+// packageName as a direct dep that yarn resolves to the given version.
+// yarn.lock's entry keys map specs ("uuid@^11.0.3") to a single resolved
+// version; if the direct spec resolves to the vulnerable version, the user's
+// own usage is vulnerable too.
+func (p *YarnParser) IsDirectVulnerable(ctx context.Context, lockFilePath, packageJSONPath, packageName, version string) (bool, error) {
+	specs, err := readDirectDepSpecs(packageJSONPath, packageName)
+	if err != nil || len(specs) == 0 {
+		return false, err
+	}
+	content, err := os.ReadFile(lockFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read file: %w", err)
+	}
+	for _, e := range parseYarnLockEntries(content) {
+		if e.Version != version {
+			continue
+		}
+		for _, s := range e.Specs {
+			name, rng := splitYarnSpec(s)
+			if name != packageName {
+				continue
+			}
+			for _, directSpec := range specs {
+				if rng == directSpec {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
 }
 
 // yarnLockEntry is the structured shape of one entry in a yarn.lock file (v1

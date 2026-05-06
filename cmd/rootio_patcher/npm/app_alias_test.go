@@ -106,26 +106,16 @@ func TestNpmApp_RealAPIResponse(t *testing.T) {
 		t.Fatalf("Failed to parse updated package.json: %v", err)
 	}
 
-	// Verify overrides field exists
-	overrides, ok := pkgJSON["overrides"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected 'overrides' field in package.json")
+	// @babel/helpers@7.26.0 is direct + vulnerable with no transitive
+	// consumer → expect direct rewrite to the alias, no overrides field.
+	deps := pkgJSON["dependencies"].(map[string]interface{})
+	expectedAlias := "npm:@rootio/babel__helpers@7.26.0-root.io.2"
+	if deps["@babel/helpers"].(string) != expectedAlias {
+		t.Errorf("Expected @babel/helpers direct dep rewritten to %q, got %q", expectedAlias, deps["@babel/helpers"])
+	}
+	if _, hasOverrides := pkgJSON["overrides"]; hasOverrides {
+		t.Error("did not expect overrides field — only direct rewrite was needed")
 	}
 
-	// Verify @babel/helpers override uses the ALIASED package (@rootio/babel__helpers)
-	babelOverride, ok := overrides["@babel/helpers"].(string)
-	if !ok {
-		t.Fatal("Expected @babel/helpers in overrides")
-	}
-
-	// The override should be: npm:@rootio/babel__helpers@7.26.0-root.io.2
-	expectedOverride := "npm:@rootio/babel__helpers@7.26.0-root.io.2"
-	if babelOverride != expectedOverride {
-		t.Errorf("Expected override '%s', got '%s'", expectedOverride, babelOverride)
-	}
-
-	t.Logf("✓ Correctly used aliased package: %s", babelOverride)
-	t.Log("✓ Original package: @babel/helpers")
-	t.Log("✓ Aliased package: @rootio/babel__helpers")
-	t.Log("✓ Override format: npm:@rootio/babel__helpers@7.26.0-root.io.2")
+	t.Logf("✓ Correctly rewrote direct dep to alias: %s", expectedAlias)
 }

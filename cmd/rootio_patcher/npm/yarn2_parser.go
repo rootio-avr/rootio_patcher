@@ -304,8 +304,58 @@ func (p *Yarn2Parser) FindParents(ctx context.Context, lockFilePath, packageName
 // When no parent is known the entry falls back to a flat "<child>" key.
 // Direct dependencies are never modified.
 func (p *Yarn2Parser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
+	sets, err := buildResolutionSetsWithDirect(overrides, packageJSONPath)
+	if err != nil {
+		return err
+	}
 	return NewPackageJSONPatcher().Patch(ctx, PatchOptions{
-		Sets:            buildResolutionSets(overrides),
+		Sets:            sets,
 		PackageJSONPath: packageJSONPath,
 	})
+}
+
+// IsDirectVulnerable reports whether the user's package.json declares
+// packageName as a direct dep that yarn 2+ resolves to the given version.
+// We match each direct dep range against the Yarn 2+ lockfile entry specs;
+// when any spec for that name resolves to the vulnerable version and the
+// declared range matches, the user's own usage is vulnerable.
+func (p *Yarn2Parser) IsDirectVulnerable(ctx context.Context, lockFilePath, packageJSONPath, packageName, version string) (bool, error) {
+	specs, err := readDirectDepSpecs(packageJSONPath, packageName)
+	if err != nil || len(specs) == 0 {
+		return false, err
+	}
+	content, err := os.ReadFile(lockFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read file: %w", err)
+	}
+	var data map[string]interface{}
+	if err := yaml.Unmarshal(content, &data); err != nil {
+		return false, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+	for key, value := range data {
+		if key == "__metadata" {
+			continue
+		}
+		valueMap, ok := value.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		entryVersion := fmt.Sprintf("%v", valueMap["version"])
+		if entryVersion != version {
+			continue
+		}
+		for _, spec := range strings.Split(key, ",") {
+			name, rng := splitYarnSpec(strings.Trim(strings.TrimSpace(spec), `"`))
+			rng = strings.TrimPrefix(rng, "npm:")
+			if name != packageName {
+				continue
+			}
+			for _, directSpec := range specs {
+				if rng == directSpec {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
 }
