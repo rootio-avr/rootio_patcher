@@ -31,6 +31,9 @@ jobs:
         env:
           ROOTIO_API_KEY: ${{ secrets.ROOTIO_API_KEY }}
 
+      - name: Print updated go.mod
+        run: cat go.mod
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
