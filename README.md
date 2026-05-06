@@ -171,6 +171,7 @@ rootio_patcher go remediate [FLAGS]
 **Flags:**
 - `--go-mod` - Path to go.mod (default: `go.mod`)
 - `--dry-run` - Preview changes without applying (default: `true`)
+- `--update-go-version` - Update the `go` directive in go.mod to the latest Go release (default: `false`). Use this to fix `stdlib` CVEs, which cannot be resolved by module patching alone.
 
 **How it works:** Pre-build patching - adds `replace` directives to `go.mod` pointing to Root.io patched module aliases. The tool automatically runs `go mod tidy` after patching, and `go mod vendor` if a vendor directory is present. After running, execute `go build ./...` to build with patched modules.
 
@@ -540,6 +541,14 @@ Next steps:
   1. Review the changes in your go.mod
   2. Run: go build ./...
   3. Test your application
+```
+
+#### Fix stdlib CVEs by Updating the Go Version
+
+`stdlib` CVEs cannot be fixed by patching individual modules — they require upgrading the Go toolchain itself. Use `--update-go-version` to update the `go` directive in `go.mod` to the latest release. This runs `go get go@latest` under the hood and is applied in the same invocation as module patching:
+
+```bash
+rootio_patcher go remediate --update-go-version --dry-run=false
 ```
 
 #### Custom go.mod Path
@@ -1171,8 +1180,9 @@ Then contact Root.io support with the package details that caused the issue.
 2. **Analysis**: Sends the module list to Root.io API to check for known vulnerabilities
 3. **Reporting**: Displays `replace` directives that would be added with CVE information
 4. **Patching**: Adds `replace` directives to `go.mod` pointing to Root.io patched module aliases
-5. **Tidy**: Automatically runs `go mod tidy` (and `go mod vendor` if a vendor directory exists)
-6. **Build**: User runs `go build ./...` to compile with the patched modules
+5. **Go version update** *(optional, `--update-go-version`)*: Runs `go get go@latest` to update the `go` directive to the latest release, fixing `stdlib` CVEs that cannot be addressed by module replacement
+6. **Tidy**: Automatically runs `go mod tidy` (and `go mod vendor` if a vendor directory exists)
+7. **Build**: User runs `go build ./...` to compile with the patched modules
 
 ---
 
