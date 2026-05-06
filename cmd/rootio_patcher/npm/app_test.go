@@ -316,16 +316,16 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	// Verify package.json was modified with overrides
+	// Verify package.json was patched. lodash is direct + vulnerable with no
+	// transitive consumer, so the dependencies entry is rewritten to the
+	// alias and no overrides field is emitted (a flat overrides.lodash would
+	// trigger npm's EOVERRIDE check).
 	updatedContent, err := os.ReadFile(packageJSON)
 	if err != nil {
 		t.Fatalf("Failed to read package.json: %v", err)
 	}
 	content := string(updatedContent)
-	if !strings.Contains(content, "npm:@rootio/lodash@4.17.21") {
-		t.Error("package.json should contain aliased override: npm:@rootio/lodash@4.17.21")
-	}
-	if !strings.Contains(content, `"overrides"`) {
-		t.Error("package.json should contain overrides field")
+	if !strings.Contains(content, `"lodash": "npm:@rootio/lodash@4.17.21"`) {
+		t.Error("package.json should rewrite lodash direct dep to alias")
 	}
 }

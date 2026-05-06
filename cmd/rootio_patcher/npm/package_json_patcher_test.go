@@ -153,6 +153,111 @@ func TestPackageJSONPatcher_AppendsToExistingOverrides(t *testing.T) {
 	}
 }
 
+// TestNpmParser_IsDirectVulnerable verifies the lockfile-based detection
+// of "is the user's direct dep at this vulnerable version".
+func TestNpmParser_IsDirectVulnerable(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	pkgPath := tmpDir + "/package.json"
+	lockPath := tmpDir + "/package-lock.json"
+
+	if err := os.WriteFile(pkgPath, []byte(`{
+  "dependencies": { "uuid": "^11.0.3", "dockerode": "^4.0.12" }
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte(`{
+  "lockfileVersion": 3,
+  "packages": {
+    "": { "dependencies": { "uuid": "^11.0.3", "dockerode": "^4.0.12" } },
+    "node_modules/uuid": { "version": "11.0.3" },
+    "node_modules/dockerode": { "version": "4.0.12", "dependencies": { "uuid": "^10.0.0" } },
+    "node_modules/dockerode/node_modules/uuid": { "version": "10.0.0" }
+  }
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	parser := NewNpmParser()
+
+	got, err := parser.IsDirectVulnerable(ctx, lockPath, pkgPath, "uuid", "11.0.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
+		t.Error("expected uuid@11.0.3 to be detected as direct + vulnerable")
+	}
+
+	got, err = parser.IsDirectVulnerable(ctx, lockPath, pkgPath, "uuid", "10.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
+		t.Error("uuid@10.0.0 is the transitive copy, not direct — should be false")
+	}
+
+	got, err = parser.IsDirectVulnerable(ctx, lockPath, pkgPath, "lodash", "5.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
+		t.Error("lodash isn't even a dependency — should be false")
+	}
+}
+
+// TestNpmParser_UpdatePackageJSON_DirectAndTransitive is the regression test
+// for the user's exact reported example: uuid@^11.0.3 is the user's direct
+// dep (vulnerable at v11.0.3), AND dockerode pulls a transitive uuid@10.0.0
+// (also vulnerable). The patcher must rewrite the direct dep to the v11
+// alias AND emit a parent-nested override under dockerode for the v10 alias.
+func TestNpmParser_UpdatePackageJSON_DirectAndTransitive(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	pkgPath := tmpDir + "/package.json"
+
+	if err := os.WriteFile(pkgPath, []byte(`{
+  "name": "test-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "dockerode": "^4.0.12",
+    "uuid": "^11.0.3"
+  }
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	overrides := []ScopedOverride{
+		{
+			PackageName:   "uuid",
+			Version:       "11.0.3",
+			Value:         "npm:@rootio/uuid@11.0.3-root.io.1",
+			RewriteDirect: true,
+		},
+		{
+			PackageName: "uuid",
+			Version:     "10.0.0",
+			Value:       "npm:@rootio/uuid@10.0.0-root.io.1",
+			Parents:     []string{"dockerode"},
+		},
+	}
+	if err := NewNpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := os.ReadFile(pkgPath)
+	content := string(got)
+
+	if !strings.Contains(content, `"uuid": "npm:@rootio/uuid@11.0.3-root.io.1"`) {
+		t.Errorf("expected direct uuid rewritten to v11 alias; got:\n%s", content)
+	}
+	if !strings.Contains(content, `"dockerode": {`) || !strings.Contains(content, `"npm:@rootio/uuid@10.0.0-root.io.1"`) {
+		t.Errorf("expected overrides.dockerode.uuid set to v10 alias; got:\n%s", content)
+	}
+	if !strings.Contains(content, `"dockerode": "^4.0.12"`) {
+		t.Errorf("dockerode direct dep must remain unchanged; got:\n%s", content)
+	}
+}
+
 // TestNpmParser_FindParents_HoistedTransitive verifies the EOVERRIDE-fix
 // case: the user's direct uuid range overlaps dockerode's transitive range,
 // so npm hoists a single uuid copy at the top level (no nested path).

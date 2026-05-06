@@ -100,23 +100,16 @@ func TestNpmApp_UpdatePackageJSON_Npm(t *testing.T) {
 		t.Fatalf("Failed to parse updated package.json: %v", err)
 	}
 
-	// Verify overrides field exists
-	overrides, ok := pkgJSON["overrides"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected 'overrides' field in package.json")
+	// lodash@4.17.20 is the user's direct dep AT the vulnerable version,
+	// and no transitive consumer exists in the lockfile. Expected result:
+	// the dependencies entry is rewritten to the alias; no overrides field.
+	deps := pkgJSON["dependencies"].(map[string]interface{})
+	expectedAlias := "npm:@rootio/lodash@4.17.21"
+	if deps["lodash"].(string) != expectedAlias {
+		t.Errorf("Expected lodash direct dep rewritten to %q, got %q", expectedAlias, deps["lodash"])
 	}
 
-	// Verify lodash override (should be aliased)
-	lodashOverride, ok := overrides["lodash"].(string)
-	if !ok {
-		t.Fatal("Expected lodash in overrides")
-	}
-	expectedOverride := "npm:@rootio/lodash@4.17.21"
-	if lodashOverride != expectedOverride {
-		t.Errorf("Expected lodash override '%s', got '%s'", expectedOverride, lodashOverride)
-	}
-
-	t.Log("Successfully updated package.json with npm overrides (aliased packages)")
+	t.Log("Successfully rewrote direct dep to alias for npm (no transitive consumers)")
 }
 
 // TestNpmApp_UpdatePackageJSON_Yarn tests yarn resolutions format
@@ -204,23 +197,16 @@ express@4.18.0:
 		t.Fatalf("Failed to parse updated package.json: %v", err)
 	}
 
-	// Verify resolutions field exists
-	resolutions, ok := pkgJSON["resolutions"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected 'resolutions' field in package.json for yarn")
+	// express@4.18.0 is the user's direct dep at the vulnerable version,
+	// no transitive consumers in the fixture → expect direct rewrite, no
+	// resolutions field needed.
+	deps := pkgJSON["dependencies"].(map[string]interface{})
+	expectedAlias := "npm:@rootio/express@4.18.2"
+	if deps["express"].(string) != expectedAlias {
+		t.Errorf("Expected express direct dep rewritten to %q, got %q", expectedAlias, deps["express"])
 	}
 
-	// Verify express resolution (should be aliased)
-	expressOverride, ok := resolutions["express"].(string)
-	if !ok {
-		t.Fatal("Expected express in resolutions")
-	}
-	expectedOverride := "npm:@rootio/express@4.18.2"
-	if expressOverride != expectedOverride {
-		t.Errorf("Expected express resolution '%s', got '%s'", expectedOverride, expressOverride)
-	}
-
-	t.Log("Successfully updated package.json with yarn resolutions (aliased packages)")
+	t.Log("Successfully rewrote direct dep to alias for yarn (no transitive consumers)")
 }
 
 // TestNpmApp_UpdatePackageJSON_Pnpm tests pnpm overrides format (nested under "pnpm")
@@ -424,37 +410,18 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 		t.Fatalf("Failed to parse updated package.json: %v", err)
 	}
 
-	// Verify overrides field was created
-	overrides, ok := pkgJSON["overrides"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected 'overrides' field to be created")
+	if _, hasOverrides := pkgJSON["overrides"]; hasOverrides {
+		t.Error("did not expect overrides field when only direct rewrite is needed")
 	}
 
-	// Verify lodash override exists
-	lodashOverride, ok := overrides["lodash"].(string)
-	if !ok {
-		t.Fatal("Expected lodash in overrides")
-	}
-	expectedOverride := "npm:@rootio/lodash@4.17.21"
-	if lodashOverride != expectedOverride {
-		t.Errorf("Expected lodash override '%s', got '%s'", expectedOverride, lodashOverride)
+	// lodash is direct + vulnerable, no transitive consumer → expect direct
+	// rewrite, no overrides field needed.
+	deps := pkgJSON["dependencies"].(map[string]interface{})
+	expectedAlias := "npm:@rootio/lodash@4.17.21"
+	if deps["lodash"].(string) != expectedAlias {
+		t.Errorf("lodash direct dep should be rewritten to %q, got %q", expectedAlias, deps["lodash"])
 	}
 
-	// Verify direct dependencies were NOT modified — overrides take effect at
-	// install time without rewriting the user's chosen version.
-	deps, ok := pkgJSON["dependencies"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected dependencies field")
-	}
-	lodashDep, ok := deps["lodash"].(string)
-	if !ok {
-		t.Fatal("Expected lodash in dependencies")
-	}
-	if lodashDep != "4.17.20" {
-		t.Errorf("lodash direct dependency must not be modified; expected '4.17.20', got '%s'", lodashDep)
-	}
-
-	// Verify proper formatting (should have newlines and indentation)
 	if !strings.Contains(string(updatedContent), "\n") {
 		t.Error("Expected formatted JSON with newlines")
 	}
@@ -462,7 +429,7 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 		t.Error("Expected indented JSON")
 	}
 
-	t.Log("Successfully added overrides to package.json without existing overrides")
+	t.Log("Successfully rewrote direct dep to alias")
 }
 
 // TestNpmApp_AddOverrides_WithExistingOverrides tests appending to existing overrides
@@ -575,48 +542,27 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 		t.Fatal("Expected 'overrides' field")
 	}
 
-	// Verify existing override is preserved
-	axiosOverride, ok := overrides["axios"].(string)
-	if !ok {
-		t.Fatal("Expected axios in overrides (should be preserved)")
+	// Existing axios override is unrelated to the patches; it must be
+	// preserved. Both lodash and express are direct + vulnerable with no
+	// transitive consumers, so they get direct-dep rewrites (not added to
+	// overrides).
+	if axios, _ := overrides["axios"].(string); axios != "npm:@rootio/axios@0.21.2" {
+		t.Errorf("existing axios override should be preserved, got %q", axios)
 	}
-	if axiosOverride != "npm:@rootio/axios@0.21.2" {
-		t.Errorf("Expected axios override to be preserved, got '%s'", axiosOverride)
+	if _, hasLodashOverride := overrides["lodash"]; hasLodashOverride {
+		t.Error("did not expect lodash in overrides (direct rewrite only)")
 	}
-
-	// Verify new overrides were added
-	lodashOverride, ok := overrides["lodash"].(string)
-	if !ok {
-		t.Fatal("Expected lodash in overrides (should be added)")
-	}
-	if lodashOverride != "npm:@rootio/lodash@4.17.21" {
-		t.Errorf("Expected lodash override 'npm:@rootio/lodash@4.17.21', got '%s'", lodashOverride)
+	if _, hasExpressOverride := overrides["express"]; hasExpressOverride {
+		t.Error("did not expect express in overrides (direct rewrite only)")
 	}
 
-	expressOverride, ok := overrides["express"].(string)
-	if !ok {
-		t.Fatal("Expected express in overrides (should be added)")
+	deps := pkgJSON["dependencies"].(map[string]interface{})
+	if deps["lodash"].(string) != "npm:@rootio/lodash@4.17.21" {
+		t.Errorf("lodash direct dep should be rewritten to alias, got %q", deps["lodash"])
 	}
-	if expressOverride != "npm:@rootio/express@4.18.2" {
-		t.Errorf("Expected express override 'npm:@rootio/express@4.18.2', got '%s'", expressOverride)
-	}
-
-	// Verify total count
-	if len(overrides) != 3 {
-		t.Errorf("Expected 3 overrides total (1 existing + 2 new), got %d", len(overrides))
+	if deps["express"].(string) != "npm:@rootio/express@4.18.2" {
+		t.Errorf("express direct dep should be rewritten to alias, got %q", deps["express"])
 	}
 
-	// Verify direct dependencies were NOT modified.
-	deps, ok := pkgJSON["dependencies"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected dependencies field")
-	}
-	if deps["lodash"].(string) != "4.17.20" {
-		t.Errorf("lodash direct dependency must not be modified; got '%s'", deps["lodash"].(string))
-	}
-	if deps["express"].(string) != "4.18.0" {
-		t.Errorf("express direct dependency must not be modified; got '%s'", deps["express"].(string))
-	}
-
-	t.Log("Successfully appended new overrides to existing overrides")
+	t.Log("Successfully rewrote direct deps and preserved existing unrelated override")
 }

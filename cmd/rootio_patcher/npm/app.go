@@ -219,17 +219,29 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 		if err != nil {
 			return fmt.Errorf("failed to find parents for %s@%s: %w", patch.PackageName, patch.Version, err)
 		}
+		direct, err := a.parser.IsDirectVulnerable(ctx, a.lockFilePath, a.packageJSONPath, patch.PackageName, patch.Version)
+		if err != nil {
+			return fmt.Errorf("failed to check direct dep for %s@%s: %w", patch.PackageName, patch.Version, err)
+		}
 		overrideValue := fmt.Sprintf("npm:%s@%s", patch.PatchAlias.Name, patch.PatchAlias.Version)
 		overrides = append(overrides, ScopedOverride{
-			PackageName: patch.PackageName,
-			Version:     patch.Version,
-			Value:       overrideValue,
-			Parents:     parents,
+			PackageName:   patch.PackageName,
+			Version:       patch.Version,
+			Value:         overrideValue,
+			Parents:       parents,
+			RewriteDirect: direct,
 		})
-		if len(parents) == 0 {
+		var scopes []string
+		if direct {
+			scopes = append(scopes, "direct")
+		}
+		if len(parents) > 0 {
+			scopes = append(scopes, "under "+strings.Join(parents, ", "))
+		}
+		if len(scopes) == 0 {
 			fmt.Printf("  - %s@%s → %s@%s\n", patch.PackageName, patch.Version, patch.PatchAlias.Name, patch.PatchAlias.Version)
 		} else {
-			fmt.Printf("  - %s@%s (under %s) → %s@%s\n", patch.PackageName, patch.Version, strings.Join(parents, ", "), patch.PatchAlias.Name, patch.PatchAlias.Version)
+			fmt.Printf("  - %s@%s (%s) → %s@%s\n", patch.PackageName, patch.Version, strings.Join(scopes, ", "), patch.PatchAlias.Name, patch.PatchAlias.Version)
 		}
 	}
 
