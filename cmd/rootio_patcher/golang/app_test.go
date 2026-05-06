@@ -20,7 +20,7 @@ func TestGoLangApp_Run_FileNotFound(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", "/nonexistent/go.mod", true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", "/nonexistent/go.mod", true, false, logger,
 		NewGoModParser(logger), &MockAPIClient{}, &MockCommandRunner{},
 	)
 
@@ -40,7 +40,7 @@ require golang.org/x/sys v0.0.0-20230101000000-abcdef123456 // indirect
 `)
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, false, logger,
 		NewGoModParser(logger), &MockAPIClient{}, &MockCommandRunner{},
 	)
 
@@ -60,7 +60,7 @@ require github.com/google/uuid v1.3.0
 	apiErr := errors.New("API unavailable")
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, false, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
 			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
@@ -74,108 +74,168 @@ require github.com/google/uuid v1.3.0
 }
 
 func TestGoLangApp_Run_NoPatches(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	tests := []struct {
+		name            string
+		updateGoVersion bool
+		wantCmds        [][]string
+	}{
+		{
+			name:            "updateGoVersion=false: nothing to do",
+			updateGoVersion: false,
+			wantCmds:        nil,
+		},
+		{
+			name:            "updateGoVersion=true: runs go get and tidy even without patches",
+			updateGoVersion: true,
+			wantCmds:        [][]string{{"get", "go@latest"}, {"mod", "tidy"}},
+		},
+	}
 
-	goModPath := writeGoMod(t, t.TempDir(), `module example.com/app
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+			goModPath := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
 require github.com/google/uuid v1.3.0
 `)
+			cmdRunner := &MockCommandRunner{}
 
-	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
-		NewGoModParser(logger),
-		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
-				return &rootio.AnalyzePackagesResponse{Patches: []rootio.PackagePatch{}}, nil
-			},
-		},
-		&MockCommandRunner{},
-	)
+			app := NewApp(
+				"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, tc.updateGoVersion, logger,
+				NewGoModParser(logger),
+				&MockAPIClient{
+					AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+						return &rootio.AnalyzePackagesResponse{Patches: []rootio.PackagePatch{}}, nil
+					},
+				},
+				cmdRunner,
+			)
 
-	require.NoError(t, app.Run(ctx))
+			require.NoError(t, app.Run(ctx))
+
+			require.Len(t, cmdRunner.Calls, len(tc.wantCmds))
+			for i, wantArgs := range tc.wantCmds {
+				assert.Equal(t, wantArgs, cmdRunner.Calls[i].Args)
+			}
+		})
+	}
 }
 
 func TestGoLangApp_Run_DryRun(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	tests := []struct {
+		name            string
+		updateGoVersion bool
+	}{
+		{name: "updateGoVersion=false", updateGoVersion: false},
+		{name: "updateGoVersion=true", updateGoVersion: true},
+	}
 
-	originalContent := "module example.com/app\n\ngo 1.21\n\nrequire github.com/google/uuid v1.3.0\n"
-	goModPath := writeGoMod(t, t.TempDir(), originalContent)
-	cmdRunner := &MockCommandRunner{}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true /* dry-run */, logger,
-		NewGoModParser(logger),
-		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
-				return &rootio.AnalyzePackagesResponse{
-					Patches: []rootio.PackagePatch{
-						{
-							PackageName: "github.com/google/uuid",
-							Version:     "v1.3.0",
-							PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.1"},
-							CVEIDs:      []string{"CVE-2023-12345"},
-						},
+			originalContent := "module example.com/app\n\ngo 1.21\n\nrequire github.com/google/uuid v1.3.0\n"
+			goModPath := writeGoMod(t, t.TempDir(), originalContent)
+			cmdRunner := &MockCommandRunner{}
+
+			app := NewApp(
+				"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, tc.updateGoVersion, logger,
+				NewGoModParser(logger),
+				&MockAPIClient{
+					AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+						return &rootio.AnalyzePackagesResponse{
+							Patches: []rootio.PackagePatch{
+								{
+									PackageName: "github.com/google/uuid",
+									Version:     "v1.3.0",
+									PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.1"},
+									CVEIDs:      []string{"CVE-2023-12345"},
+								},
+							},
+						}, nil
 					},
-				}, nil
-			},
-		},
-		cmdRunner,
-	)
+				},
+				cmdRunner,
+			)
 
-	require.NoError(t, app.Run(ctx))
+			require.NoError(t, app.Run(ctx))
 
-	content, err := os.ReadFile(goModPath)
-	require.NoError(t, err)
-	assert.Equal(t, originalContent, string(content), "go.mod must not be modified in dry-run mode")
-	assert.Empty(t, cmdRunner.Calls, "no commands should be run in dry-run mode")
+			content, err := os.ReadFile(goModPath)
+			require.NoError(t, err)
+			assert.Equal(t, originalContent, string(content), "go.mod must not be modified in dry-run mode")
+			assert.Empty(t, cmdRunner.Calls, "no commands should be run in dry-run mode")
+		})
+	}
 }
 
 func TestGoLangApp_Run_ApplyPatches(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	tests := []struct {
+		name            string
+		updateGoVersion bool
+		wantCmds        [][]string
+	}{
+		{
+			name:            "updateGoVersion=false: only tidy",
+			updateGoVersion: false,
+			wantCmds:        [][]string{{"mod", "tidy"}},
+		},
+		{
+			name:            "updateGoVersion=true: go get then tidy",
+			updateGoVersion: true,
+			wantCmds:        [][]string{{"get", "go@latest"}, {"mod", "tidy"}},
+		},
+	}
 
-	goModPath := writeGoMod(t, t.TempDir(), `module example.com/app
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+			goModPath := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
 require github.com/google/uuid v1.3.0
 `)
-	cmdRunner := &MockCommandRunner{}
+			cmdRunner := &MockCommandRunner{}
 
-	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false /* not dry-run */, logger,
-		NewGoModParser(logger),
-		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
-				return &rootio.AnalyzePackagesResponse{
-					Patches: []rootio.PackagePatch{
-						{
-							PackageName: "github.com/google/uuid",
-							Version:     "v1.3.0",
-							PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.1"},
-						},
+			app := NewApp(
+				"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, tc.updateGoVersion, logger,
+				NewGoModParser(logger),
+				&MockAPIClient{
+					AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+						return &rootio.AnalyzePackagesResponse{
+							Patches: []rootio.PackagePatch{
+								{
+									PackageName: "github.com/google/uuid",
+									Version:     "v1.3.0",
+									PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.1"},
+								},
+							},
+						}, nil
 					},
-				}, nil
-			},
-		},
-		cmdRunner,
-	)
+				},
+				cmdRunner,
+			)
 
-	require.NoError(t, app.Run(ctx))
+			require.NoError(t, app.Run(ctx))
 
-	content, err := os.ReadFile(goModPath)
-	require.NoError(t, err)
-	assert.True(t, containsLine(string(content), "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"))
-	// require directive must not be modified
-	assert.True(t, strings.Contains(string(content), "require github.com/google/uuid v1.3.0"))
+			content, err := os.ReadFile(goModPath)
+			require.NoError(t, err)
+			assert.True(t, containsLine(string(content), "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"))
+			assert.True(t, strings.Contains(string(content), "require github.com/google/uuid v1.3.0"), "require directive must not be modified")
 
-	require.Len(t, cmdRunner.Calls, 1, "expected exactly one command (go mod tidy)")
-	assert.Equal(t, "go", cmdRunner.Calls[0].Name)
-	assert.Equal(t, "mod tidy", strings.Join(cmdRunner.Calls[0].Args, " "))
+			require.Len(t, cmdRunner.Calls, len(tc.wantCmds))
+			for i, wantArgs := range tc.wantCmds {
+				assert.Equal(t, wantArgs, cmdRunner.Calls[i].Args)
+			}
+		})
+	}
 }
 
 func TestGoLangApp_Run_ApplyPatches_WithVendor(t *testing.T) {
@@ -197,7 +257,7 @@ require github.com/google/uuid v1.3.0
 	cmdRunner := &MockCommandRunner{}
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, false, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
 			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
@@ -235,7 +295,7 @@ require github.com/google/uuid v1.3.0
 	cmdRunner := &MockCommandRunner{}
 
 	app := NewApp(
-		"my-api-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, logger,
+		"my-api-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, false, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
 			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
@@ -274,7 +334,7 @@ require github.com/google/uuid v1.3.0
 
 	var capturedEcosystem string
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, false, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
 			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {

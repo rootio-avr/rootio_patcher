@@ -35,36 +35,39 @@ func (r *RealCommandRunner) Run(ctx context.Context, dir string, env []string, n
 
 // App handles Go module remediation.
 type App struct {
-	apiKey    string
-	apiURL    string
-	pkgURL    string
-	goModPath string
-	dryRun    bool
-	logger    *slog.Logger
-	parser    GoModParser
-	apiClient common.APIClient
-	cmdRunner CommandRunner
+	apiKey          string
+	apiURL          string
+	pkgURL          string
+	goModPath       string
+	dryRun          bool
+	updateGoVersion bool
+	logger          *slog.Logger
+	parser          GoModParser
+	apiClient       common.APIClient
+	cmdRunner       CommandRunner
 }
 
 // NewApp creates a new App with injected services.
 func NewApp(
 	apiKey, apiURL, pkgURL, goModPath string,
 	dryRun bool,
+	updateGoVersion bool,
 	logger *slog.Logger,
 	parser GoModParser,
 	apiClient common.APIClient,
 	cmdRunner CommandRunner,
 ) *App {
 	return &App{
-		apiKey:    apiKey,
-		apiURL:    apiURL,
-		pkgURL:    pkgURL,
-		goModPath: goModPath,
-		dryRun:    dryRun,
-		logger:    logger,
-		parser:    parser,
-		apiClient: apiClient,
-		cmdRunner: cmdRunner,
+		apiKey:          apiKey,
+		apiURL:          apiURL,
+		pkgURL:          pkgURL,
+		goModPath:       goModPath,
+		dryRun:          dryRun,
+		updateGoVersion: updateGoVersion,
+		logger:          logger,
+		parser:          parser,
+		apiClient:       apiClient,
+		cmdRunner:       cmdRunner,
 	}
 }
 
@@ -105,33 +108,35 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	a.logger.DebugContext(ctx, "Parsed packages", slog.Int("count", len(packages)))
 
-	if len(packages) == 0 {
+	// 3. Handle no packages (only early-exit if not updating go version)
+	if len(packages) == 0 && !a.updateGoVersion {
 		fmt.Println("\nNo packages found in go.mod")
 		return nil
 	}
 
-	// 3. Convert to API format
-	sdkPackages := make([]rootio.Package, len(packages))
-	for i, pkg := range packages {
-		sdkPackages[i] = rootio.Package{
-			Name:    pkg.Name,
-			Version: pkg.Version,
+	// 4. Call API (only if we have packages)
+	var patches []rootio.PackagePatch
+	if len(packages) > 0 {
+		sdkPackages := make([]rootio.Package, len(packages))
+		for i, pkg := range packages {
+			sdkPackages[i] = rootio.Package{
+				Name:    pkg.Name,
+				Version: pkg.Version,
+			}
 		}
+		a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
+		response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, "golang")
+		if err != nil {
+			return fmt.Errorf("failed to analyze packages: %w", err)
+		}
+		a.logger.DebugContext(ctx, "Vulnerability analysis complete",
+			slog.Int("patches_available", len(response.Patches)),
+			slog.Int("packages_skipped", len(response.Skipped)))
+		patches = response.Patches
 	}
 
-	// 4. Call API
-	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, "golang")
-	if err != nil {
-		return fmt.Errorf("failed to analyze packages: %w", err)
-	}
-
-	a.logger.DebugContext(ctx, "Vulnerability analysis complete",
-		slog.Int("patches_available", len(response.Patches)),
-		slog.Int("packages_skipped", len(response.Skipped)))
-
-	// 5. Handle no patches
-	if len(response.Patches) == 0 {
+	// 5. Handle nothing to do
+	if len(patches) == 0 && !a.updateGoVersion {
 		fmt.Println("\nNo patches available - all packages are up to date!")
 		return nil
 	}
@@ -139,41 +144,50 @@ func (a *App) Run(ctx context.Context) error {
 	// 6. Dry-run: print what would be done
 	if a.dryRun {
 		a.logger.DebugContext(ctx, "DRY-RUN MODE: No changes will be made")
-		a.reportDryRun(response.Patches)
+		a.reportDryRun(patches)
 		return nil
 	}
 
-	// 7. Build updates
-	updates := make([]GoModUpdate, len(response.Patches))
-	for i, patch := range response.Patches {
-		updates[i] = GoModUpdate{
-			Module:         patch.PackageName,
-			CurrentVersion: patch.Version,
-			AliasName:      patch.PatchAlias.Name,
-			AliasVersion:   patch.PatchAlias.Version,
+	goModDir := filepath.Dir(a.goModPath)
+	goEnv := a.goEnv()
+
+	// 7. Apply patches to go.mod (if any)
+	if len(patches) > 0 {
+		updates := make([]GoModUpdate, len(patches))
+		for i, patch := range patches {
+			updates[i] = GoModUpdate{
+				Module:         patch.PackageName,
+				CurrentVersion: patch.Version,
+				AliasName:      patch.PatchAlias.Name,
+				AliasVersion:   patch.PatchAlias.Version,
+			}
+		}
+		fmt.Printf("\nApplying %d patch(es) to %s...\n\n", len(updates), a.goModPath)
+		updatedContent, err := a.parser.Patch(ctx, a.goModPath, updates)
+		if err != nil {
+			return fmt.Errorf("failed to patch %s: %w", a.goModPath, err)
+		}
+		if err := os.WriteFile(a.goModPath, []byte(updatedContent), 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", a.goModPath, err)
 		}
 	}
 
-	// 8. Apply patches to go.mod
-	fmt.Printf("\nApplying %d patch(es) to %s...\n\n", len(updates), a.goModPath)
-
-	updatedContent, err := a.parser.Patch(ctx, a.goModPath, updates)
-	if err != nil {
-		return fmt.Errorf("failed to patch %s: %w", a.goModPath, err)
-	}
-	if err := os.WriteFile(a.goModPath, []byte(updatedContent), 0644); err != nil {
-		return fmt.Errorf("failed to write %s: %w", a.goModPath, err)
+	// 8. Update go version to latest (if requested)
+	if a.updateGoVersion {
+		fmt.Println("\nUpdating Go version to latest...")
+		a.logger.DebugContext(ctx, "Running go get go@latest", slog.String("dir", goModDir))
+		if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "get", "go@latest"); err != nil {
+			return fmt.Errorf("go get go@latest failed: %w", err)
+		}
 	}
 
-	// 10. Run go mod tidy
-	goModDir := filepath.Dir(a.goModPath)
-	goEnv := a.goEnv()
+	// 9. Run go mod tidy
 	a.logger.DebugContext(ctx, "Running go mod tidy", slog.String("dir", goModDir))
 	if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "mod", "tidy"); err != nil {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
-	// 11. If a vendor directory exists, run go mod vendor
+	// 10. If a vendor directory exists, run go mod vendor
 	vendorFile := filepath.Join(goModDir, "vendor", "modules.txt")
 	if _, err := os.Stat(vendorFile); err == nil {
 		a.logger.DebugContext(ctx, "Vendor directory detected, running go mod vendor", slog.String("dir", goModDir))
@@ -182,7 +196,12 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
-	fmt.Printf("\n✓ Successfully patched %s with %d replace directive(s)!\n", a.goModPath, len(updates))
+	if len(patches) > 0 {
+		fmt.Printf("\n✓ Successfully patched %s with %d replace directive(s)!\n", a.goModPath, len(patches))
+	}
+	if a.updateGoVersion {
+		fmt.Println("✓ Successfully updated Go version to latest!")
+	}
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. Review the changes in your go.mod")
 	fmt.Println("  2. Run: go build ./...")
@@ -191,23 +210,30 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
-// reportDryRun prints the replace directives that would be added without modifying files.
+// reportDryRun prints the changes that would be made without modifying files.
 func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	fmt.Println("\n=== DRY-RUN MODE ===")
-	fmt.Printf("The following replace directives would be added to %s:\n\n", a.goModPath)
 
-	for i, patch := range patches {
-		fmt.Printf("%d. replace %s %s => %s %s\n",
-			i+1,
-			patch.PackageName, patch.Version,
-			patch.PatchAlias.Name, patch.PatchAlias.Version)
-		if len(patch.CVEIDs) > 0 {
-			fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
+	if len(patches) > 0 {
+		fmt.Printf("The following replace directives would be added to %s:\n\n", a.goModPath)
+		for i, patch := range patches {
+			fmt.Printf("%d. replace %s %s => %s %s\n",
+				i+1,
+				patch.PackageName, patch.Version,
+				patch.PatchAlias.Name, patch.PatchAlias.Version)
+			if len(patch.CVEIDs) > 0 {
+				fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
+			}
+			fmt.Println()
 		}
+	}
+
+	if a.updateGoVersion {
+		fmt.Println("Go version would be updated to latest (go get go@latest)")
 		fmt.Println()
 	}
 
-	fmt.Println("To apply these patches:")
-	fmt.Println("  1. Run: rootio_patcher golang remediate --dry-run=false")
+	fmt.Println("To apply these changes:")
+	fmt.Println("  1. Run: rootio_patcher go remediate --dry-run=false")
 	fmt.Println("  2. Then run: go build ./...")
 }

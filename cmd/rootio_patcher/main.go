@@ -166,8 +166,9 @@ type GoCmd struct {
 
 // GoRemediateCmd remediates Go modules by adding replace directives to go.mod
 type GoRemediateCmd struct {
-	GoMod  string `default:"go.mod" help:"Path to go.mod"`
-	DryRun bool   `default:"true" help:"Preview changes without applying them"`
+	GoMod           string `default:"go.mod" help:"Path to go.mod"`
+	DryRun          bool   `default:"true" help:"Preview changes without applying them"`
+	UpdateGoVersion bool   `default:"false" help:"Update the go directive in go.mod to the latest Go version (fixes stdlib CVEs)"`
 }
 
 // Run executes the go remediate command
@@ -175,7 +176,7 @@ func (cmd *GoRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *
 	logger.InfoContext(ctx, "Starting Go module remediation", slog.String("go_mod", cmd.GoMod))
 
 	app := golang.NewApp(
-		cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.GoMod, cmd.DryRun, logger,
+		cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.GoMod, cmd.DryRun, cmd.UpdateGoVersion, logger,
 		golang.NewGoModParser(logger),
 		rootio.NewClient(cfg.APIURL, cfg.APIKey),
 		golang.NewRealCommandRunner(),

@@ -38,6 +38,7 @@ require (
 		"https://pkg.root.io",
 		goModPath,
 		false,
+		false,
 		logger,
 		NewGoModParser(logger), // real parser
 		&MockAPIClient{
@@ -106,6 +107,7 @@ replace github.com/pkg/errors v0.9.1 => github.com/pkg/errors-fork v0.9.1-custom
 		"https://pkg.root.io",
 		goModPath,
 		false,
+		false,
 		logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
@@ -160,6 +162,7 @@ replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uu
 		"https://api.root.io",
 		"https://pkg.root.io",
 		goModPath,
+		false,
 		false,
 		logger,
 		NewGoModParser(logger),
@@ -217,6 +220,7 @@ require github.com/google/uuid v1.3.0
 		"https://api.root.io",
 		"https://pkg.root.io",
 		goModPath,
+		false,
 		false,
 		logger,
 		NewGoModParser(logger), // real parser
