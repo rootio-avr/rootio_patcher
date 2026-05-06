@@ -36,9 +36,9 @@ func (p *PnpmParser) CanHandle(fileName string) bool {
 
 // PnpmLockFile represents the structure of pnpm-lock.yaml
 type PnpmLockFile struct {
-	LockfileVersion string                       `yaml:"lockfileVersion"`
-	Importers       map[string]PnpmImporter      `yaml:"importers"`
-	Packages        map[string]PnpmPackageEntry  `yaml:"packages"`
+	LockfileVersion string                      `yaml:"lockfileVersion"`
+	Importers       map[string]PnpmImporter     `yaml:"importers"`
+	Packages        map[string]PnpmPackageEntry `yaml:"packages"`
 }
 
 // PnpmImporter represents an importer (project root or workspace)
@@ -151,13 +151,28 @@ func (p *PnpmParser) Validate(content string) bool {
 	return lockfile.LockfileVersion != ""
 }
 
-// UpdatePackageJSON updates package.json with pnpm overrides (nested under "pnpm")
-func (p *PnpmParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string, packageJSONPath string) error {
-	patcher := NewPackageJSONPatcher()
-	return patcher.Patch(ctx, PatchOptions{
-		Updates:                  overrides,
-		UpdateDirectDependencies: true,
-		OverridesPath:            "pnpm.overrides",
-		PackageJSONPath:          packageJSONPath,
+// FindParents is a no-op for pnpm: pnpm.overrides supports version-scoped flat
+// keys ("name@version"), so we don't need parent information to scope an
+// override correctly. Returning nil signals "no parents needed".
+func (p *PnpmParser) FindParents(ctx context.Context, lockFilePath, packageName, version string) ([]string, error) {
+	return nil, nil
+}
+
+// UpdatePackageJSON writes pnpm overrides as version-scoped flat keys:
+//
+//	"pnpm": { "overrides": { "<name>@<version>": "<alias>" } }
+//
+// This form is documented by pnpm and only matches the exact vulnerable
+// version, so unrelated copies of the same package (e.g. the user's direct
+// dependency at a different major) are untouched. Direct dependencies are
+// never modified.
+func (p *PnpmParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
+	sets := make(map[string]string)
+	for _, ov := range overrides {
+		sets[pnpmOverridesPath+"."+escapeSjsonKey(ov.PackageName+"@"+ov.Version)] = ov.Value
+	}
+	return NewPackageJSONPatcher().Patch(ctx, PatchOptions{
+		Sets:            sets,
+		PackageJSONPath: packageJSONPath,
 	})
 }

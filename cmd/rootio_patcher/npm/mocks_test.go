@@ -21,7 +21,7 @@ func (m *MockAPIClient) AnalyzePackages(ctx context.Context, packages []rootio.P
 
 // MockParser is a mock implementation of Parser for testing
 type MockParser struct {
-	ParseFunc func(ctx context.Context, filePath string) ([]common.PackageInfo, error)
+	ParseFunc  func(ctx context.Context, filePath string) ([]common.PackageInfo, error)
 	UpdateFunc func(ctx context.Context, filePath string, updates map[string]string) (string, error)
 }
 
@@ -55,9 +55,12 @@ func (m *MockParser) CanHandle(fileName string) bool {
 	return fileName == "package-lock.json"
 }
 
-func (m *MockParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string, packageJSONPath string) error {
-	// Mock implementation - does nothing
+func (m *MockParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
 	return nil
+}
+
+func (m *MockParser) FindParents(ctx context.Context, lockFilePath, packageName, version string) ([]string, error) {
+	return nil, nil
 }
 
 // MockPnpmParser is a mock that uses real PnpmParser for UpdatePackageJSON but mocks Parse

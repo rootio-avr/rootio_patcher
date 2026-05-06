@@ -139,13 +139,153 @@ func (p *YarnParser) Validate(content string) bool {
 	return strings.Contains(lines[1], "# yarn lockfile v1")
 }
 
-// UpdatePackageJSON updates package.json with yarn resolutions
-func (p *YarnParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string, packageJSONPath string) error {
-	patcher := NewPackageJSONPatcher()
-	return patcher.Patch(ctx, PatchOptions{
-		Updates:                  overrides,
-		UpdateDirectDependencies: true,
-		OverridesPath:            "resolutions",
-		PackageJSONPath:          packageJSONPath,
+// FindParents scans yarn.lock for packages that depend on packageName at a
+// range resolving to the given version. It returns the parent package names
+// (e.g., "dockerode"). Empty result means the vulnerable copy is only at the
+// top level.
+func (p *YarnParser) FindParents(ctx context.Context, lockFilePath, packageName, version string) ([]string, error) {
+	content, err := os.ReadFile(lockFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+	entries := parseYarnLockEntries(content)
+
+	matchingRanges := make(map[string]bool)
+	for _, e := range entries {
+		if e.Version != version {
+			continue
+		}
+		for _, spec := range e.Specs {
+			name, rng := splitYarnSpec(spec)
+			if name == packageName {
+				matchingRanges[rng] = true
+			}
+		}
+	}
+	if len(matchingRanges) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]bool)
+	var parents []string
+	for _, e := range entries {
+		depRange, hasDep := e.Dependencies[packageName]
+		if !hasDep || !matchingRanges[depRange] {
+			continue
+		}
+		if len(e.Specs) == 0 {
+			continue
+		}
+		parentName, _ := splitYarnSpec(e.Specs[0])
+		if parentName == "" || parentName == packageName || seen[parentName] {
+			continue
+		}
+		seen[parentName] = true
+		parents = append(parents, parentName)
+	}
+	return parents, nil
+}
+
+// UpdatePackageJSON writes yarn resolutions as parent/child slash paths:
+//
+//	"resolutions": { "<parent>/<child>": "<alias>" }
+//
+// When no parent is known the entry falls back to a flat "<child>" key.
+// Direct dependencies are never modified.
+func (p *YarnParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
+	return NewPackageJSONPatcher().Patch(ctx, PatchOptions{
+		Sets:            buildResolutionSets(overrides),
+		PackageJSONPath: packageJSONPath,
 	})
+}
+
+// yarnLockEntry is the structured shape of one entry in a yarn.lock file (v1
+// format), used only for FindParents. Specs is the list of comma-separated
+// keys before the `:` (e.g. `["uuid@^10.0.0", "uuid@^10.5.0"]`).
+type yarnLockEntry struct {
+	Specs        []string
+	Version      string
+	Dependencies map[string]string
+}
+
+// parseYarnLockEntries walks a yarn.lock v1 file and returns every entry's
+// specs, resolved version, and dependencies block. It tolerates the
+// indentation conventions yarn uses (2 spaces for entry body, 4 spaces for
+// nested dependencies block).
+func parseYarnLockEntries(content []byte) []yarnLockEntry {
+	lines := strings.Split(string(content), "\n")
+	var entries []yarnLockEntry
+	var current *yarnLockEntry
+	inDeps := false
+
+	flush := func() {
+		if current != nil {
+			entries = append(entries, *current)
+			current = nil
+		}
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if line[0] != ' ' && strings.HasSuffix(line, ":") {
+			flush()
+			current = &yarnLockEntry{Dependencies: make(map[string]string)}
+			decl := strings.TrimSuffix(line, ":")
+			for _, spec := range strings.Split(decl, ",") {
+				spec = strings.TrimSpace(spec)
+				spec = strings.Trim(spec, `"`)
+				if spec != "" {
+					current.Specs = append(current.Specs, spec)
+				}
+			}
+			inDeps = false
+			continue
+		}
+
+		if current == nil {
+			continue
+		}
+
+		if strings.HasPrefix(line, "    ") && inDeps {
+			parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
+			if len(parts) == 2 {
+				name := strings.Trim(parts[0], `"`)
+				rng := strings.Trim(parts[1], `"`)
+				current.Dependencies[name] = rng
+			}
+			continue
+		}
+
+		if strings.HasPrefix(line, "  ") {
+			inDeps = false
+			body := strings.TrimSpace(line)
+			if body == "dependencies:" {
+				inDeps = true
+				continue
+			}
+			if strings.HasPrefix(body, "version ") {
+				parts := strings.SplitN(body, " ", 2)
+				if len(parts) == 2 {
+					current.Version = strings.Trim(parts[1], `"`)
+				}
+			}
+		}
+	}
+	flush()
+	return entries
+}
+
+// splitYarnSpec splits a yarn spec like "uuid@^10.0.0" or "@scope/name@npm:1.0"
+// into (name, range). Returns the spec as name and "" if no version separator
+// is found.
+func splitYarnSpec(spec string) (name, rng string) {
+	lastAt := strings.LastIndex(spec, "@")
+	if lastAt <= 0 {
+		return spec, ""
+	}
+	return spec[:lastAt], spec[lastAt+1:]
 }
