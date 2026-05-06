@@ -7,480 +7,224 @@ import (
 	"testing"
 )
 
-func TestPackageJSONPatcher_Pnpm_CreateNestedOverrides(t *testing.T) {
+// TestPnpmParser_UpdatePackageJSON_VersionScoped verifies pnpm uses the
+// version-scoped flat-key override form ("name@version") and never modifies
+// direct dependencies.
+func TestPnpmParser_UpdatePackageJSON_VersionScoped(t *testing.T) {
 	ctx := context.Background()
-
-	// Create temp directory
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	pkgPath := tmpDir + "/package.json"
 
-	// Create package.json WITHOUT pnpm section
-	packageJSON := `{
+	pkg := `{
   "name": "test-app",
   "version": "1.0.0",
   "dependencies": {
-    "lodash": "^4.17.20"
+    "dockerode": "^4.0.12",
+    "uuid": "^14.0.0"
   }
 }`
-	if err := os.WriteFile("package.json", []byte(packageJSON), 0644); err != nil {
+	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
 		t.Fatalf("Failed to create package.json: %v", err)
 	}
 
-	// Create patcher
-	patcher := NewPackageJSONPatcher()
-
-	// Apply patches - should create pnpm.overrides structure
-	overrides := map[string]string{
-		"lodash": "npm:@rootio/lodash@4.17.21",
-		"express": "npm:@rootio/express@4.18.2",
+	overrides := []ScopedOverride{
+		{
+			PackageName: "uuid",
+			Version:     "10.0.0",
+			Value:       "npm:@rootio/uuid@10.0.0-root.io.1",
+		},
+	}
+	if err := NewPnpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+		t.Fatalf("UpdatePackageJSON failed: %v", err)
 	}
 
-	if err := patcher.Patch(ctx, PatchOptions{
-		Updates:                  overrides,
-		UpdateDirectDependencies: true,
-		OverridesPath:            "pnpm.overrides",
-	}); err != nil {
-		t.Fatalf("Patch failed: %v", err)
-	}
+	got, _ := os.ReadFile(pkgPath)
+	content := string(got)
 
-	// Read updated file
-	content, err := os.ReadFile("package.json")
-	if err != nil {
-		t.Fatalf("Failed to read updated package.json: %v", err)
+	if !strings.Contains(content, `"uuid": "^14.0.0"`) {
+		t.Errorf("user's direct uuid@^14.0.0 must be unchanged; got:\n%s", content)
 	}
-
-	contentStr := string(content)
-
-	// Verify nested pnpm.overrides structure was created
-	if !strings.Contains(contentStr, `"pnpm"`) {
-		t.Error("Expected pnpm field in package.json")
+	if !strings.Contains(content, `"uuid@10.0.0": "npm:@rootio/uuid@10.0.0-root.io.1"`) {
+		t.Errorf("expected version-scoped pnpm override key 'uuid@10.0.0'; got:\n%s", content)
 	}
-	if !strings.Contains(contentStr, `"overrides"`) {
-		t.Error("Expected overrides field nested under pnpm")
+	if !strings.Contains(content, `"pnpm"`) {
+		t.Error("expected pnpm field")
 	}
-
-	// Verify both overrides exist
-	if !strings.Contains(contentStr, "npm:@rootio/lodash@4.17.21") {
-		t.Error("Expected lodash override")
-	}
-	if !strings.Contains(contentStr, "npm:@rootio/express@4.18.2") {
-		t.Error("Expected express override")
-	}
-
-	// Verify direct dependency was updated
-	if !strings.Contains(contentStr, `"lodash": "npm:@rootio/lodash@4.17.21"`) {
-		t.Error("Expected lodash direct dependency to be updated")
-	}
-
-	t.Logf("Updated package.json:\n%s", contentStr)
 }
 
-func TestPackageJSONPatcher_Pnpm_AppendToExistingOverrides(t *testing.T) {
+// TestPnpmParser_UpdatePackageJSON_AppendsToExisting verifies new overrides
+// are merged into an existing pnpm.overrides block.
+func TestPnpmParser_UpdatePackageJSON_AppendsToExisting(t *testing.T) {
 	ctx := context.Background()
-
-	// Create temp directory
 	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	pkgPath := tmpDir + "/package.json"
 
-	// Create package.json with existing pnpm.overrides
-	packageJSON := `{
-  "name": "test-app",
-  "version": "1.0.0",
-  "dependencies": {
-    "lodash": "^4.17.20",
-    "express": "^4.18.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "axios": "^1.2.0"
-    }
-  }
-}`
-	if err := os.WriteFile("package.json", []byte(packageJSON), 0644); err != nil {
-		t.Fatalf("Failed to create package.json: %v", err)
-	}
-
-	// Create patcher
-	patcher := NewPackageJSONPatcher()
-
-	// Apply new patches - should append to existing pnpm.overrides
-	overrides := map[string]string{
-		"lodash":  "npm:@rootio/lodash@4.17.21",
-		"express": "npm:@rootio/express@4.18.2",
-	}
-
-	if err := patcher.Patch(ctx, PatchOptions{
-		Updates:                  overrides,
-		UpdateDirectDependencies: true,
-		OverridesPath:            "pnpm.overrides",
-	}); err != nil {
-		t.Fatalf("Patch failed: %v", err)
-	}
-
-	// Read updated file
-	content, err := os.ReadFile("package.json")
-	if err != nil {
-		t.Fatalf("Failed to read updated package.json: %v", err)
-	}
-
-	contentStr := string(content)
-
-	// Verify existing override is preserved
-	if !strings.Contains(contentStr, "axios") {
-		t.Error("Expected existing axios override to be preserved")
-	}
-
-	// Verify new overrides were added
-	if !strings.Contains(contentStr, "npm:@rootio/lodash@4.17.21") {
-		t.Error("Expected lodash override to be added")
-	}
-	if !strings.Contains(contentStr, "npm:@rootio/express@4.18.2") {
-		t.Error("Expected express override to be added")
-	}
-
-	t.Logf("Updated package.json:\n%s", contentStr)
-}
-
-func TestPackageJSONPatcher_Pnpm_ScopedPackages(t *testing.T) {
-	ctx := context.Background()
-
-	// Create temp directory
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create package.json with scoped dependencies
-	packageJSON := `{
-  "name": "test-app",
-  "version": "1.0.0",
-  "dependencies": {
-    "@babel/runtime": "^7.25.0",
-    "@types/node": "^18.0.0"
-  },
-  "devDependencies": {
-    "@babel/core": "^7.20.0"
-  }
-}`
-	if err := os.WriteFile("package.json", []byte(packageJSON), 0644); err != nil {
-		t.Fatalf("Failed to create package.json: %v", err)
-	}
-
-	// Create patcher
-	patcher := NewPackageJSONPatcher()
-
-	// Apply patches with scoped packages
-	overrides := map[string]string{
-		"@babel/runtime": "npm:@rootio/babel__runtime@7.25.0-root.io.1",
-		"@types/node":    "npm:@rootio/types__node@18.11.0",
-		"@babel/core":    "npm:@rootio/babel__core@7.21.0",
-	}
-
-	if err := patcher.Patch(ctx, PatchOptions{
-		Updates:                  overrides,
-		UpdateDirectDependencies: true,
-		OverridesPath:            "pnpm.overrides",
-	}); err != nil {
-		t.Fatalf("Patch failed: %v", err)
-	}
-
-	// Read updated file
-	content, err := os.ReadFile("package.json")
-	if err != nil {
-		t.Fatalf("Failed to read updated package.json: %v", err)
-	}
-
-	contentStr := string(content)
-
-	// Verify scoped package overrides
-	if !strings.Contains(contentStr, "@babel/runtime") {
-		t.Error("Expected @babel/runtime in package.json")
-	}
-	if !strings.Contains(contentStr, "npm:@rootio/babel__runtime@7.25.0-root.io.1") {
-		t.Error("Expected @babel/runtime override")
-	}
-	if !strings.Contains(contentStr, "@types/node") {
-		t.Error("Expected @types/node in package.json")
-	}
-	if !strings.Contains(contentStr, "@babel/core") {
-		t.Error("Expected @babel/core in devDependencies")
-	}
-
-	// Verify pnpm.overrides exists
-	if !strings.Contains(contentStr, `"pnpm"`) {
-		t.Error("Expected pnpm field in package.json")
-	}
-	if !strings.Contains(contentStr, `"overrides"`) {
-		t.Error("Expected overrides field nested under pnpm")
-	}
-
-	t.Logf("Updated package.json:\n%s", contentStr)
-}
-
-func TestPackageJSONPatcher_Pnpm_OnlyOverridesNoDirectUpdate(t *testing.T) {
-	ctx := context.Background()
-
-	// Create temp directory
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create package.json
-	packageJSON := `{
-  "name": "test-app",
-  "version": "1.0.0",
-  "dependencies": {
-    "lodash": "^4.17.20"
-  }
-}`
-	if err := os.WriteFile("package.json", []byte(packageJSON), 0644); err != nil {
-		t.Fatalf("Failed to create package.json: %v", err)
-	}
-
-	// Create patcher
-	patcher := NewPackageJSONPatcher()
-
-	// Apply patches WITHOUT updating direct dependencies
-	overrides := map[string]string{
-		"lodash": "npm:@rootio/lodash@4.17.21",
-	}
-
-	if err := patcher.Patch(ctx, PatchOptions{
-		Updates:                  overrides,
-		UpdateDirectDependencies: false, // Don't touch direct dependencies
-		OverridesPath:            "pnpm.overrides",
-	}); err != nil {
-		t.Fatalf("Patch failed: %v", err)
-	}
-
-	// Read updated file
-	content, err := os.ReadFile("package.json")
-	if err != nil {
-		t.Fatalf("Failed to read updated package.json: %v", err)
-	}
-
-	contentStr := string(content)
-
-	// Verify direct dependency was NOT changed
-	if !strings.Contains(contentStr, `"lodash": "^4.17.20"`) {
-		t.Error("Expected original lodash dependency to remain unchanged")
-	}
-
-	// Verify override was added
-	if !strings.Contains(contentStr, "npm:@rootio/lodash@4.17.21") {
-		t.Error("Expected lodash override in pnpm.overrides")
-	}
-
-	t.Logf("Updated package.json:\n%s", contentStr)
-}
-
-func TestPackageJSONPatcher_Pnpm_MultiplePackagesWithVersions(t *testing.T) {
-	ctx := context.Background()
-
-	// Create temp directory
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create package.json with multiple packages
-	packageJSON := `{
-  "name": "test-app",
-  "version": "1.0.0",
-  "dependencies": {
-    "lodash": "^4.17.20",
-    "express": "^4.18.0",
-    "axios": "^1.0.0"
-  },
-  "devDependencies": {
-    "jest": "^29.0.0",
-    "mocha": "^8.0.0"
-  }
-}`
-	if err := os.WriteFile("package.json", []byte(packageJSON), 0644); err != nil {
-		t.Fatalf("Failed to create package.json: %v", err)
-	}
-
-	// Create patcher
-	patcher := NewPackageJSONPatcher()
-
-	// Apply patches to multiple packages
-	overrides := map[string]string{
-		"lodash":  "npm:@rootio/lodash@4.17.21",
-		"express": "npm:@rootio/express@4.18.2",
-		"jest":    "npm:@rootio/jest@29.5.0",
-		"axios":   "npm:@rootio/axios@1.2.0",
-	}
-
-	if err := patcher.Patch(ctx, PatchOptions{
-		Updates:                  overrides,
-		UpdateDirectDependencies: true,
-		OverridesPath:            "pnpm.overrides",
-	}); err != nil {
-		t.Fatalf("Patch failed: %v", err)
-	}
-
-	// Read updated file
-	content, err := os.ReadFile("package.json")
-	if err != nil {
-		t.Fatalf("Failed to read updated package.json: %v", err)
-	}
-
-	contentStr := string(content)
-
-	// Verify all overrides were added
-	expectedOverrides := []string{
-		"npm:@rootio/lodash@4.17.21",
-		"npm:@rootio/express@4.18.2",
-		"npm:@rootio/jest@29.5.0",
-		"npm:@rootio/axios@1.2.0",
-	}
-
-	for _, override := range expectedOverrides {
-		if !strings.Contains(contentStr, override) {
-			t.Errorf("Expected to find override: %s", override)
-		}
-	}
-
-	// Verify mocha (not in overrides) remains unchanged
-	if !strings.Contains(contentStr, `"mocha": "^8.0.0"`) {
-		t.Error("Expected mocha to remain unchanged")
-	}
-
-	t.Logf("Updated package.json:\n%s", contentStr)
-}
-
-func TestPackageJSONPatcher_Pnpm_EmptyPackageJSON(t *testing.T) {
-	ctx := context.Background()
-
-	// Create temp directory
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create minimal package.json
-	packageJSON := `{
-  "name": "test-app",
-  "version": "1.0.0"
-}`
-	if err := os.WriteFile("package.json", []byte(packageJSON), 0644); err != nil {
-		t.Fatalf("Failed to create package.json: %v", err)
-	}
-
-	// Create patcher
-	patcher := NewPackageJSONPatcher()
-
-	// Apply patches to package not in dependencies
-	overrides := map[string]string{
-		"lodash": "npm:@rootio/lodash@4.17.21",
-	}
-
-	if err := patcher.Patch(ctx, PatchOptions{
-		Updates:                  overrides,
-		UpdateDirectDependencies: true,
-		OverridesPath:            "pnpm.overrides",
-	}); err != nil {
-		t.Fatalf("Patch failed: %v", err)
-	}
-
-	// Read updated file
-	content, err := os.ReadFile("package.json")
-	if err != nil {
-		t.Fatalf("Failed to read updated package.json: %v", err)
-	}
-
-	contentStr := string(content)
-
-	// Verify pnpm.overrides was created
-	if !strings.Contains(contentStr, `"pnpm"`) {
-		t.Error("Expected pnpm field in package.json")
-	}
-	if !strings.Contains(contentStr, `"overrides"`) {
-		t.Error("Expected overrides field nested under pnpm")
-	}
-	if !strings.Contains(contentStr, "npm:@rootio/lodash@4.17.21") {
-		t.Error("Expected lodash override")
-	}
-
-	t.Logf("Updated package.json:\n%s", contentStr)
-}
-
-func TestPackageJSONPatcher_Pnpm_PreserveExistingPnpmConfig(t *testing.T) {
-	ctx := context.Background()
-
-	// Create temp directory
-	tmpDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
-
-	// Create package.json with existing pnpm config
-	packageJSON := `{
+	pkg := `{
   "name": "test-app",
   "version": "1.0.0",
   "dependencies": {
     "lodash": "^4.17.20"
   },
   "pnpm": {
-    "peerDependencyRules": {
-      "ignoreMissing": ["react"]
-    },
     "overrides": {
-      "foo": "1.0.0"
+      "axios@1.2.0": "npm:@rootio/axios@1.2.1"
     }
   }
 }`
-	if err := os.WriteFile("package.json", []byte(packageJSON), 0644); err != nil {
+	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
 		t.Fatalf("Failed to create package.json: %v", err)
 	}
 
-	// Create patcher
-	patcher := NewPackageJSONPatcher()
-
-	// Apply new overrides
-	overrides := map[string]string{
-		"lodash": "npm:@rootio/lodash@4.17.21",
+	overrides := []ScopedOverride{
+		{
+			PackageName: "lodash",
+			Version:     "4.17.20",
+			Value:       "npm:@rootio/lodash@4.17.21",
+		},
+	}
+	if err := NewPnpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+		t.Fatalf("UpdatePackageJSON failed: %v", err)
 	}
 
-	if err := patcher.Patch(ctx, PatchOptions{
-		Updates:                  overrides,
-		UpdateDirectDependencies: true,
-		OverridesPath:            "pnpm.overrides",
-	}); err != nil {
-		t.Fatalf("Patch failed: %v", err)
+	got, _ := os.ReadFile(pkgPath)
+	content := string(got)
+
+	if !strings.Contains(content, `"axios@1.2.0": "npm:@rootio/axios@1.2.1"`) {
+		t.Error("existing pnpm override should be preserved")
+	}
+	if !strings.Contains(content, `"lodash@4.17.20": "npm:@rootio/lodash@4.17.21"`) {
+		t.Error("expected new lodash@4.17.20 version-scoped override")
+	}
+}
+
+// TestPnpmParser_UpdatePackageJSON_ScopedPackage verifies that escaping
+// produces a literal "@scope/name@version" key in the JSON (not a backslash-
+// escaped variant).
+func TestPnpmParser_UpdatePackageJSON_ScopedPackage(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	pkgPath := tmpDir + "/package.json"
+
+	pkg := `{
+  "name": "test-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "@babel/runtime": "^7.25.0"
+  }
+}`
+	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
 	}
 
-	// Read updated file
-	content, err := os.ReadFile("package.json")
-	if err != nil {
-		t.Fatalf("Failed to read updated package.json: %v", err)
+	overrides := []ScopedOverride{
+		{
+			PackageName: "@babel/runtime",
+			Version:     "7.25.0",
+			Value:       "npm:@rootio/babel__runtime@7.25.0",
+		},
+	}
+	if err := NewPnpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+		t.Fatalf("UpdatePackageJSON failed: %v", err)
 	}
 
-	contentStr := string(content)
+	got, _ := os.ReadFile(pkgPath)
+	content := string(got)
 
-	// Verify existing pnpm config is preserved
-	if !strings.Contains(contentStr, `"peerDependencyRules"`) {
-		t.Error("Expected existing peerDependencyRules to be preserved")
+	if !strings.Contains(content, `"@babel/runtime@7.25.0": "npm:@rootio/babel__runtime@7.25.0"`) {
+		t.Errorf("expected literal key '@babel/runtime@7.25.0' in pnpm.overrides; got:\n%s", content)
 	}
-	if !strings.Contains(contentStr, `"ignoreMissing"`) {
-		t.Error("Expected ignoreMissing config to be preserved")
+	if strings.Contains(content, `\@`) || strings.Contains(content, `\.`) {
+		t.Errorf("backslash-escape sequence leaked into JSON output; got:\n%s", content)
+	}
+}
+
+// TestNpmParser_UpdatePackageJSON_ScopedParent verifies that an npm parent-
+// nested override with a scoped parent name (e.g. "@babel/core") lands as a
+// proper nested object under "@babel/core", not as a deep-nested path.
+func TestNpmParser_UpdatePackageJSON_ScopedParent(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	pkgPath := tmpDir + "/package.json"
+
+	pkg := `{
+  "name": "test-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "@babel/core": "^7.0.0"
+  }
+}`
+	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
 	}
 
-	// Verify existing override is preserved
-	if !strings.Contains(contentStr, `"foo"`) {
-		t.Error("Expected existing foo override to be preserved")
+	overrides := []ScopedOverride{
+		{
+			PackageName: "json5",
+			Version:     "2.0.0",
+			Value:       "npm:@rootio/json5@2.0.1",
+			Parents:     []string{"@babel/core"},
+		},
+	}
+	if err := NewNpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+		t.Fatalf("UpdatePackageJSON failed: %v", err)
 	}
 
-	// Verify new override was added
-	if !strings.Contains(contentStr, "npm:@rootio/lodash@4.17.21") {
-		t.Error("Expected new lodash override to be added")
+	got, _ := os.ReadFile(pkgPath)
+	content := string(got)
+
+	if !strings.Contains(content, `"@babel/core": {`) {
+		t.Errorf("expected nested object under '@babel/core'; got:\n%s", content)
+	}
+	if !strings.Contains(content, `"json5": "npm:@rootio/json5@2.0.1"`) {
+		t.Errorf("expected json5 override under @babel/core; got:\n%s", content)
+	}
+	if strings.Contains(content, `\@`) || strings.Contains(content, `\.`) {
+		t.Errorf("backslash-escape sequence leaked into JSON output; got:\n%s", content)
+	}
+}
+
+// TestYarnParser_UpdatePackageJSON_ParentScoped verifies yarn uses the
+// parent/child slash-path resolution form and never modifies direct
+// dependencies.
+func TestYarnParser_UpdatePackageJSON_ParentScoped(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	pkgPath := tmpDir + "/package.json"
+
+	pkg := `{
+  "name": "test-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "dockerode": "^4.0.12",
+    "uuid": "^14.0.0"
+  }
+}`
+	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
 	}
 
-	t.Logf("Updated package.json:\n%s", contentStr)
+	overrides := []ScopedOverride{
+		{
+			PackageName: "uuid",
+			Version:     "10.0.0",
+			Value:       "npm:@rootio/uuid@10.0.0-root.io.1",
+			Parents:     []string{"dockerode"},
+		},
+	}
+	if err := NewYarnParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+		t.Fatalf("UpdatePackageJSON failed: %v", err)
+	}
+
+	got, _ := os.ReadFile(pkgPath)
+	content := string(got)
+
+	if !strings.Contains(content, `"uuid": "^14.0.0"`) {
+		t.Errorf("user's direct uuid@^14.0.0 must be unchanged; got:\n%s", content)
+	}
+	if !strings.Contains(content, `"dockerode/uuid": "npm:@rootio/uuid@10.0.0-root.io.1"`) {
+		t.Errorf("expected parent/child slash-path resolution 'dockerode/uuid'; got:\n%s", content)
+	}
+	if !strings.Contains(content, `"resolutions"`) {
+		t.Error("expected resolutions field")
+	}
 }

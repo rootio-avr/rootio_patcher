@@ -42,12 +42,12 @@ type Yarn2LockFile struct {
 
 // Yarn2PackageEntry represents a package entry in Yarn 2+ lock file
 type Yarn2PackageEntry struct {
-	Version      string                 `yaml:"version"`
-	Resolution   string                 `yaml:"resolution"`
-	Dependencies map[string]string      `yaml:"dependencies"`
-	Checksum     string                 `yaml:"checksum"`
-	LanguageName string                 `yaml:"languageName"`
-	LinkType     string                 `yaml:"linkType"`
+	Version      string            `yaml:"version"`
+	Resolution   string            `yaml:"resolution"`
+	Dependencies map[string]string `yaml:"dependencies"`
+	Checksum     string            `yaml:"checksum"`
+	LanguageName string            `yaml:"languageName"`
+	LinkType     string            `yaml:"linkType"`
 }
 
 // Parse parses yarn.lock files (v2+ / Yarn Berry format)
@@ -82,9 +82,9 @@ func (p *Yarn2Parser) Parse(ctx context.Context, filePath string) ([]common.Pack
 
 	versionStr := fmt.Sprintf("%v", version)
 	if !strings.HasPrefix(versionStr, "2") && !strings.HasPrefix(versionStr, "3") &&
-	   !strings.HasPrefix(versionStr, "4") && !strings.HasPrefix(versionStr, "5") &&
-	   !strings.HasPrefix(versionStr, "6") && !strings.HasPrefix(versionStr, "7") &&
-	   !strings.HasPrefix(versionStr, "8") {
+		!strings.HasPrefix(versionStr, "4") && !strings.HasPrefix(versionStr, "5") &&
+		!strings.HasPrefix(versionStr, "6") && !strings.HasPrefix(versionStr, "7") &&
+		!strings.HasPrefix(versionStr, "8") {
 		return nil, fmt.Errorf("yarn.lock version not supported (expected v2+, got v%s)", versionStr)
 	}
 
@@ -205,13 +205,107 @@ func (p *Yarn2Parser) Validate(content string) bool {
 	return hasVersion
 }
 
-// UpdatePackageJSON updates package.json with yarn resolutions
-func (p *Yarn2Parser) UpdatePackageJSON(ctx context.Context, overrides map[string]string, packageJSONPath string) error {
-	patcher := NewPackageJSONPatcher()
-	return patcher.Patch(ctx, PatchOptions{
-		Updates:                  overrides,
-		UpdateDirectDependencies: true,
-		OverridesPath:            "resolutions",
-		PackageJSONPath:          packageJSONPath,
+// FindParents scans a Yarn 2+ lock file for packages that depend on
+// packageName at a range resolving to the given version. Returns parent
+// package names. Empty result means the vulnerable copy is only top-level.
+func (p *Yarn2Parser) FindParents(ctx context.Context, lockFilePath, packageName, version string) ([]string, error) {
+	content, err := os.ReadFile(lockFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+	var data map[string]interface{}
+	if err := yaml.Unmarshal(content, &data); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	type entry struct {
+		Specs        []string
+		Version      string
+		Dependencies map[string]string
+	}
+	var entries []entry
+
+	for key, value := range data {
+		if key == "__metadata" {
+			continue
+		}
+		valueMap, ok := value.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		versionVal, _ := valueMap["version"]
+		entryVersion := fmt.Sprintf("%v", versionVal)
+
+		e := entry{Version: entryVersion, Dependencies: map[string]string{}}
+
+		// Parse the entry key (may be comma-separated, may have npm: prefix).
+		for _, spec := range strings.Split(key, ",") {
+			spec = strings.TrimSpace(spec)
+			spec = strings.Trim(spec, `"`)
+			if spec == "" {
+				continue
+			}
+			e.Specs = append(e.Specs, spec)
+		}
+
+		if depsRaw, ok := valueMap["dependencies"].(map[string]interface{}); ok {
+			for depName, depRange := range depsRaw {
+				e.Dependencies[depName] = fmt.Sprintf("%v", depRange)
+			}
+		}
+		entries = append(entries, e)
+	}
+
+	matchingRanges := make(map[string]bool)
+	for _, e := range entries {
+		if e.Version != version {
+			continue
+		}
+		for _, spec := range e.Specs {
+			name, rng := splitYarnSpec(spec)
+			rng = strings.TrimPrefix(rng, "npm:")
+			if name == packageName {
+				matchingRanges[rng] = true
+			}
+		}
+	}
+	if len(matchingRanges) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]bool)
+	var parents []string
+	for _, e := range entries {
+		depRange, hasDep := e.Dependencies[packageName]
+		if !hasDep {
+			continue
+		}
+		depRange = strings.TrimPrefix(depRange, "npm:")
+		if !matchingRanges[depRange] {
+			continue
+		}
+		if len(e.Specs) == 0 {
+			continue
+		}
+		parentName, _ := splitYarnSpec(e.Specs[0])
+		if parentName == "" || parentName == packageName || seen[parentName] {
+			continue
+		}
+		seen[parentName] = true
+		parents = append(parents, parentName)
+	}
+	return parents, nil
+}
+
+// UpdatePackageJSON writes yarn resolutions as parent/child slash paths:
+//
+//	"resolutions": { "<parent>/<child>": "<alias>" }
+//
+// When no parent is known the entry falls back to a flat "<child>" key.
+// Direct dependencies are never modified.
+func (p *Yarn2Parser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
+	return NewPackageJSONPatcher().Patch(ctx, PatchOptions{
+		Sets:            buildResolutionSets(overrides),
+		PackageJSONPath: packageJSONPath,
 	})
 }

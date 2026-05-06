@@ -12,12 +12,63 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Override-section paths used by the parsers. Defined in one place so a
+// rename (e.g. pnpm renaming the field in a future major) is a single edit.
+const (
+	npmOverridesPath    = "overrides"
+	yarnResolutionsPath = "resolutions"
+	pnpmOverridesPath   = "pnpm.overrides"
+)
+
+// ScopedOverride captures everything UpdatePackageJSON needs to write a single
+// override entry. Each parser formats it according to its ecosystem's accepted
+// override syntax (parent-nested for npm, slash-paths for yarn, version-scoped
+// flat keys for pnpm).
+//
+// Parents lists the packages that consume PackageName at this Version in the
+// lock file. An empty Parents slice means the vulnerable copy is at the top
+// level (either the user's direct dep or hoisted with no clear parent), in
+// which case ecosystems that need parent-scoping fall back to a flat override.
+//
+// Version is consumed only by ecosystems that scope by version (currently
+// pnpm); npm and yarn ignore it.
+type ScopedOverride struct {
+	PackageName string
+	Version     string
+	Value       string
+	Parents     []string
+}
+
+// buildResolutionSets builds the sjson-path → value map for yarn and yarn2,
+// which both use the parent/child slash-path resolution shape. Shared so
+// YarnParser and Yarn2Parser don't drift.
+func buildResolutionSets(overrides []ScopedOverride) map[string]string {
+	sets := make(map[string]string)
+	for _, ov := range overrides {
+		if len(ov.Parents) == 0 {
+			sets[yarnResolutionsPath+"."+escapeSjsonKey(ov.PackageName)] = ov.Value
+			continue
+		}
+		for _, parent := range ov.Parents {
+			sets[yarnResolutionsPath+"."+escapeSjsonKey(parent+"/"+ov.PackageName)] = ov.Value
+		}
+	}
+	return sets
+}
+
 // npmParser is the interface required by the npm App — it extends the common Parser
 // with npm-specific package.json patching. Defined here (not in common) to avoid
 // polluting the shared interface with JS/npm concerns (e.g. Maven shouldn't need this).
 type npmParser interface {
 	common.Parser
-	UpdatePackageJSON(ctx context.Context, overrides map[string]string, packageJSONPath string) error
+	// FindParents returns the set of packages in the lock file that depend on
+	// packageName at the given version. Empty result means no parent scoping
+	// is possible (the vulnerable copy is at the top level).
+	FindParents(ctx context.Context, lockFilePath, packageName, version string) ([]string, error)
+	// UpdatePackageJSON writes the given overrides to package.json using the
+	// appropriate ecosystem-specific override shape. It never touches the
+	// dependencies/devDependencies fields.
+	UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error
 }
 
 // NewParser creates a default npm parser.

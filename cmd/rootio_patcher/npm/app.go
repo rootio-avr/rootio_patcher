@@ -209,19 +209,30 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	fmt.Printf("Then run: %s install\n", a.packageManager)
 }
 
-// applyPatches updates package.json with overrides
+// applyPatches updates package.json with overrides scoped to the vulnerable
+// package version. It never touches direct dependencies — the user's chosen
+// versions remain authoritative.
 func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) error {
-	// Build overrides map: package name -> aliased package version
-	// Always use aliased packages (e.g., express -> @rootio/express)
-	overrides := make(map[string]string)
+	overrides := make([]ScopedOverride, 0, len(patches))
 	for _, patch := range patches {
-		// Use original package name as key, but aliased package name@version as value
+		parents, err := a.parser.FindParents(ctx, a.lockFilePath, patch.PackageName, patch.Version)
+		if err != nil {
+			return fmt.Errorf("failed to find parents for %s@%s: %w", patch.PackageName, patch.Version, err)
+		}
 		overrideValue := fmt.Sprintf("npm:%s@%s", patch.PatchAlias.Name, patch.PatchAlias.Version)
-		overrides[patch.PackageName] = overrideValue
-		fmt.Printf("  - %s: %s → %s@%s\n", patch.PackageName, patch.Version, patch.PatchAlias.Name, patch.PatchAlias.Version)
+		overrides = append(overrides, ScopedOverride{
+			PackageName: patch.PackageName,
+			Version:     patch.Version,
+			Value:       overrideValue,
+			Parents:     parents,
+		})
+		if len(parents) == 0 {
+			fmt.Printf("  - %s@%s → %s@%s\n", patch.PackageName, patch.Version, patch.PatchAlias.Name, patch.PatchAlias.Version)
+		} else {
+			fmt.Printf("  - %s@%s (under %s) → %s@%s\n", patch.PackageName, patch.Version, strings.Join(parents, ", "), patch.PatchAlias.Name, patch.PatchAlias.Version)
+		}
 	}
 
-	// Update package.json with overrides using the parser
 	a.logger.DebugContext(ctx, "Updating package.json with overrides", slog.Int("count", len(overrides)))
 	if err := a.parser.UpdatePackageJSON(ctx, overrides, a.packageJSONPath); err != nil {
 		return fmt.Errorf("failed to update package.json: %w", err)

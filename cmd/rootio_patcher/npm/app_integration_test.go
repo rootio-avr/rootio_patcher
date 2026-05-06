@@ -320,10 +320,10 @@ func TestNpmApp_UpdatePackageJSON_Pnpm(t *testing.T) {
 		t.Fatal("Expected 'overrides' field under 'pnpm' in package.json")
 	}
 
-	// Verify jest override (should be aliased)
-	jestOverride, ok := overrides["jest"].(string)
+	// Verify jest version-scoped override (pnpm uses "<name>@<version>" keys).
+	jestOverride, ok := overrides["jest@29.0.0"].(string)
 	if !ok {
-		t.Fatal("Expected jest in pnpm.overrides")
+		t.Fatalf("Expected 'jest@29.0.0' in pnpm.overrides; got: %v", overrides)
 	}
 	expectedOverride := "npm:@rootio/jest@29.5.0"
 	if jestOverride != expectedOverride {
@@ -440,7 +440,8 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 		t.Errorf("Expected lodash override '%s', got '%s'", expectedOverride, lodashOverride)
 	}
 
-	// Verify dependencies were updated
+	// Verify direct dependencies were NOT modified — overrides take effect at
+	// install time without rewriting the user's chosen version.
 	deps, ok := pkgJSON["dependencies"].(map[string]interface{})
 	if !ok {
 		t.Fatal("Expected dependencies field")
@@ -449,8 +450,8 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 	if !ok {
 		t.Fatal("Expected lodash in dependencies")
 	}
-	if lodashDep != expectedOverride {
-		t.Errorf("Expected lodash dependency '%s', got '%s'", expectedOverride, lodashDep)
+	if lodashDep != "4.17.20" {
+		t.Errorf("lodash direct dependency must not be modified; expected '4.17.20', got '%s'", lodashDep)
 	}
 
 	// Verify proper formatting (should have newlines and indentation)
@@ -605,18 +606,16 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 		t.Errorf("Expected 3 overrides total (1 existing + 2 new), got %d", len(overrides))
 	}
 
-	// Verify dependencies were updated
+	// Verify direct dependencies were NOT modified.
 	deps, ok := pkgJSON["dependencies"].(map[string]interface{})
 	if !ok {
 		t.Fatal("Expected dependencies field")
 	}
-	lodashDep := deps["lodash"].(string)
-	if lodashDep != "npm:@rootio/lodash@4.17.21" {
-		t.Errorf("Expected lodash dependency updated, got '%s'", lodashDep)
+	if deps["lodash"].(string) != "4.17.20" {
+		t.Errorf("lodash direct dependency must not be modified; got '%s'", deps["lodash"].(string))
 	}
-	expressDep := deps["express"].(string)
-	if expressDep != "npm:@rootio/express@4.18.2" {
-		t.Errorf("Expected express dependency updated, got '%s'", expressDep)
+	if deps["express"].(string) != "4.18.0" {
+		t.Errorf("express direct dependency must not be modified; got '%s'", deps["express"].(string))
 	}
 
 	t.Log("Successfully appended new overrides to existing overrides")

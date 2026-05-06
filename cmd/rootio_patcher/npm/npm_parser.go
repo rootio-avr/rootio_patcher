@@ -194,13 +194,85 @@ func (p *NpmParser) Validate(content string) bool {
 	return json.Unmarshal([]byte(content), &lockfile) == nil
 }
 
-// UpdatePackageJSON updates package.json with npm overrides
-func (p *NpmParser) UpdatePackageJSON(ctx context.Context, overrides map[string]string, packageJSONPath string) error {
-	patcher := NewPackageJSONPatcher()
-	return patcher.Patch(ctx, PatchOptions{
-		Updates:                  overrides,
-		UpdateDirectDependencies: true,
-		OverridesPath:            "overrides",
-		PackageJSONPath:          packageJSONPath,
+// FindParents returns the names of packages in the lock file that consume
+// packageName at the given version as a nested dependency. It inspects the
+// package paths directly (e.g. "node_modules/dockerode/node_modules/uuid"
+// → parent is "dockerode"). If the vulnerable copy is only present at the
+// top level (path "node_modules/<name>"), no parent is returned and the
+// caller falls back to a flat override.
+func (p *NpmParser) FindParents(ctx context.Context, lockFilePath, packageName, version string) ([]string, error) {
+	content, err := os.ReadFile(lockFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var lockfile PackageLockJSON
+	if err := json.Unmarshal(content, &lockfile); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	seen := make(map[string]bool)
+	var parents []string
+
+	for pkgPath, pkgData := range lockfile.Packages {
+		if pkgPath == "" {
+			continue
+		}
+		if pkgData.Version != version {
+			continue
+		}
+		if extractPackageName(pkgPath) != packageName {
+			continue
+		}
+
+		parent := extractParentName(pkgPath)
+		if parent == "" || seen[parent] {
+			continue
+		}
+		seen[parent] = true
+		parents = append(parents, parent)
+	}
+
+	return parents, nil
+}
+
+// extractParentName returns the parent package name for a nested package path,
+// or "" for top-level paths.
+//
+//	"node_modules/uuid"                          → ""
+//	"node_modules/dockerode/node_modules/uuid"   → "dockerode"
+//	"node_modules/@scope/foo/node_modules/uuid"  → "@scope/foo"
+func extractParentName(pkgPath string) string {
+	idx := strings.LastIndex(pkgPath, "/node_modules/")
+	if idx == -1 {
+		return ""
+	}
+	prefix := pkgPath[:idx]
+	if !strings.HasPrefix(prefix, "node_modules/") {
+		return ""
+	}
+	return extractPackageName(prefix)
+}
+
+// UpdatePackageJSON writes npm overrides as parent-nested objects:
+//
+//	"overrides": { "<parent>": { "<child>": "<alias>" } }
+//
+// When no parent is known the override falls back to a flat top-level entry.
+// Direct dependencies are never modified.
+func (p *NpmParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
+	sets := make(map[string]string)
+	for _, ov := range overrides {
+		if len(ov.Parents) == 0 {
+			sets[npmOverridesPath+"."+escapeSjsonKey(ov.PackageName)] = ov.Value
+			continue
+		}
+		for _, parent := range ov.Parents {
+			sets[npmOverridesPath+"."+escapeSjsonKey(parent)+"."+escapeSjsonKey(ov.PackageName)] = ov.Value
+		}
+	}
+	return NewPackageJSONPatcher().Patch(ctx, PatchOptions{
+		Sets:            sets,
+		PackageJSONPath: packageJSONPath,
 	})
 }
