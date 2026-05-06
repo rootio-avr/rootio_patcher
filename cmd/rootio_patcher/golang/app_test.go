@@ -283,42 +283,64 @@ require github.com/google/uuid v1.3.0
 }
 
 func TestGoLangApp_Run_ApplyPatches_SetsGoProxyEnv(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	tests := []struct {
+		name            string
+		updateGoVersion bool
+	}{
+		{name: "updateGoVersion=false", updateGoVersion: false},
+		{name: "updateGoVersion=true", updateGoVersion: true},
+	}
 
-	goModPath := writeGoMod(t, t.TempDir(), `module example.com/app
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+			goModPath := writeGoMod(t, t.TempDir(), `module example.com/app
 
 go 1.21
 
 require github.com/google/uuid v1.3.0
 `)
-	cmdRunner := &MockCommandRunner{}
+			cmdRunner := &MockCommandRunner{}
 
-	app := NewApp(
-		"my-api-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, false, logger,
-		NewGoModParser(logger),
-		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
-				return &rootio.AnalyzePackagesResponse{
-					Patches: []rootio.PackagePatch{
-						{
-							PackageName: "github.com/google/uuid",
-							Version:     "v1.3.0",
-							PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.1"},
-						},
+			app := NewApp(
+				"my-api-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, tc.updateGoVersion, logger,
+				NewGoModParser(logger),
+				&MockAPIClient{
+					AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+						return &rootio.AnalyzePackagesResponse{
+							Patches: []rootio.PackagePatch{
+								{
+									PackageName: "github.com/google/uuid",
+									Version:     "v1.3.0",
+									PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.1"},
+								},
+							},
+						}, nil
 					},
-				}, nil
-			},
-		},
-		cmdRunner,
-	)
+				},
+				cmdRunner,
+			)
 
-	require.NoError(t, app.Run(ctx))
+			require.NoError(t, app.Run(ctx))
 
-	require.Len(t, cmdRunner.Calls, 1)
-	env := cmdRunner.Calls[0].Env
-	assert.Contains(t, env, "GOPROXY=https://:my-api-key@pkg.root.io/gobinary,https://proxy.golang.org,direct")
-	assert.Contains(t, env, "GONOSUMDB=pkg.root.io")
+			if tc.updateGoVersion {
+				require.Len(t, cmdRunner.Calls, 2)
+				// go get go@latest must NOT have Root.io's GOPROXY injected
+				assert.Empty(t, cmdRunner.Calls[0].Env, "go get go@latest must run without custom env")
+				// go mod tidy must still use Root.io's proxy
+				tidyEnv := cmdRunner.Calls[1].Env
+				assert.Contains(t, tidyEnv, "GOPROXY=https://:my-api-key@pkg.root.io/gobinary,https://proxy.golang.org,direct")
+				assert.Contains(t, tidyEnv, "GONOSUMDB=pkg.root.io")
+			} else {
+				require.Len(t, cmdRunner.Calls, 1)
+				env := cmdRunner.Calls[0].Env
+				assert.Contains(t, env, "GOPROXY=https://:my-api-key@pkg.root.io/gobinary,https://proxy.golang.org,direct")
+				assert.Contains(t, env, "GONOSUMDB=pkg.root.io")
+			}
+		})
+	}
 }
 
 func TestGoLangApp_Run_APICalledWithGolangEcosystem(t *testing.T) {

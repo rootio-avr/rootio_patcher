@@ -172,11 +172,13 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
-	// 8. Update go version to latest (if requested)
+	// 8. Update go version to latest (if requested).
+	// Use nil env so Root.io's GOPROXY is not injected — Go's toolchain must be
+	// fetched from the official servers, not the Root.io module proxy.
 	if a.updateGoVersion {
 		fmt.Println("\nUpdating Go version to latest...")
 		a.logger.DebugContext(ctx, "Running go get go@latest", slog.String("dir", goModDir))
-		if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "get", "go@latest"); err != nil {
+		if err := a.cmdRunner.Run(ctx, goModDir, nil, "go", "get", "go@latest"); err != nil {
 			return fmt.Errorf("go get go@latest failed: %w", err)
 		}
 	}
