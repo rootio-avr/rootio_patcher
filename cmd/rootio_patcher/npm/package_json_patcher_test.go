@@ -153,6 +153,46 @@ func TestPackageJSONPatcher_AppendsToExistingOverrides(t *testing.T) {
 	}
 }
 
+// TestNpmParser_FindParents_HoistedTransitive verifies the EOVERRIDE-fix
+// case: the user's direct uuid range overlaps dockerode's transitive range,
+// so npm hoists a single uuid copy at the top level (no nested path).
+// FindParents must still report dockerode as a consumer so the caller can
+// emit a parent-nested override (the only shape that doesn't trip npm's
+// "Override for X conflicts with direct dependency" check).
+func TestNpmParser_FindParents_HoistedTransitive(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	lockPath := tmpDir + "/package-lock.json"
+
+	lock := `{
+  "name": "test-app",
+  "lockfileVersion": 3,
+  "packages": {
+    "": {
+      "dependencies": { "dockerode": "^4.0.12", "uuid": "^10.0.0" }
+    },
+    "node_modules/dockerode": {
+      "version": "4.0.12",
+      "dependencies": { "uuid": "^10.0.0" }
+    },
+    "node_modules/uuid": {
+      "version": "10.0.0"
+    }
+  }
+}`
+	if err := os.WriteFile(lockPath, []byte(lock), 0644); err != nil {
+		t.Fatalf("Failed to write lock: %v", err)
+	}
+
+	got, err := NewNpmParser().FindParents(ctx, lockPath, "uuid", "10.0.0")
+	if err != nil {
+		t.Fatalf("FindParents failed: %v", err)
+	}
+	if len(got) != 1 || got[0] != "dockerode" {
+		t.Errorf("expected [dockerode] (hoisted-transitive consumer), got %v", got)
+	}
+}
+
 // TestNpmParser_FindParents_NestedTransitive verifies parent detection on
 // the user's reported bug shape: hoisted uuid@14 (direct) plus a nested
 // uuid@10 inside dockerode. FindParents must return ["dockerode"] for
