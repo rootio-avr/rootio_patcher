@@ -26,11 +26,21 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
+      - name: Download rootio_patcher
+        run: |
+          curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_linux_x86_64.tar.gz | tar xz
+          chmod +x rootio_patcher
+
+      - name: Run rootio_patcher
+        run: ./rootio_patcher go remediate --update-go-version=true --dry-run=false
+        env:
+          ROOTIO_API_KEY: ${{ secrets.ROOTIO_API_KEY }}
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: release --clean
+          args: release --clean --skip=validate
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
