@@ -195,11 +195,17 @@ func (p *NpmParser) Validate(content string) bool {
 }
 
 // FindParents returns the names of packages in the lock file that consume
-// packageName at the given version as a nested dependency. It inspects the
-// package paths directly (e.g. "node_modules/dockerode/node_modules/uuid"
-// → parent is "dockerode"). If the vulnerable copy is only present at the
-// top level (path "node_modules/<name>"), no parent is returned and the
-// caller falls back to a flat override.
+// packageName at the given version. It walks every package entry that
+// declares packageName as a dependency and, using npm's resolution rules
+// (nested copy first, then ancestor hoisted copies, then root-level), checks
+// which version actually resolves for that consumer. This covers both
+// physically-nested copies (".../<parent>/node_modules/<child>") and hoisted
+// transitives where the only on-disk copy is at the top level.
+//
+// An empty result means no transitive consumer matches — the vulnerable copy
+// is only the user's direct dependency. In that case a flat override would
+// trigger npm's EOVERRIDE check, so the caller must handle direct-dep
+// vulnerabilities differently (e.g. skip patching or rewrite the direct dep).
 func (p *NpmParser) FindParents(ctx context.Context, lockFilePath, packageName, version string) ([]string, error) {
 	content, err := os.ReadFile(lockFilePath)
 	if err != nil {
@@ -218,22 +224,39 @@ func (p *NpmParser) FindParents(ctx context.Context, lockFilePath, packageName, 
 		if pkgPath == "" {
 			continue
 		}
-		if pkgData.Version != version {
+		if _, declares := pkgData.Dependencies[packageName]; !declares {
 			continue
 		}
-		if extractPackageName(pkgPath) != packageName {
+		if resolveNpmDep(lockfile.Packages, pkgPath, packageName) != version {
 			continue
 		}
 
-		parent := extractParentName(pkgPath)
-		if parent == "" || seen[parent] {
+		parentName := extractPackageName(pkgPath)
+		if parentName == "" || parentName == packageName || seen[parentName] {
 			continue
 		}
-		seen[parent] = true
-		parents = append(parents, parent)
+		seen[parentName] = true
+		parents = append(parents, parentName)
 	}
 
 	return parents, nil
+}
+
+// resolveNpmDep mimics npm's lookup order: check the consumer's own
+// node_modules first, then walk up each ancestor level, then fall back to
+// the top-level node_modules. Returns "" if no copy is found.
+func resolveNpmDep(packages map[string]PackageLockEntry, parentPath, childName string) string {
+	parts := strings.Split(parentPath, "/node_modules/")
+	for i := len(parts); i >= 1; i-- {
+		prefix := strings.Join(parts[:i], "/node_modules/")
+		if entry, ok := packages[prefix+"/node_modules/"+childName]; ok {
+			return entry.Version
+		}
+	}
+	if entry, ok := packages["node_modules/"+childName]; ok {
+		return entry.Version
+	}
+	return ""
 }
 
 // extractParentName returns the parent package name for a nested package path,
