@@ -16,6 +16,7 @@ import (
 	"rootio_patcher/cmd/rootio_patcher/golang"
 	"rootio_patcher/cmd/rootio_patcher/maven"
 	"rootio_patcher/cmd/rootio_patcher/npm"
+	"rootio_patcher/cmd/rootio_patcher/nuget"
 	"rootio_patcher/cmd/rootio_patcher/pip"
 	"rootio_patcher/pkg/rootio"
 )
@@ -30,6 +31,7 @@ type CLI struct {
 	Npm   NpmCmd   `cmd:"" help:"npm package remediation"`
 	Maven MavenCmd `cmd:"" help:"Maven package remediation"`
 	Go    GoCmd    `cmd:"" help:"Go module remediation"`
+	Nuget NuGetCmd `cmd:"" help:"NuGet package remediation"`
 }
 
 // PipCmd handles pip-related commands
@@ -80,7 +82,7 @@ func run() int {
 	var cli CLI
 	kongCtx := kong.Parse(&cli,
 		kong.Name("rootio_patcher"),
-		kong.Description("Automated security patching for Python, npm, go and Maven packages with Root.io"),
+		kong.Description("Automated security patching for Python, npm, go, nuget and Maven packages with Root.io"),
 		kong.UsageOnError(),
 		kong.Vars{"version": version},
 		kong.BindTo(ctx, (*context.Context)(nil)), // Bind context with interface type
@@ -180,5 +182,39 @@ func (cmd *GoRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *
 		rootio.NewClient(cfg.APIURL, cfg.APIKey),
 		golang.NewRealCommandRunner(),
 	)
+	return app.Run(ctx)
+}
+
+// NuGetCmd handles NuGet-related commands
+type NuGetCmd struct {
+	Remediate NuGetRemediateCmd `cmd:"" help:"Remediate NuGet packages (updates .csproj or packages.config in place)"`
+}
+
+// NuGetRemediateCmd remediates NuGet packages by patching manifest files
+type NuGetRemediateCmd struct {
+	File      string `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
+	Directory string `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
+	DryRun    bool   `default:"true" help:"Preview changes without applying them"`
+}
+
+// Run executes the nuget remediate command
+func (cmd *NuGetRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	logger.InfoContext(ctx, "Starting NuGet remediation")
+
+	var path string
+	var err error
+	if cmd.File != "" {
+		path, err = filepath.Abs(cmd.File)
+		if err != nil {
+			return fmt.Errorf("invalid file path: %w", err)
+		}
+	} else {
+		path, err = filepath.Abs(cmd.Directory)
+		if err != nil {
+			return fmt.Errorf("invalid directory: %w", err)
+		}
+	}
+
+	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, path, cmd.DryRun, logger)
 	return app.Run(ctx)
 }
