@@ -176,6 +176,9 @@ func (a *App) Run(ctx context.Context) error {
 	fmt.Println("  1. Review the changes in package.json")
 	fmt.Printf("  2. Run: %s install\n", a.packageManager)
 	fmt.Println("  3. Test your application")
+	if a.isYarnClassic() {
+		printYarnClassicCaveat()
+	}
 
 	return nil
 }
@@ -207,6 +210,34 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 
 	fmt.Println("To apply these patches, run with --dry-run=false")
 	fmt.Printf("Then run: %s install\n", a.packageManager)
+	if a.isYarnClassic() {
+		printYarnClassicCaveat()
+	}
+}
+
+// isYarnClassic returns true when the configured lockfile is a Yarn 1 yarn.lock.
+// Yarn 1 marks v1 lockfiles with a "# yarn lockfile v1" header; Yarn 2+ uses YAML
+// with an __metadata block instead. We only care about this for --package-manager=yarn.
+func (a *App) isYarnClassic() bool {
+	if a.packageManager != "yarn" {
+		return false
+	}
+	content, err := os.ReadFile(a.lockFilePath)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(content), "# yarn lockfile v1")
+}
+
+// printYarnClassicCaveat warns Yarn 1 users that a plain `yarn install` won't
+// re-resolve from newly-added resolutions — the existing lock entries still
+// satisfy the original ranges, so yarn reports "Already up-to-date".
+func printYarnClassicCaveat() {
+	fmt.Println()
+	fmt.Println("Note: Yarn 1 (classic) won't re-resolve from \"resolutions\" alone.")
+	fmt.Println("      If yarn reports \"Already up-to-date\", do one of:")
+	fmt.Println("        - rm yarn.lock && yarn install   (clean re-resolve)")
+	fmt.Println("        - yarn install --force            (force re-fetch)")
 }
 
 // applyPatches updates package.json with overrides scoped to the vulnerable
