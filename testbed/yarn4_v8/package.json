@@ -1,0 +1,9 @@
+{
+  "name": "testbed-yarn4-v8",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "yarn@4.5.0",
+  "dependencies": {
+    "lodash": "4.17.20"
+  }
+}

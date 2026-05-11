@@ -436,3 +436,34 @@ func TestYarn2Parser_Parse_RealLockFile(t *testing.T) {
 		t.Error("Expected to find mocha in real lockfile")
 	}
 }
+
+func TestYarn2Parser_Parse_CacheKeyV9(t *testing.T) {
+	ctx := context.Background()
+	parser := NewYarn2Parser()
+
+	tmpDir := t.TempDir()
+	lockFile := filepath.Join(tmpDir, "yarn.lock")
+
+	content := `__metadata:
+  version: 9
+  cacheKey: 10c0
+
+"lodash@npm:4.17.21":
+  version: 4.17.21
+  resolution: "lodash@npm:4.17.21"
+  checksum: 10c0/abcd1234
+  languageName: node
+  linkType: hard
+`
+	if err := os.WriteFile(lockFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create lock file: %v", err)
+	}
+
+	packages, err := parser.Parse(ctx, lockFile)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	if len(packages) != 1 || packages[0].Name != "lodash" || packages[0].Version != "4.17.21" {
+		t.Errorf("Expected single lodash@4.17.21 entry, got %+v", packages)
+	}
+}
