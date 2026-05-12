@@ -120,7 +120,9 @@ release:
   header: |
     ## Root.io Patcher {{ .Tag }}
 
-    Cross-platform binary for patching Python packages with Root.io security fixes.
+    `rootio_patcher` is a command-line tool that automatically identifies and patches vulnerabilities in your dependencies using Root.io's security fixes. It supports Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), and Go (modules) ecosystems, providing comprehensive security remediation across your entire stack.
+
+
 
   footer: |
     ## Installation
