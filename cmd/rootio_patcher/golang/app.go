@@ -208,6 +208,6 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	}
 
 	fmt.Println("To apply these patches:")
-	fmt.Println("  1. Run: rootio_patcher golang remediate --dry-run=false")
+	fmt.Println("  1. Run: rootio_patcher go remediate --dry-run=false")
 	fmt.Println("  2. Then run: go build ./...")
 }
