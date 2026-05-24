@@ -1,18 +1,18 @@
 # Root.io Patcher
 
-> Automated security patching for Python, npm, Maven, and Go packages with Root.io
+> Automated security patching for Python, npm, Maven, Go, NuGet, and Composer packages with Root.io
 
 [![Release](https://img.shields.io/github/v/release/rootio-avr/rootio_patcher)](https://github.com/rootio-avr/rootio_patcher/releases)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/rootio-avr/rootio_patcher)](https://golang.org/dl/)
 [![License](https://img.shields.io/github/license/rootio-avr/rootio_patcher)](LICENSE)
 
-`rootio_patcher` is a command-line tool that automatically identifies and patches vulnerabilities in your dependencies using Root.io's security fixes. It supports Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), and Go (modules) ecosystems, providing comprehensive security remediation across your entire stack.
+`rootio_patcher` is a command-line tool that automatically identifies and patches vulnerabilities in your dependencies using Root.io's security fixes. It supports Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), and PHP (Composer) ecosystems, providing comprehensive security remediation across your entire stack.
 
 ---
 
 ## Features
 
-- 🔍 **Multi-Ecosystem Support** - Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), and Go (modules)
+- 🔍 **Multi-Ecosystem Support** - Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), and PHP (Composer)
 - 🔧 **One-Command Patching** - Applies security fixes with a single command
 - 🌍 **Cross-Platform** - Works on Linux, macOS, and Windows
 - 🔒 **Secure by Default** - Dry-run mode enabled by default to preview changes
@@ -42,11 +42,15 @@ rootio_patcher maven remediate
 # For Go modules
 rootio_patcher go remediate
 
+# For Composer (PHP) packages
+rootio_patcher composer remediate
+
 # 3. Apply patches for real
 rootio_patcher pip remediate --dry-run=false
 rootio_patcher npm remediate --dry-run=false
 rootio_patcher maven remediate --dry-run=false
 rootio_patcher go remediate --dry-run=false
+rootio_patcher composer remediate --dry-run=false
 ```
 
 ---
@@ -176,6 +180,23 @@ rootio_patcher go remediate [FLAGS]
 
 > **Note:** Only modules with pinned semver versions (e.g. `v1.2.3`) are analyzed. Modules using pseudo-versions are skipped.
 
+#### Composer (PHP)
+
+```bash
+rootio_patcher composer remediate [FLAGS]
+```
+
+**Flags:**
+- `--file` - Path to composer.json (default: `composer.json`)
+- `--dry-run` - Preview changes without applying (default: `true`)
+- `--use-alias` - Use Root.io aliased packages (default: `false`)
+
+**How it works:** Pre-install patching — reads exact resolved versions from `composer.lock`, updates `composer.json` with patched version constraints (pinning transitive deps as needed), adds the Root.io Composer repository entry, then automatically runs `composer update --with-dependencies <affected-packages>` to download the patched versions and update the lock file. The `vendor/` directory is fully populated and ready to deploy after the patcher runs.
+
+> **Note:** `composer.lock` must exist before running the patcher. If it is missing, run `composer install` first. Platform requirements (`php`, `ext-*`) are not patched as they are managed by the OS, not Composer.
+
+> **CI/CD:** After patching, subsequent `composer install` runs in CI/CD require `COMPOSER_AUTH` to be set so Composer can authenticate with `pkg.root.io` to fetch patched packages. See the [Composer CI/CD example](#composer-php-project) below.
+
 ### Configuration Details
 
 #### `ROOTIO_API_KEY` (Required)
@@ -195,15 +216,15 @@ Set to `false` to actually apply patches:
 rootio_patcher pip remediate --dry-run=false
 ```
 
-#### `--use-alias` Flag (pip only)
+#### `--use-alias` Flag (pip and Composer)
 
-Root.io provides two types of patches for Python packages:
+Root.io provides two types of patches:
 
-- **Aliased Packages** (`--use-alias=true`, default): Root.io maintains patched versions under a different package name (e.g., `rootio-django` instead of `django`). This allows for better tracking and rollback.
+- **Direct Patches** (`--use-alias=false`): Patches are applied using the original package name with a new patched version. This is the default for Composer.
 
-- **Direct Patches** (`--use-alias=false`): Patches are applied directly to the original package name.
+- **Aliased Packages** (`--use-alias=true`): Root.io maintains patched versions under a different package name (e.g., `rootio-django` instead of `django` for pip, or `rootio/vendor-pkg` instead of `vendor/pkg` for Composer). This is the default for pip.
 
-Most users should use the default aliased packages.
+For Composer, when using aliases, the original package entry in `require`/`require-dev` is replaced with the aliased name.
 
 #### `--python-path` Flag (pip only)
 
@@ -548,6 +569,64 @@ Next steps:
 rootio_patcher go remediate --go-mod=./submodule/go.mod --dry-run=false
 ```
 
+### Composer (PHP) Examples
+
+#### Basic Usage (Dry Run)
+
+Preview Composer package patches:
+
+```bash
+export ROOTIO_API_KEY="your-api-key"
+rootio_patcher composer remediate
+```
+
+**Output:**
+```
+=== DRY-RUN MODE ===
+The following packages in composer.json would be updated:
+
+1. Package: vendor/package
+   Current version: 2.1.0
+   Patched version: 2.1.4
+   CVEs Fixed: [CVE-2024-12345]
+
+To apply these patches:
+  Run: rootio_patcher composer remediate --dry-run=false
+  Then ensure COMPOSER_AUTH is configured in your CI/CD environment
+```
+
+#### Apply Composer Patches
+
+```bash
+rootio_patcher composer remediate --dry-run=false
+```
+
+**Output:**
+```
+Applying 1 patch(es) to composer.json...
+
+  - vendor/package: 2.1.0 → vendor/package@2.1.4
+
+✓ Successfully patched composer.json with 1 update(s)!
+
+Next steps:
+  1. Review the changes in composer.json and composer.lock
+  2. Ensure COMPOSER_AUTH is configured in your CI/CD environment for future installs
+  3. Test and deploy your application
+```
+
+#### Custom composer.json Path
+
+```bash
+rootio_patcher composer remediate --file=./subproject/composer.json --dry-run=false
+```
+
+#### Use Aliased Packages
+
+```bash
+rootio_patcher composer remediate --dry-run=false --use-alias=true
+```
+
 ### Java (Maven) Support - Beta Status
 
 ⚠️ **Beta Notice**: Java support is currently in beta.
@@ -760,6 +839,55 @@ jobs:
           git push
 ```
 
+#### Composer (PHP) Project
+
+```yaml
+name: Security Patching - Composer
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+jobs:
+  patch-composer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      - name: Install dependencies
+        run: composer install --no-interaction
+
+      - name: Download rootio_patcher
+        run: |
+          curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_linux_x86_64.tar.gz | tar xz
+          chmod +x rootio_patcher
+
+      - name: Patch vulnerabilities
+        env:
+          ROOTIO_API_KEY: ${{ secrets.ROOTIO_API_KEY }}
+        run: ./rootio_patcher composer remediate --dry-run=false
+
+      - name: Commit changes
+        run: |
+          git config user.name "Root.io Patcher"
+          git config user.email "bot@root.io"
+          git add composer.json composer.lock
+          git commit -m "chore: apply Root.io security patches" || echo "No changes"
+          git push
+```
+
+> **Note:** Add `COMPOSER_AUTH` to your CI/CD secrets for subsequent `composer install` runs that need to fetch patched packages from `pkg.root.io`:
+> ```yaml
+> env:
+>   COMPOSER_AUTH: '{"http-basic":{"pkg.root.io":{"username":"","password":"${{ secrets.ROOTIO_API_KEY }}"}}}'
+> ```
+
 ### Docker Integration
 
 #### Python Dockerfile
@@ -838,6 +966,35 @@ RUN go build -o app ./...
 CMD ["./app"]
 ```
 
+#### Composer (PHP) Dockerfile
+
+```dockerfile
+FROM php:8.2-cli
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+COPY composer.json composer.lock ./
+
+# Download rootio_patcher
+RUN curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_linux_x86_64.tar.gz | tar xz && \
+    chmod +x rootio_patcher && \
+    mv rootio_patcher /usr/local/bin/
+
+# Install dependencies and patch vulnerabilities
+ARG ROOTIO_API_KEY
+ENV ROOTIO_API_KEY=${ROOTIO_API_KEY}
+RUN composer install --no-interaction && \
+    rootio_patcher composer remediate --dry-run=false
+
+# Your application code
+COPY . .
+CMD ["php", "index.php"]
+```
+
+> Subsequent `composer install` steps (e.g. in a multi-stage build) require `COMPOSER_AUTH` to be set so Composer can authenticate with `pkg.root.io`.
+
 #### Maven Dockerfile
 
 ```dockerfile
@@ -914,7 +1071,7 @@ A reusable composite action is included in this repository. It wraps the vulnera
 - uses: rootio-avr/rootio_patcher/.github/actions/rootio-patch@main
   with:
     api-key: ${{ secrets.ROOTIO_API_KEY }}
-    ecosystem: npm   # pip | npm | maven
+    ecosystem: npm   # pip | npm | maven | go | nuget | composer
 ```
 
 ### Inputs
@@ -922,13 +1079,13 @@ A reusable composite action is included in this repository. It wraps the vulnera
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `api-key` | Yes | — | Root.io API key |
-| `ecosystem` | Yes | — | `pip`, `npm`, or `maven` |
+| `ecosystem` | Yes | — | `pip`, `npm`, `maven`, `go`, `nuget`, or `composer` |
 | `working-directory` | No | `.` | Directory inside the repo where the tool should run (e.g. `services/api`) |
 | `package-manager` | No | `npm` | *(npm)* `npm`, `yarn`, or `pnpm` |
 | `directory` | No | `.` | *(npm)* Project directory containing the lock file |
 | `python-path` | No | `python` | *(pip)* Path to Python interpreter |
-| `use-alias` | No | `true` | *(pip)* Use Root.io aliased packages |
-| `file` | No | `pom.xml` | *(maven)* Path to pom.xml |
+| `use-alias` | No | `true` | *(pip)* / *(composer)* Use Root.io aliased packages |
+| `file` | No | `pom.xml` | *(maven)* Path to pom.xml; *(composer)* Path to composer.json |
 
 Advanced settings (`ROOTIO_API_URL`, `ROOTIO_PKG_URL`, `ROOTIO_PIP_INDEX_URL`, `LOG_LEVEL`) are not inputs — pass them as environment variables on the calling step instead:
 
@@ -1112,6 +1269,35 @@ If you use a vendor directory, the tool runs `go mod vendor` automatically after
 
 **Solution:** Modules with pseudo-versions (e.g. `v0.0.0-20230101123456-abcdef012345`) are skipped. Only pinned semver releases (e.g. `v1.2.3`) are analyzed. Upgrade to a pinned release if possible.
 
+### Composer Issues
+
+#### "composer.lock not found"
+
+**Solution:** Run `composer install` first to generate the lock file, then re-run the patcher:
+```bash
+composer install
+rootio_patcher composer remediate
+```
+
+#### "file not found: composer.json"
+
+**Solution:** Make sure you're in your project root, or specify the path:
+```bash
+rootio_patcher composer remediate --file=./path/to/composer.json
+```
+
+#### `composer update` fails after patching
+
+**Solution:** Ensure `COMPOSER_AUTH` is set so Composer can authenticate with `pkg.root.io`:
+```bash
+export COMPOSER_AUTH='{"http-basic":{"pkg.root.io":{"username":"","password":"your-api-key"}}}'
+rootio_patcher composer remediate --dry-run=false
+```
+
+#### Future `composer install` fails in CI/CD
+
+**Solution:** The `repositories` entry pointing to `pkg.root.io` is permanent in `composer.json`. Every subsequent `composer install` needs `COMPOSER_AUTH` set in the environment to fetch patched packages. Add it to your CI/CD secrets.
+
 ### Maven Issues
 
 #### "file not found: pom.xml"
@@ -1173,6 +1359,15 @@ Then contact Root.io support with the package details that caused the issue.
 4. **Patching**: Adds `replace` directives to `go.mod` pointing to Root.io patched module aliases
 5. **Tidy**: Automatically runs `go mod tidy` (and `go mod vendor` if a vendor directory exists)
 6. **Build**: User runs `go build ./...` to compile with the patched modules
+
+### Composer (PHP) - Pre-Install Patching
+
+1. **Discovery**: Reads exact resolved versions from `composer.lock` (must exist; run `composer install` first). Platform requirements (`php`, `ext-*`) are skipped.
+2. **Analysis**: Sends the package list to Root.io API to check for known vulnerabilities
+3. **Reporting**: Displays packages and patched versions with CVE information
+4. **Patching**: Updates `composer.json` — direct dependencies have their version constraint updated in place; transitive dependencies are explicitly pinned in `require`. The Root.io Composer repository entry is added permanently.
+5. **Install**: Automatically runs `composer update --with-dependencies <affected-packages>` with credentials passed via `COMPOSER_AUTH` environment variable. The `vendor/` directory is fully populated after this step — no separate install needed.
+6. **Deploy**: Application is ready to pack and deploy. Future `composer install` runs in CI/CD require `COMPOSER_AUTH` to fetch patched packages from `pkg.root.io`.
 
 ---
 

@@ -8,11 +8,12 @@ import (
 type Ecosystem string
 
 const (
-	EcosystemPyPI   Ecosystem = "pypi"
-	EcosystemNpm    Ecosystem = "npm"
-	EcosystemMaven  Ecosystem = "maven"
-	EcosystemGolang Ecosystem = "golang"
-	EcosystemNuGet  Ecosystem = "nuget"
+	EcosystemPyPI     Ecosystem = "pypi"
+	EcosystemNpm      Ecosystem = "npm"
+	EcosystemMaven    Ecosystem = "maven"
+	EcosystemGolang   Ecosystem = "golang"
+	EcosystemNuGet    Ecosystem = "nuget"
+	EcosystemComposer Ecosystem = "composer"
 )
 
 // PackageInfo represents a package with its metadata
