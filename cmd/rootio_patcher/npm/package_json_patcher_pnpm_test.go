@@ -172,11 +172,9 @@ func TestNpmParser_UpdatePackageJSON_ScopedParent(t *testing.T) {
 	got, _ := os.ReadFile(pkgPath)
 	content := string(got)
 
-	if !strings.Contains(content, `"@babel/core": {`) {
-		t.Errorf("expected nested object under '@babel/core'; got:\n%s", content)
-	}
-	if !strings.Contains(content, `"json5": "npm:@rootio/json5@2.0.1"`) {
-		t.Errorf("expected json5 override under @babel/core; got:\n%s", content)
+	// npm now uses version-scoped flat overrides (like pnpm) instead of parent-nested
+	if !strings.Contains(content, `"json5@2.0.0": "npm:@rootio/json5@2.0.1"`) {
+		t.Errorf("expected version-scoped flat override 'json5@2.0.0'; got:\n%s", content)
 	}
 	if strings.Contains(content, `\@`) || strings.Contains(content, `\.`) {
 		t.Errorf("backslash-escape sequence leaked into JSON output; got:\n%s", content)

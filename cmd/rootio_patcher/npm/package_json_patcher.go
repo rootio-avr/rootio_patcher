@@ -13,10 +13,11 @@ import (
 
 // PatchOptions defines how to patch package.json. Each entry in Sets is a
 // fully-qualified sjson path (e.g. "overrides.dockerode.uuid") mapped to the
-// value to write. Each parser is responsible for building the right paths for
-// its ecosystem (nested for npm, slash for yarn, version-scoped flat for pnpm).
+// value to write. Deletes contains paths to remove from the JSON.
+// Each parser is responsible for building the right paths for its ecosystem.
 type PatchOptions struct {
 	Sets            map[string]string
+	Deletes         []string
 	PackageJSONPath string
 }
 
@@ -28,8 +29,8 @@ func NewPackageJSONPatcher() *PackageJSONPatcher {
 	return &PackageJSONPatcher{}
 }
 
-// Patch applies the given sjson sets to the file at PackageJSONPath, preserving
-// existing formatting.
+// Patch applies the given sjson sets and deletes to the file at PackageJSONPath,
+// preserving existing formatting.
 func (p *PackageJSONPatcher) Patch(ctx context.Context, opts PatchOptions) error {
 	packageJSONPath := opts.PackageJSONPath
 	if packageJSONPath == "" {
@@ -43,6 +44,15 @@ func (p *PackageJSONPatcher) Patch(ctx context.Context, opts PatchOptions) error
 
 	indent := detectIndentation(content)
 
+	// First apply deletions
+	for _, path := range opts.Deletes {
+		content, err = sjson.DeleteBytes(content, path)
+		if err != nil {
+			return fmt.Errorf("failed to delete %s: %w", path, err)
+		}
+	}
+
+	// Then apply sets
 	for path, value := range opts.Sets {
 		content, err = sjson.SetBytes(content, path, value)
 		if err != nil {

@@ -21,7 +21,8 @@ func TestNpmApp_Run_FileNotFound(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		"/nonexistent/package-lock.json",
-		true,
+		true,  // dryRun
+		true,  // useAlias
 		logger,
 		&MockParser{},
 		&MockAPIClient{},
@@ -49,7 +50,8 @@ func TestNpmApp_Run_NoPackages(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		lockFile,
-		true,
+		true,  // dryRun
+		true,  // useAlias
 		logger,
 		&MockParser{},
 		&MockAPIClient{},
@@ -98,7 +100,8 @@ func TestNpmApp_Run_APIError(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		lockFile,
-		true,
+		true,  // dryRun
+		true,  // useAlias
 		logger,
 		mockParser,
 		mockAPIClient,
@@ -143,7 +146,8 @@ func TestNpmApp_Run_NoPatches(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		lockFile,
-		true,
+		true,  // dryRun
+		true,  // useAlias
 		logger,
 		&MockParser{},
 		mockAPIClient,
@@ -213,7 +217,8 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		lockFile,
-		true, // dry-run
+		true,  // dry-run
+		true,  // useAlias
 		logger,
 		mockParser,
 		mockAPIClient,
@@ -306,6 +311,7 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 		"https://api.root.io",
 		lockFile,
 		false, // NOT dry-run
+		true,  // useAlias
 		logger,
 		mockParser,
 		mockAPIClient,

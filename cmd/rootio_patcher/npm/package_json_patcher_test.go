@@ -247,11 +247,19 @@ func TestNpmParser_UpdatePackageJSON_DirectAndTransitive(t *testing.T) {
 	got, _ := os.ReadFile(pkgPath)
 	content := string(got)
 
-	if !strings.Contains(content, `"uuid": "npm:@rootio/uuid@11.0.3-root.io.1"`) {
-		t.Errorf("expected direct uuid rewritten to v11 alias; got:\n%s", content)
+	// Old uuid should be removed, new @rootio/uuid added
+	if strings.Contains(content, `"uuid": "npm:@rootio/uuid@11.0.3-root.io.1"`) {
+		t.Errorf("old uuid package should be removed; got:\n%s", content)
 	}
-	if !strings.Contains(content, `"dockerode": {`) || !strings.Contains(content, `"npm:@rootio/uuid@10.0.0-root.io.1"`) {
-		t.Errorf("expected overrides.dockerode.uuid set to v10 alias; got:\n%s", content)
+	if !strings.Contains(content, `"@rootio/uuid": "11.0.3-root.io.1"`) {
+		t.Errorf("expected new @rootio/uuid package; got:\n%s", content)
+	}
+	// npm now uses version-scoped flat overrides for transitive uses
+	if !strings.Contains(content, `"uuid@10.0.0": "npm:@rootio/uuid@10.0.0-root.io.1"`) {
+		t.Errorf("expected version-scoped override for uuid@10.0.0; got:\n%s", content)
+	}
+	if !strings.Contains(content, `"uuid@11.0.3": "npm:@rootio/uuid@11.0.3-root.io.1"`) {
+		t.Errorf("expected version-scoped override for uuid@11.0.3; got:\n%s", content)
 	}
 	if !strings.Contains(content, `"dockerode": "^4.0.12"`) {
 		t.Errorf("dockerode direct dep must remain unchanged; got:\n%s", content)
@@ -387,23 +395,16 @@ func TestNpmParser_UpdatePackageJSON_ParentScoped(t *testing.T) {
 	got, _ := os.ReadFile(pkgPath)
 	content := string(got)
 
-	// Direct uuid dep must remain at ^14.0.0 (the bug we're fixing).
+	// Direct uuid dep must remain at ^14.0.0 (not modified by override)
 	if !strings.Contains(content, `"uuid": "^14.0.0"`) {
 		t.Errorf("user's direct uuid@^14.0.0 must not be modified; got:\n%s", content)
 	}
 	if !strings.Contains(content, `"dockerode": "^4.0.12"`) {
 		t.Errorf("user's direct dockerode dep must not be modified; got:\n%s", content)
 	}
-	// The override must be nested under dockerode, not at the top level of overrides.
-	if strings.Contains(content, `"overrides": {
-    "uuid":`) {
-		t.Errorf("override must not be a flat overrides.uuid (would force v10 on user's uuid@14); got:\n%s", content)
-	}
-	if !strings.Contains(content, "npm:@rootio/uuid@10.0.0-root.io.1") {
-		t.Errorf("expected aliased override value; got:\n%s", content)
-	}
-	// Look for the parent-nested shape.
-	if !strings.Contains(content, `"dockerode": {`) {
-		t.Errorf("expected overrides.dockerode nested object; got:\n%s", content)
+	// npm now uses version-scoped flat overrides which safely target specific versions
+	// "uuid@10.0.0" only affects uuid@10.0.0, not uuid@14.0.0, so no conflict
+	if !strings.Contains(content, `"uuid@10.0.0": "npm:@rootio/uuid@10.0.0-root.io.1"`) {
+		t.Errorf("expected version-scoped override for uuid@10.0.0; got:\n%s", content)
 	}
 }
