@@ -40,7 +40,7 @@ func (m *MockParser) Update(ctx context.Context, filePath string, updates map[st
 func (m *MockParser) Validate(content string) bool { return true }
 
 func (m *MockParser) Ecosystem() common.Ecosystem { return common.EcosystemComposer }
-func (m *MockParser) FilePatterns() []string       { return []string{"composer.json"} }
+func (m *MockParser) FilePatterns() []string      { return []string{"composer.json"} }
 func (m *MockParser) CanHandle(fileName string) bool {
 	return fileName == "composer.json"
 }

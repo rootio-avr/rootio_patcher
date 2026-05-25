@@ -52,7 +52,7 @@ type App struct {
 func NewApp(apiKey, apiURL, pkgURL, filePath string, dryRun, useAlias bool, logger *slog.Logger) *App {
 	return NewAppWithServices(
 		apiKey, apiURL, pkgURL, filePath, dryRun, useAlias, logger,
-		NewParser(logger),
+		NewParser(logger, pkgURL),
 		rootio.NewClient(apiURL, apiKey),
 		NewRealCommandRunner(),
 	)
@@ -176,7 +176,11 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 	}
 
 	dir := filepath.Dir(a.filePath)
-	args := append([]string{"update", "--with-dependencies"}, affectedPackages...)
+	args := []string{"update", "--with-dependencies"}
+	if a.logger.Enabled(context.Background(), slog.LevelDebug) {
+		args = append(args, "-vvv")
+	}
+	args = append(args, affectedPackages...)
 	a.logger.DebugContext(ctx, "Running composer update", slog.String("dir", dir))
 	if err := a.cmdRunner.Run(ctx, dir, a.composerEnv(), "composer", args...); err != nil {
 		return fmt.Errorf("composer update failed: %w", err)

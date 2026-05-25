@@ -13,7 +13,7 @@ import (
 )
 
 func newTestParser() *ComposerParser {
-	return NewParser(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	return NewParser(slog.New(slog.NewTextHandler(os.Stdout, nil)), "https://pkg.root.io")
 }
 
 func writeFiles(t *testing.T, dir string, files map[string]string) {
@@ -66,6 +66,23 @@ func TestComposerParser_Parse_SkipsPlatformRequirements(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pkgs, 1)
 	assert.Equal(t, "vendor/pkg", pkgs[0].Name)
+}
+
+func TestComposerParser_Parse_StripsLeadingV(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"composer.json": `{}`,
+		"composer.lock": `{
+			"packages": [{"name":"vendor/pkg","version":"v6.4.3"}],
+			"packages-dev": []
+		}`,
+	})
+
+	p := newTestParser()
+	pkgs, err := p.Parse(context.Background(), filepath.Join(dir, "composer.json"))
+	require.NoError(t, err)
+	require.Len(t, pkgs, 1)
+	assert.Equal(t, "6.4.3", pkgs[0].Version)
 }
 
 func TestComposerParser_Parse_ErrorWhenLockMissing(t *testing.T) {

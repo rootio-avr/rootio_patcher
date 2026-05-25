@@ -153,7 +153,7 @@ func TestComposerApp_Run_ApplyPatches_DirectPatch(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	realParser := NewParser(logger)
+	realParser := NewParser(logger, "https://pkg.root.io")
 	mockParser := &MockComposerParser{
 		ComposerParser: realParser,
 		ParseFunc: func(_ context.Context, _ string) ([]common.PackageInfo, error) {
@@ -200,7 +200,7 @@ func TestComposerApp_Run_ApplyPatches_WithAlias(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	realParser := NewParser(logger)
+	realParser := NewParser(logger, "https://pkg.root.io")
 	mockParser := &MockComposerParser{
 		ComposerParser: realParser,
 		ParseFunc: func(_ context.Context, _ string) ([]common.PackageInfo, error) {

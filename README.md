@@ -189,7 +189,6 @@ rootio_patcher composer remediate [FLAGS]
 **Flags:**
 - `--file` - Path to composer.json (default: `composer.json`)
 - `--dry-run` - Preview changes without applying (default: `true`)
-- `--use-alias` - Use Root.io aliased packages (default: `false`)
 
 **How it works:** Pre-install patching — reads exact resolved versions from `composer.lock`, updates `composer.json` with patched version constraints (pinning transitive deps as needed), adds the Root.io Composer repository entry, then automatically runs `composer update --with-dependencies <affected-packages>` to download the patched versions and update the lock file. The `vendor/` directory is fully populated and ready to deploy after the patcher runs.
 
@@ -216,15 +215,13 @@ Set to `false` to actually apply patches:
 rootio_patcher pip remediate --dry-run=false
 ```
 
-#### `--use-alias` Flag (pip and Composer)
+#### `--use-alias` Flag (pip only)
 
 Root.io provides two types of patches:
 
-- **Direct Patches** (`--use-alias=false`): Patches are applied using the original package name with a new patched version. This is the default for Composer.
+- **Direct Patches** (`--use-alias=false`): Patches are applied using the original package name with a new patched version.
 
-- **Aliased Packages** (`--use-alias=true`): Root.io maintains patched versions under a different package name (e.g., `rootio-django` instead of `django` for pip, or `rootio/vendor-pkg` instead of `vendor/pkg` for Composer). This is the default for pip.
-
-For Composer, when using aliases, the original package entry in `require`/`require-dev` is replaced with the aliased name.
+- **Aliased Packages** (`--use-alias=true`): Root.io maintains patched versions under a different package name (e.g., `rootio-django` instead of `django`). This is the default for pip.
 
 #### `--python-path` Flag (pip only)
 
@@ -619,12 +616,6 @@ Next steps:
 
 ```bash
 rootio_patcher composer remediate --file=./subproject/composer.json --dry-run=false
-```
-
-#### Use Aliased Packages
-
-```bash
-rootio_patcher composer remediate --dry-run=false --use-alias=true
 ```
 
 ### Java (Maven) Support - Beta Status
@@ -1084,7 +1075,7 @@ A reusable composite action is included in this repository. It wraps the vulnera
 | `package-manager` | No | `npm` | *(npm)* `npm`, `yarn`, or `pnpm` |
 | `directory` | No | `.` | *(npm)* Project directory containing the lock file |
 | `python-path` | No | `python` | *(pip)* Path to Python interpreter |
-| `use-alias` | No | `true` | *(pip)* / *(composer)* Use Root.io aliased packages |
+| `use-alias` | No | `true` | *(pip)* Use Root.io aliased packages |
 | `file` | No | `pom.xml` | *(maven)* Path to pom.xml; *(composer)* Path to composer.json |
 
 Advanced settings (`ROOTIO_API_URL`, `ROOTIO_PKG_URL`, `ROOTIO_PIP_INDEX_URL`, `LOG_LEVEL`) are not inputs — pass them as environment variables on the calling step instead:

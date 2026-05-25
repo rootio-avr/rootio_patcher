@@ -18,11 +18,12 @@ import (
 // ComposerParser handles parsing of composer.json and composer.lock files.
 type ComposerParser struct {
 	logger *slog.Logger
+	pkgURL string
 }
 
 // NewParser creates a new ComposerParser.
-func NewParser(logger *slog.Logger) *ComposerParser {
-	return &ComposerParser{logger: logger}
+func NewParser(logger *slog.Logger, pkgURL string) *ComposerParser {
+	return &ComposerParser{logger: logger, pkgURL: pkgURL}
 }
 
 func (p *ComposerParser) Ecosystem() common.Ecosystem { return common.EcosystemComposer }
@@ -67,10 +68,8 @@ func (p *ComposerParser) Parse(ctx context.Context, filePath string) ([]common.P
 		}
 		packages = append(packages, common.PackageInfo{
 			Name:      entry.Name,
-			Version:   entry.Version,
+			Version:   strings.TrimPrefix(entry.Version, "v"),
 			Ecosystem: common.EcosystemComposer,
-			Direct:    true,
-			Dev:       false,
 		})
 	}
 	for _, entry := range lock.PackagesDev {
@@ -80,9 +79,8 @@ func (p *ComposerParser) Parse(ctx context.Context, filePath string) ([]common.P
 		}
 		packages = append(packages, common.PackageInfo{
 			Name:      entry.Name,
-			Version:   entry.Version,
+			Version:   strings.TrimPrefix(entry.Version, "v"),
 			Ecosystem: common.EcosystemComposer,
-			Direct:    true,
 			Dev:       true,
 		})
 	}
@@ -183,9 +181,9 @@ func (p *ComposerParser) Update(ctx context.Context, filePath string, updates ma
 	return content, nil
 }
 
-// injectRepository adds the pkg.root.io Composer repository entry if not already present.
+// injectRepository adds the Root.io Composer repository entry if not already present.
 func (p *ComposerParser) injectRepository(content string) (string, error) {
-	const repoURL = "https://pkg.root.io/composer"
+	repoURL := strings.TrimRight(p.pkgURL, "/") + "/composer"
 
 	repos := gjson.Get(content, "repositories")
 	if repos.IsArray() {

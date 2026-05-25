@@ -18,6 +18,10 @@ if ! command -v composer &>/dev/null; then
     exit 1
 fi
 
+# Reset composer.json to clean state (removes any patcher-added repositories/version changes)
+echo "Resetting composer.json..."
+git checkout -- "$SCRIPT_DIR/composer.json"
+
 # Clean up existing vendor and lock file
 if [ -d "$SCRIPT_DIR/vendor" ]; then
     echo "Removing existing vendor directory..."
