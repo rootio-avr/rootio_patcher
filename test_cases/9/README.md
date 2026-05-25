@@ -1,0 +1,115 @@
+# Test Case 9: Composer — symfony/http-foundation 6.4.3
+
+Smoke-test fixture for Composer remediation. No `composer install` needed — the `composer.lock` is pre-baked.
+
+## Vulnerable Package
+
+| Package | Version | CVEs |
+|---------|---------|------|
+| `symfony/http-foundation` | `6.4.3` | CVE-2024-50340, CVE-2024-50341 |
+
+The remaining packages (`symfony/routing`, `symfony/mime`, `symfony/polyfill-*`, `psr/log`, `phpunit/phpunit`) are present as realistic transitive dependencies and dev dependencies but are not expected to have patches.
+
+## Files
+
+- `composer.json` — declares `symfony/http-foundation: 6.4.3` as a direct dependency
+- `composer.lock` — pre-baked lock file with exact resolved versions; no `composer install` required
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ROOTIO_API_KEY` | **Yes** | — | Root.io API key |
+| `ROOTIO_API_URL` | No | `https://api.root.io` | API endpoint (override for staging/local) |
+| `ROOTIO_PKG_URL` | No | `https://pkg.root.io` | Package registry URL (used for `COMPOSER_AUTH` host) |
+| `LOG_LEVEL` | No | `info` | `debug`, `info`, `warn`, or `error` |
+
+## Usage
+
+### Step 1 — install dependencies and verify the library works
+
+```bash
+bash test_cases/9/setup.sh
+php test_cases/9/index.php
+```
+
+Expected output ends with: `✓ All checks passed — symfony/http-foundation is working correctly.`
+
+### Step 2 — dry run (preview patches)
+
+```bash
+ROOTIO_API_KEY=your-key \
+rootio_patcher composer remediate --file=test_cases/9/composer.json
+```
+
+Against a local/staging server:
+
+```bash
+ROOTIO_API_KEY=your-key \
+ROOTIO_API_URL=http://localhost:3000 \
+ROOTIO_PKG_URL=http://localhost:8080 \
+rootio_patcher composer remediate --file=test_cases/9/composer.json
+```
+
+With debug logging:
+
+```bash
+ROOTIO_API_KEY=your-key \
+LOG_LEVEL=debug \
+rootio_patcher composer remediate --file=test_cases/9/composer.json
+```
+
+### Step 3 — apply patches
+
+Requires PHP and Composer installed (the patcher runs `composer update --with-dependencies` internally).
+
+```bash
+ROOTIO_API_KEY=your-key \
+rootio_patcher composer remediate --file=test_cases/9/composer.json --dry-run=false
+```
+
+With aliased packages:
+
+```bash
+ROOTIO_API_KEY=your-key \
+rootio_patcher composer remediate --file=test_cases/9/composer.json --dry-run=false --use-alias=true
+```
+
+Against a local/staging server:
+
+```bash
+ROOTIO_API_KEY=your-key \
+ROOTIO_API_URL=http://localhost:3000 \
+ROOTIO_PKG_URL=http://localhost:8080 \
+rootio_patcher composer remediate --file=test_cases/9/composer.json --dry-run=false
+```
+
+### Step 4 — verify the patched library still works
+
+```bash
+php test_cases/9/index.php
+```
+
+The output should be identical to Step 1 — confirming the patched version of `symfony/http-foundation` is functionally correct.
+
+## Expected dry-run output
+
+```
+=== DRY-RUN MODE ===
+The following packages in composer.json would be updated:
+
+1. Package: symfony/http-foundation
+   Current version: v6.4.3
+   Patched version: <patched>
+   CVEs Fixed: [CVE-2024-50340, CVE-2024-50341]
+
+To apply these patches:
+  Run: rootio_patcher composer remediate --dry-run=false
+  Then ensure COMPOSER_AUTH is configured in your CI/CD environment
+```
+
+## Reset after applying patches
+
+```bash
+git checkout test_cases/9/composer.json test_cases/9/composer.lock
+```
