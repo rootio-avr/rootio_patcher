@@ -12,6 +12,10 @@
         "phpunit/phpunit": "^10.5"
     },
     "config": {
-        "optimize-autoloader": true
+        "optimize-autoloader": true,
+        "audit": {
+            "abandoned": "ignore",
+            "block-insecure": false
+        }
     }
 }
