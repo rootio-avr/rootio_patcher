@@ -18,14 +18,18 @@ if ! command -v composer &>/dev/null; then
     exit 1
 fi
 
-# Clean up existing vendor if present
+# Clean up existing vendor and lock file
 if [ -d "$SCRIPT_DIR/vendor" ]; then
     echo "Removing existing vendor directory..."
     rm -rf "$SCRIPT_DIR/vendor"
 fi
+if [ -f "$SCRIPT_DIR/composer.lock" ]; then
+    echo "Removing existing composer.lock..."
+    rm "$SCRIPT_DIR/composer.lock"
+fi
 
-# Install packages from composer.lock (no network needed for autoloader bootstrap)
-echo "Installing Composer packages..."
+# Install packages — this resolves versions and generates composer.lock
+echo "Installing Composer packages (this will generate composer.lock)..."
 cd "$SCRIPT_DIR"
 composer install --no-interaction --prefer-dist
 
