@@ -37,3 +37,25 @@ type AnalyzePackagesResponse struct {
 	Patches []PackagePatch   `json:"patches"`
 	Skipped []SkippedPackage `json:"skipped"`
 }
+
+// AptAnalyzeRequest is the request for the /v3/analyze/apt endpoint
+type AptAnalyzeRequest struct {
+	Ecosystem       string    `json:"ecosystem"`
+	OsDistroVersion string    `json:"os_distro_version"`
+	Packages        []Package `json:"packages"`
+}
+
+// UpgradeableOsPackage represents a package with a fix available in the official distro repo
+type UpgradeableOsPackage struct {
+	PackageName    string   `json:"package_name"`
+	CurrentVersion string   `json:"current_version"`
+	UpgradeVersion string   `json:"upgrade_version"`
+	CVEIDs         []string `json:"cve_ids"`
+}
+
+// AptAnalyzeResponse is the response from the /v3/analyze/apt endpoint
+type AptAnalyzeResponse struct {
+	Patches     []PackagePatch         `json:"patches"`
+	Upgradeable []UpgradeableOsPackage `json:"upgradeable"`
+	Skipped     []SkippedPackage       `json:"skipped"`
+}

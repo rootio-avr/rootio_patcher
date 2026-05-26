@@ -11,6 +11,7 @@ import (
 
 	"github.com/alecthomas/kong"
 
+	"rootio_patcher/cmd/rootio_patcher/apt"
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/cmd/rootio_patcher/composer"
 	"rootio_patcher/cmd/rootio_patcher/config"
@@ -34,6 +35,26 @@ type CLI struct {
 	Go       GoCmd       `cmd:"" help:"Go module remediation"`
 	Nuget    NuGetCmd    `cmd:"" help:"NuGet package remediation"`
 	Composer ComposerCmd `cmd:"" help:"Composer (PHP) package remediation"`
+	Apt   	 AptCmd   	 `cmd:"" help:"APT (Debian/Ubuntu) OS-level package remediation"`
+}
+
+// AptCmd handles APT-related commands
+type AptCmd struct {
+	Remediate AptRemediateCmd `cmd:"" help:"Remediate Debian/Ubuntu OS packages (post-install patching)"`
+}
+
+// AptRemediateCmd remediates installed APT packages
+type AptRemediateCmd struct {
+	DryRun  bool `default:"true" help:"Preview changes without applying them"`
+	Verbose bool `default:"false" help:"Print each remediation step"`
+}
+
+// Run executes the apt remediate command
+func (cmd *AptRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	logger.InfoContext(ctx, "Starting apt remediation", slog.Bool("dry_run", cmd.DryRun))
+
+	app := apt.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.Verbose, logger)
+	return app.Run(ctx)
 }
 
 // PipCmd handles pip-related commands
