@@ -12,6 +12,7 @@ import (
 	"github.com/alecthomas/kong"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
+	"rootio_patcher/cmd/rootio_patcher/composer"
 	"rootio_patcher/cmd/rootio_patcher/config"
 	"rootio_patcher/cmd/rootio_patcher/golang"
 	"rootio_patcher/cmd/rootio_patcher/maven"
@@ -27,11 +28,12 @@ var version = "dev"
 type CLI struct {
 	Version kong.VersionFlag `short:"v" help:"Print version information"`
 
-	Pip   PipCmd   `cmd:"" help:"Python/pip package remediation"`
-	Npm   NpmCmd   `cmd:"" help:"npm package remediation"`
-	Maven MavenCmd `cmd:"" help:"Maven package remediation"`
-	Go    GoCmd    `cmd:"" help:"Go module remediation"`
-	Nuget NuGetCmd `cmd:"" help:"NuGet package remediation"`
+	Pip      PipCmd      `cmd:"" help:"Python/pip package remediation"`
+	Npm      NpmCmd      `cmd:"" help:"npm package remediation"`
+	Maven    MavenCmd    `cmd:"" help:"Maven package remediation"`
+	Go       GoCmd       `cmd:"" help:"Go module remediation"`
+	Nuget    NuGetCmd    `cmd:"" help:"NuGet package remediation"`
+	Composer ComposerCmd `cmd:"" help:"Composer (PHP) package remediation"`
 }
 
 // PipCmd handles pip-related commands
@@ -198,6 +200,31 @@ type NuGetRemediateCmd struct {
 	File      string `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
 	Directory string `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
 	DryRun    bool   `default:"true" help:"Preview changes without applying them"`
+}
+
+// ComposerCmd handles Composer-related commands
+type ComposerCmd struct {
+	Remediate ComposerRemediateCmd `cmd:"" help:"Remediate Composer packages (pre-install patching of composer.json)"`
+}
+
+// ComposerRemediateCmd remediates Composer packages by patching composer.json
+type ComposerRemediateCmd struct {
+	File     string `default:"composer.json" help:"Path to composer.json"`
+	DryRun   bool   `default:"true" help:"Preview changes without applying them"`
+	UseAlias bool   `default:"false" help:"Use Root.io aliased packages"`
+}
+
+// Run executes the composer remediate command
+func (cmd *ComposerRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	logger.InfoContext(ctx, "Starting Composer remediation", slog.String("file", cmd.File))
+
+	filePath, err := filepath.Abs(cmd.File)
+	if err != nil {
+		return fmt.Errorf("invalid file path: %w", err)
+	}
+
+	app := composer.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, filePath, cmd.DryRun, cmd.UseAlias, logger)
+	return app.Run(ctx)
 }
 
 // Run executes the nuget remediate command
