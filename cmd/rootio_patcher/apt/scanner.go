@@ -25,27 +25,72 @@ type InstalledPackage struct {
 	Version string
 }
 
+// SystemProbe executes OS-level queries and returns their raw output for parsing.
+type SystemProbe interface {
+	// ReadOSRelease returns the "$ID $VERSION_ID $VERSION_CODENAME" string from /etc/os-release
+	ReadOSRelease(ctx context.Context) (string, error)
+	// QueryInstalledPackages returns the raw dpkg-query output (tab-separated name\tversion lines)
+	QueryInstalledPackages(ctx context.Context) ([]byte, error)
+}
+
+type realProbe struct{}
+
+func (r *realProbe) ReadOSRelease(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "sh", "-c", `. /etc/os-release && echo "$ID $VERSION_ID $VERSION_CODENAME"`)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to read /etc/os-release: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (r *realProbe) QueryInstalledPackages(ctx context.Context) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "dpkg-query",
+		"--show",
+		"--showformat=${Package}\t${Version}\n",
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("dpkg-query failed: %w", err)
+	}
+	return out, nil
+}
+
 // Scanner reads OS info and installed packages from the running system
 type Scanner interface {
 	DetectOS(ctx context.Context) (*OSInfo, error)
 	ListPackages(ctx context.Context) ([]InstalledPackage, error)
 }
 
-type osScanner struct{}
+type osScanner struct {
+	probe SystemProbe
+}
 
-func NewScanner() Scanner { return &osScanner{} }
+func NewScanner() Scanner { return &osScanner{probe: &realProbe{}} }
 
-// DetectOS reads /etc/os-release to determine ecosystem and version
+// NewScannerWithProbe creates a Scanner using the given SystemProbe — intended for testing
+func NewScannerWithProbe(probe SystemProbe) Scanner { return &osScanner{probe: probe} }
+
 func (s *osScanner) DetectOS(ctx context.Context) (*OSInfo, error) {
-	cmd := exec.CommandContext(ctx, "sh", "-c", ". /etc/os-release && echo \"$ID $VERSION_ID $VERSION_CODENAME\"")
-	out, err := cmd.Output()
+	line, err := s.probe.ReadOSRelease(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read /etc/os-release: %w", err)
+		return nil, err
 	}
+	return parseOSRelease(line)
+}
 
-	parts := strings.Fields(strings.TrimSpace(string(out)))
+func (s *osScanner) ListPackages(ctx context.Context) ([]InstalledPackage, error) {
+	out, err := s.probe.QueryInstalledPackages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return parseDpkgQueryOutput(out)
+}
+
+func parseOSRelease(line string) (*OSInfo, error) {
+	parts := strings.Fields(line)
 	if len(parts) < 2 {
-		return nil, fmt.Errorf("unexpected /etc/os-release output: %q", string(out))
+		return nil, fmt.Errorf("unexpected /etc/os-release output: %q", line)
 	}
 
 	id := strings.ToLower(parts[0])
@@ -59,10 +104,8 @@ func (s *osScanner) DetectOS(ctx context.Context) (*OSInfo, error) {
 	switch id {
 	case "debian":
 		ecosystem = "debian"
-		// VERSION_ID for debian is e.g. "12"
 	case "ubuntu":
 		ecosystem = "ubuntu"
-		// VERSION_ID for ubuntu is e.g. "22.04"
 	default:
 		return nil, fmt.Errorf("unsupported OS %q: apt remediate supports debian and ubuntu only", id)
 	}
@@ -74,21 +117,11 @@ func (s *osScanner) DetectOS(ctx context.Context) (*OSInfo, error) {
 	}, nil
 }
 
-// ListPackages returns all packages installed via dpkg
-func (s *osScanner) ListPackages(ctx context.Context) ([]InstalledPackage, error) {
-	cmd := exec.CommandContext(ctx, "dpkg-query",
-		"--show",
-		"--showformat=${Package}\t${Version}\n",
-	)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("dpkg-query failed: %w", err)
-	}
-
+func parseDpkgQueryOutput(out []byte) ([]InstalledPackage, error) {
 	var packages []InstalledPackage
-	scanner := bufio.NewScanner(bytes.NewReader(out))
-	for scanner.Scan() {
-		line := scanner.Text()
+	sc := bufio.NewScanner(bytes.NewReader(out))
+	for sc.Scan() {
+		line := sc.Text()
 		parts := strings.SplitN(line, "\t", 2)
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			continue
@@ -98,6 +131,5 @@ func (s *osScanner) ListPackages(ctx context.Context) ([]InstalledPackage, error
 			Version: parts[1],
 		})
 	}
-
-	return packages, scanner.Err()
+	return packages, sc.Err()
 }
