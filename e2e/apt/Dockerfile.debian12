@@ -1,0 +1,49 @@
+FROM debian:bookworm-slim
+
+ARG ROOTIO_API_KEY
+ARG ROOTIO_API_URL=https://api.root.io
+
+# Install packages that the API will remediate:
+#   - tar:      has a Root.io alias patch (rootio-tar)
+#   - curl:     upgradeable via official repo
+#   - openssl:  upgradeable via official repo
+#   - wget:     upgradeable via official repo
+#   - xz-utils: upgradeable via official repo
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    openssl \
+    wget \
+    tar \
+    xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+
+# Capture baseline package state
+RUN echo "=== BEFORE ===" && \
+    dpkg-query --show --showformat='${Package}\t${Version}\n' \
+      curl openssl wget tar xz-utils
+
+# Copy the pre-built patcher binary
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run the patcher (apply mode)
+RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
+    ROOTIO_API_URL=${ROOTIO_API_URL} \
+    rootio_patcher apt remediate --dry-run=false --verbose
+
+# Verify: rootio-tar must be installed (alias patch)
+RUN echo "=== AFTER ===" && \
+    dpkg-query --show --showformat='${Package}\t${Version}\n' \
+      rootio-tar 2>/dev/null || (echo "FAIL: rootio-tar not installed" && exit 1)
+
+# Verify: tar binary still works (rootio-tar provides it)
+RUN tar --version | head -1
+
+# Verify: curl binary still works (now provided by rootio-curl)
+RUN curl --version | head -1
+
+# Show final package state — curl/wget/xz-utils replaced by rootio-* aliases, openssl upgraded
+RUN echo "=== Final package state ===" && \
+    dpkg-query --show --showformat='${Package}\t${Version}\n' \
+      rootio-curl rootio-wget rootio-xz-utils rootio-tar openssl 2>/dev/null || true

@@ -1,0 +1,49 @@
+FROM ubuntu:22.04
+
+ARG ROOTIO_API_KEY
+ARG ROOTIO_API_URL=https://api.root.io
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install packages that the API will remediate (upgrades only, no alias patches on ubuntu 22.04):
+#   - curl:       upgradeable via official repo
+#   - openssl:    upgradeable via official repo
+#   - wget:       upgradeable via official repo
+#   - tar:        upgradeable via official repo
+#   - bash:       upgradeable via official repo
+#   - util-linux: upgradeable via official repo
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    openssl \
+    wget \
+    tar \
+    bash \
+    util-linux \
+ && rm -rf /var/lib/apt/lists/*
+
+# Capture baseline package state
+RUN echo "=== BEFORE ===" && \
+    dpkg-query --show --showformat='${Package}\t${Version}\n' \
+      curl openssl wget tar bash util-linux
+
+# Copy the pre-built patcher binary
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run the patcher (apply mode)
+RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
+    ROOTIO_API_URL=${ROOTIO_API_URL} \
+    rootio_patcher apt remediate --dry-run=false --verbose
+
+# Verify: all binaries still work after upgrades
+RUN curl --version | head -1 && \
+    openssl version && \
+    wget --version | head -1 && \
+    tar --version | head -1 && \
+    bash --version | head -1
+
+# Show final package versions
+RUN echo "=== AFTER ===" && \
+    dpkg-query --show --showformat='${Package}\t${Version}\n' \
+      curl openssl wget tar bash util-linux
