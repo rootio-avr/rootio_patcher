@@ -31,12 +31,12 @@ type Scanner interface {
 	ListPackages(ctx context.Context) ([]InstalledPackage, error)
 }
 
-type realScanner struct{}
+type osScanner struct{}
 
-func NewScanner() Scanner { return &realScanner{} }
+func NewScanner() Scanner { return &osScanner{} }
 
 // DetectOS reads /etc/os-release to determine ecosystem and version
-func (s *realScanner) DetectOS(ctx context.Context) (*OSInfo, error) {
+func (s *osScanner) DetectOS(ctx context.Context) (*OSInfo, error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", ". /etc/os-release && echo \"$ID $VERSION_ID $VERSION_CODENAME\"")
 	out, err := cmd.Output()
 	if err != nil {
@@ -75,7 +75,7 @@ func (s *realScanner) DetectOS(ctx context.Context) (*OSInfo, error) {
 }
 
 // ListPackages returns all packages installed via dpkg
-func (s *realScanner) ListPackages(ctx context.Context) ([]InstalledPackage, error) {
+func (s *osScanner) ListPackages(ctx context.Context) ([]InstalledPackage, error) {
 	cmd := exec.CommandContext(ctx, "dpkg-query",
 		"--show",
 		"--showformat=${Package}\t${Version}\n",

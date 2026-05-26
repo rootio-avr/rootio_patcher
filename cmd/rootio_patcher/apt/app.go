@@ -9,9 +9,9 @@ import (
 	"rootio_patcher/pkg/rootio"
 )
 
-// APIClient is the interface for calling the Root.io APT analysis endpoint
+// APIClient is the interface for calling the Root.io OS package analysis endpoint
 type APIClient interface {
-	AnalyzeAptPackages(ctx context.Context, ecosystem, distroVersion string, packages []rootio.Package) (*rootio.AptAnalyzeResponse, error)
+	AnalyzeOsPackages(ctx context.Context, endpoint, ecosystem, distroVersion string, packages []rootio.Package) (*rootio.OsAnalyzeResponse, error)
 }
 
 // App orchestrates the apt remediate workflow
@@ -87,7 +87,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	a.logger.DebugContext(ctx, "Calling analyze API")
-	response, err := a.apiClient.AnalyzeAptPackages(ctx, osInfo.Ecosystem, osInfo.DistroVersion, pkgs)
+	response, err := a.apiClient.AnalyzeOsPackages(ctx, "apt", osInfo.Ecosystem, osInfo.DistroVersion, pkgs)
 	if err != nil {
 		return fmt.Errorf("API call failed: %w", err)
 	}
@@ -155,7 +155,7 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
-func (a *App) reportDryRun(response *rootio.AptAnalyzeResponse) {
+func (a *App) reportDryRun(response *rootio.OsAnalyzeResponse) {
 	fmt.Println("\n=== DRY-RUN MODE ===")
 
 	if len(response.Upgradeable) > 0 {

@@ -69,11 +69,12 @@ func (c *Client) AnalyzePackages(
 	return &response, nil
 }
 
-// AnalyzeAptPackages sends installed APT packages to the backend for vulnerability analysis
-func (c *Client) AnalyzeAptPackages(
-	ctx context.Context, ecosystem, distroVersion string, packages []Package,
-) (*AptAnalyzeResponse, error) {
-	request := AptAnalyzeRequest{
+// AnalyzeOsPackages sends installed OS packages to the backend for vulnerability analysis.
+// endpoint is the OS-specific path segment (e.g. "apt" for Debian/Ubuntu).
+func (c *Client) AnalyzeOsPackages(
+	ctx context.Context, endpoint, ecosystem, distroVersion string, packages []Package,
+) (*OsAnalyzeResponse, error) {
+	request := OsAnalyzeRequest{
 		Ecosystem:       ecosystem,
 		OsDistroVersion: distroVersion,
 		Packages:        packages,
@@ -84,7 +85,7 @@ func (c *Client) AnalyzeAptPackages(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v3/analyze/apt", c.baseURL)
+	url := fmt.Sprintf("%s/v3/analyze/%s", c.baseURL, endpoint)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -106,7 +107,7 @@ func (c *Client) AnalyzeAptPackages(
 		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var response AptAnalyzeResponse
+	var response OsAnalyzeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}

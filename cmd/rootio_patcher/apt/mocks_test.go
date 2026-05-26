@@ -8,14 +8,14 @@ import (
 
 // MockAPIClient is a test double for APIClient
 type MockAPIClient struct {
-	AnalyzeAptPackagesFunc func(ctx context.Context, ecosystem, distroVersion string, packages []rootio.Package) (*rootio.AptAnalyzeResponse, error)
+	AnalyzeOsPackagesFunc func(ctx context.Context, endpoint, ecosystem, distroVersion string, packages []rootio.Package) (*rootio.OsAnalyzeResponse, error)
 }
 
-func (m *MockAPIClient) AnalyzeAptPackages(ctx context.Context, ecosystem, distroVersion string, packages []rootio.Package) (*rootio.AptAnalyzeResponse, error) {
-	if m.AnalyzeAptPackagesFunc != nil {
-		return m.AnalyzeAptPackagesFunc(ctx, ecosystem, distroVersion, packages)
+func (m *MockAPIClient) AnalyzeOsPackages(ctx context.Context, endpoint, ecosystem, distroVersion string, packages []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+	if m.AnalyzeOsPackagesFunc != nil {
+		return m.AnalyzeOsPackagesFunc(ctx, endpoint, ecosystem, distroVersion, packages)
 	}
-	return &rootio.AptAnalyzeResponse{}, nil
+	return &rootio.OsAnalyzeResponse{}, nil
 }
 
 // MockScanner is a test double for Scanner

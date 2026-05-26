@@ -38,8 +38,8 @@ type AnalyzePackagesResponse struct {
 	Skipped []SkippedPackage `json:"skipped"`
 }
 
-// AptAnalyzeRequest is the request for the /v3/analyze/apt endpoint
-type AptAnalyzeRequest struct {
+// OsAnalyzeRequest is the request for OS-level package analysis endpoints (e.g. /v3/analyze/apt)
+type OsAnalyzeRequest struct {
 	Ecosystem       string    `json:"ecosystem"`
 	OsDistroVersion string    `json:"os_distro_version"`
 	Packages        []Package `json:"packages"`
@@ -53,8 +53,8 @@ type UpgradeableOsPackage struct {
 	CVEIDs         []string `json:"cve_ids"`
 }
 
-// AptAnalyzeResponse is the response from the /v3/analyze/apt endpoint
-type AptAnalyzeResponse struct {
+// OsAnalyzeResponse is the response from OS-level package analysis endpoints (e.g. /v3/analyze/apt)
+type OsAnalyzeResponse struct {
 	Patches     []PackagePatch         `json:"patches"`
 	Upgradeable []UpgradeableOsPackage `json:"upgradeable"`
 	Skipped     []SkippedPackage       `json:"skipped"`

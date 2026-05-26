@@ -66,7 +66,7 @@ func TestApp_Run_NoPackages(t *testing.T) {
 		},
 	}
 	apiClient := &MockAPIClient{
-		AnalyzeAptPackagesFunc: func(_ context.Context, _, _ string, _ []rootio.Package) (*rootio.AptAnalyzeResponse, error) {
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
 			t.Fatal("API should not be called when there are no packages")
 			return nil, nil
 		},
@@ -80,7 +80,7 @@ func TestApp_Run_NoPackages(t *testing.T) {
 func TestApp_Run_APIError(t *testing.T) {
 	apiErr := errors.New("connection refused")
 	apiClient := &MockAPIClient{
-		AnalyzeAptPackagesFunc: func(_ context.Context, _, _ string, _ []rootio.Package) (*rootio.AptAnalyzeResponse, error) {
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
 			return nil, apiErr
 		},
 	}
@@ -95,8 +95,8 @@ func TestApp_Run_APIError(t *testing.T) {
 func TestApp_Run_NoPatches(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
-		AnalyzeAptPackagesFunc: func(_ context.Context, _, _ string, _ []rootio.Package) (*rootio.AptAnalyzeResponse, error) {
-			return &rootio.AptAnalyzeResponse{}, nil
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{}, nil
 		},
 	}
 	app := newTestApp(debianScanner(), apiClient, runner, true)
@@ -109,10 +109,10 @@ func TestApp_Run_NoPatches(t *testing.T) {
 func TestApp_Run_APICalledWithCorrectEcosystem(t *testing.T) {
 	var gotEcosystem, gotDistro string
 	apiClient := &MockAPIClient{
-		AnalyzeAptPackagesFunc: func(_ context.Context, ecosystem, distroVersion string, _ []rootio.Package) (*rootio.AptAnalyzeResponse, error) {
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, ecosystem, distroVersion string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
 			gotEcosystem = ecosystem
 			gotDistro = distroVersion
-			return &rootio.AptAnalyzeResponse{}, nil
+			return &rootio.OsAnalyzeResponse{}, nil
 		},
 	}
 	scanner := &MockScanner{
@@ -134,8 +134,8 @@ func TestApp_Run_APICalledWithCorrectEcosystem(t *testing.T) {
 func TestApp_Run_DryRun_NoCommands(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
-		AnalyzeAptPackagesFunc: func(_ context.Context, _, _ string, _ []rootio.Package) (*rootio.AptAnalyzeResponse, error) {
-			return &rootio.AptAnalyzeResponse{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{
 				Patches: []rootio.PackagePatch{
 					{
 						PackageName: "curl",
@@ -160,8 +160,8 @@ func TestApp_Run_DryRun_NoCommands(t *testing.T) {
 func TestApp_Run_OnlyUpgrades(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
-		AnalyzeAptPackagesFunc: func(_ context.Context, _, _ string, _ []rootio.Package) (*rootio.AptAnalyzeResponse, error) {
-			return &rootio.AptAnalyzeResponse{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{
 				Upgradeable: []rootio.UpgradeableOsPackage{
 					{PackageName: "openssl", CurrentVersion: "3.0.11-1", UpgradeVersion: "3.0.15-1"},
 				},
@@ -185,8 +185,8 @@ func TestApp_Run_OnlyUpgrades(t *testing.T) {
 func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
-		AnalyzeAptPackagesFunc: func(_ context.Context, _, _ string, _ []rootio.Package) (*rootio.AptAnalyzeResponse, error) {
-			return &rootio.AptAnalyzeResponse{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{
 				Patches: []rootio.PackagePatch{
 					{
 						PackageName: "curl",
@@ -232,8 +232,8 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 func TestApp_Run_LowLevelPackage_UsesDpkg(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
-		AnalyzeAptPackagesFunc: func(_ context.Context, _, _ string, _ []rootio.Package) (*rootio.AptAnalyzeResponse, error) {
-			return &rootio.AptAnalyzeResponse{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{
 				Patches: []rootio.PackagePatch{
 					{
 						PackageName: "util-linux",
