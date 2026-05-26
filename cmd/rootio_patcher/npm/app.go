@@ -20,6 +20,7 @@ type App struct {
 	lockFilePath    string
 	packageJSONPath string
 	dryRun          bool
+	useAlias        bool // Controls direct dep rewrite format: true=keep npm: prefix, false=replace package name
 	logger          *slog.Logger
 	parser          npmParser
 	apiClient       common.APIClient
@@ -27,7 +28,7 @@ type App struct {
 
 // NewApp creates a new npm application instance.
 // directory is the project root where the lock file and package.json live (use "." for CWD).
-func NewApp(apiKey, apiURL, packageManager, directory string, dryRun bool, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, packageManager, directory string, dryRun, useAlias bool, logger *slog.Logger) *App {
 	lockFileName := lockFileNameForPackageManager(packageManager)
 	lockFilePath := filepath.Join(directory, lockFileName)
 
@@ -41,6 +42,7 @@ func NewApp(apiKey, apiURL, packageManager, directory string, dryRun bool, logge
 		apiURL,
 		lockFilePath,
 		dryRun,
+		useAlias,
 		logger,
 		parser,
 		rootio.NewClient(apiURL, apiKey),
@@ -64,7 +66,7 @@ func lockFileNameForPackageManager(packageManager string) string {
 // or an absolute/relative lock file path (used in tests).
 func NewAppWithServices(
 	apiKey, apiURL, packageManagerOrPath string,
-	dryRun bool,
+	dryRun, useAlias bool,
 	logger *slog.Logger,
 	parser npmParser,
 	apiClient common.APIClient,
@@ -101,6 +103,7 @@ func NewAppWithServices(
 		lockFilePath:    lockFilePath,
 		packageJSONPath: packageJSONPath,
 		dryRun:          dryRun,
+		useAlias:        useAlias,
 		logger:          logger,
 		parser:          parser,
 		apiClient:       apiClient,
@@ -254,13 +257,24 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 		if err != nil {
 			return fmt.Errorf("failed to check direct dep for %s@%s: %w", patch.PackageName, patch.Version, err)
 		}
+
+		// Choose patch info based on useAlias flag
+		patchInfo := patch.Patch
+		if a.useAlias {
+			patchInfo = patch.PatchAlias
+		}
+
+		// For overrides (transitive deps), always use aliased package with npm: prefix
 		overrideValue := fmt.Sprintf("npm:%s@%s", patch.PatchAlias.Name, patch.PatchAlias.Version)
+
 		overrides = append(overrides, ScopedOverride{
 			PackageName:   patch.PackageName,
 			Version:       patch.Version,
 			Value:         overrideValue,
+			PatchInfo:     patchInfo,      // Used for direct dependency rewrite
 			Parents:       parents,
 			RewriteDirect: direct,
+			UseAlias:      a.useAlias,
 		})
 		var scopes []string
 		if direct {

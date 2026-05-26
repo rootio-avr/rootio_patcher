@@ -747,6 +747,10 @@ jobs:
 
 #### Go Project
 
+Supply credentials for `pkg.root.io` via one of two options:
+
+**Option A — `GOPROXY` with embedded credentials:**
+
 ```yaml
 name: Security Patching - Go
 
@@ -773,7 +777,7 @@ jobs:
 
       - name: Patch vulnerabilities
         env:
-          ROOTIO_API_KEY: ${{ secrets.ROOTIO_API_KEY }}
+          GOPROXY: "https://${{ secrets.ROOTIO_API_KEY }}@pkg.root.io/go,direct"
         run: |
           ./rootio_patcher go remediate --dry-run=false
           go build ./...
@@ -785,6 +789,19 @@ jobs:
           git add go.mod go.sum
           git commit -m "chore: apply Root.io security patches" || echo "No changes"
           git push
+```
+
+**Option B — `.netrc`:**
+
+```yaml
+      - name: Patch vulnerabilities
+        env:
+          GOPROXY: "https://pkg.root.io/go,direct"
+        run: |
+          echo "machine pkg.root.io login token password ${{ secrets.ROOTIO_API_KEY }}" >> ~/.netrc
+          chmod 600 ~/.netrc
+          ./rootio_patcher go remediate --dry-run=false
+          go build ./...
 ```
 
 #### Maven Project
@@ -932,6 +949,10 @@ CMD ["node", "index.js"]
 
 #### Go Dockerfile
 
+The patcher does not need `ROOTIO_API_KEY` — it only rewrites `go.mod`. The credential is needed by `go mod tidy` (which runs automatically) to fetch patched modules from `pkg.root.io`. There are two ways to supply it:
+
+**Option A — `GOPROXY` with embedded credentials (build arg):**
+
 ```dockerfile
 FROM golang:1.22-bookworm
 
@@ -955,6 +976,45 @@ COPY . .
 RUN go build -o app ./...
 
 CMD ["./app"]
+```
+
+
+**Option B — `.netrc` mounted as a secret (recommended):**
+
+Avoids embedding credentials in build args or image layers.
+
+```dockerfile
+FROM golang:1.22-bookworm
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+
+RUN curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_linux_x86_64.tar.gz | tar xz && \
+    chmod +x rootio_patcher && \
+    mv rootio_patcher /usr/local/bin/
+
+ARG GOPRIVATE
+ENV GOPRIVATE=${GOPRIVATE}
+ENV GOPROXY="https://pkg.root.io/go,direct"
+RUN --mount=type=secret,id=netrc,target=/root/.netrc \
+    rootio_patcher go remediate --dry-run=false
+
+COPY . .
+RUN go build -o app ./...
+
+CMD ["./app"]
+```
+
+Create a `.netrc` file with your credentials and pass it at build time:
+
+```bash
+echo "machine pkg.root.io login token password $ROOTIO_API_KEY" > /tmp/netrc
+docker build \
+  --secret id=netrc,src=/tmp/netrc \
+  --build-arg GOPRIVATE="go.yourcompany.com,*.internal" \
+  -t myapp .
+rm /tmp/netrc
 ```
 
 #### Composer (PHP) Dockerfile

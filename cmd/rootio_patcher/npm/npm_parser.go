@@ -312,48 +312,62 @@ func extractParentName(pkgPath string) string {
 	return extractPackageName(prefix)
 }
 
-// UpdatePackageJSON writes npm overrides as parent-nested objects:
+// UpdatePackageJSON writes npm overrides as version-scoped flat keys:
 //
-//	"overrides": { "<parent>": { "<child>": "<alias>" } }
+//	"overrides": { "<package>@<version>": "<alias>" }
 //
-// When the user's direct dep is itself the vulnerable copy
-// (RewriteDirect=true) the dependencies/devDependencies entry is rewritten
-// to the alias so that direct usage is also patched. The two are
-// independent: a single override can do both for the same package name
-// across different versions.
+// This form works universally for transitive and aliased dependencies.
+// When the user's direct dep is vulnerable (RewriteDirect=true), the old package
+// is removed from dependencies and replaced with the new @rootio package to avoid
+// npm's EOVERRIDE error (which occurs when both a direct dependency and an override
+// target the same package@version).
 func (p *NpmParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
-	sets, err := buildNpmOverrideSets(overrides, packageJSONPath)
+	sets, deletes, err := buildNpmOverrideSets(overrides, packageJSONPath)
 	if err != nil {
 		return err
 	}
+
 	return NewPackageJSONPatcher().Patch(ctx, PatchOptions{
 		Sets:            sets,
+		Deletes:         deletes,
 		PackageJSONPath: packageJSONPath,
 	})
 }
 
-func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (map[string]string, error) {
+func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (map[string]string, []string, error) {
 	sets := make(map[string]string)
+	var deletes []string
 	var pkgContent []byte
+
 	for _, ov := range overrides {
-		for _, parent := range ov.Parents {
-			sets[npmOverridesPath+"."+escapeSjsonKey(parent)+"."+escapeSjsonKey(ov.PackageName)] = ov.Value
-		}
+		// Use version-scoped flat override (e.g., "uuid@9.0.1": "npm:@rootio/uuid@...")
+		// This works for all transitive dependencies regardless of nesting or aliasing
+		key := ov.PackageName + "@" + ov.Version
+		sets[npmOverridesPath+"."+escapeSjsonKey(key)] = ov.Value
+
 		if ov.RewriteDirect {
 			if pkgContent == nil {
 				c, err := os.ReadFile(packageJSONPath)
 				if err != nil {
-					return nil, fmt.Errorf("failed to read %s: %w", packageJSONPath, err)
+					return nil, nil, fmt.Errorf("failed to read %s: %w", packageJSONPath, err)
 				}
 				pkgContent = c
 			}
+
+			// Use PatchInfo from API response (either patch or patch_alias based on useAlias)
+			newPkgName := ov.PatchInfo.Name
+			newVersion := ov.PatchInfo.Version
+
 			for _, field := range []string{"dependencies", "devDependencies"} {
-				path := field + "." + escapeSjsonKey(ov.PackageName)
-				if gjsonGet(pkgContent, path).Exists() {
-					sets[path] = ov.Value
+				oldPath := field + "." + escapeSjsonKey(ov.PackageName)
+				if gjsonGet(pkgContent, oldPath).Exists() {
+					// Remove old package and add new package
+					deletes = append(deletes, oldPath)
+					newPath := field + "." + escapeSjsonKey(newPkgName)
+					sets[newPath] = newVersion
 				}
 			}
 		}
 	}
-	return sets, nil
+	return sets, deletes, nil
 }

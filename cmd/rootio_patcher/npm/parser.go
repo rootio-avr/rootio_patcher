@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
+	"rootio_patcher/pkg/rootio"
 
 	"github.com/tidwall/gjson"
 	"gopkg.in/yaml.v3"
@@ -23,24 +24,29 @@ const (
 
 // ScopedOverride captures everything UpdatePackageJSON needs to write a single
 // override entry. Each parser formats it according to its ecosystem's accepted
-// override syntax (parent-nested for npm, slash-paths for yarn, version-scoped
-// flat keys for pnpm).
+// override syntax (version-scoped flat keys for npm/pnpm, slash-paths for yarn).
 //
 // Parents lists the transitive consumers of PackageName at this Version.
 // RewriteDirect is set when the user's own direct dependency resolves to this
 // vulnerable Version — in that case the patcher rewrites the dependencies
-// entry to the alias so the user's own usage is also patched. Parents and
-// RewriteDirect are independent: a single patch can produce both (rewrite the
-// direct line AND emit parent-nested overrides for transitive consumers).
+// entry to the patched package. Parents and RewriteDirect are independent:
+// a single patch can produce both (rewrite the direct line AND emit overrides
+// for transitive consumers).
 //
-// Version is consumed only by ecosystems that scope by version (currently
-// pnpm); npm and yarn ignore it.
+// PatchInfo contains the package name and version to use for direct dependency
+// rewrites. Comes from either patch or patch_alias based on useAlias flag.
+//
+// UseAlias controls which API patch info is used:
+//   - true:  Uses patch_alias (e.g., "@rootio/uuid@9.0.1-root.io.1")
+//   - false: Uses patch (e.g., "uuid@9.0.1-root.io.1")
 type ScopedOverride struct {
 	PackageName   string
 	Version       string
-	Value         string
+	Value         string           // Override value for transitive deps
+	PatchInfo     rootio.PatchInfo // Patch info for direct dep rewrites
 	Parents       []string
 	RewriteDirect bool
+	UseAlias      bool
 }
 
 // buildResolutionSetsWithDirect builds the sjson-path → value map for yarn

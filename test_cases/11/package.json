@@ -1,0 +1,21 @@
+{
+  "name": "hardening-sample",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sample Node.js application showcasing root.io integration",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js"
+  },
+  "dependencies": {
+    "@apollo/gateway": "2.13.0",
+    "axios": "1.13.5",
+    "express": "^4.21.0",
+    "helmet": "^8.0.0",
+    "typeorm": "^0.3.28"
+  },
+  "devDependencies": {
+    "eslint": "8.57.1"
+  }
+}
