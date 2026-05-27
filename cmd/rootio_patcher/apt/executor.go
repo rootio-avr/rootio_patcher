@@ -15,10 +15,6 @@ const (
 	prefsDir       = "/etc/apt/preferences.d"
 	authConfDir    = "/etc/apt/auth.conf.d"
 
-	// Base64-encoded dearmored GPG public key for the Root.io APT repository.
-	// Keep in sync with backend/internal/constants/debian.go DebianGPGPublicKeyBase64.
-	gpgPublicKeyBase64 = "mDMEackb4RYJKwYBBAHaRw8BAQdAXYXywiPx87Yh2coySuuX4GCwwW3HlQWh3+Tsp2uGp/e0JFJvb3QuaW8gQVBUIFJlcG9zaXRvcnkgPGFwdEByb290LmlvPoiZBBMWCgBBFiEEWXGkR0MAoq2axw+BRVs5xkCLj9MFAmnJG+ECGwMFCQPCZwAFCwkIBwICIgIGFQoJCAsCBBYCAwECHgcCF4AACgkQRVs5xkCLj9OkHQEArSfC4aoDw1WW6Xh6ygjDXeEaBU9fGsvwAPgyk6iRFeYBAIQAUOaC+RIQZah1237u7jHJlXpT1RMki/8qQk+SpKwCuDgEackb4RIKKwYBBAGXVQEFAQEHQOufOPOX57QLvxVMsvdFfz/4qYNxLV2tqM3EgRkkyatbAwEIB4h+BBgWCgAmFiEEWXGkR0MAoq2axw+BRVs5xkCLj9MFAmnJG+ECGwwFCQPCZwAACgkQRVs5xkCLj9N4zAEAt2tcEZclAYipGnc24DlcfY5ii7TCrwgy5S54nlCBrSEBAOGjU009/BJPXlu50wb2zRTuzKQ1vk+O+SVt0C3hcmMH"
-
 	pkgRegistryBase = "https://pkg.root.io"
 )
 
@@ -162,7 +158,7 @@ func (e *Executor) installGPGKey(ctx context.Context) error {
 	if err := e.runner.Run(ctx, "mkdir", "-p", "/etc/apt/keyrings"); err != nil {
 		return err
 	}
-	script := fmt.Sprintf(`echo '%s' | base64 -d > %s`, gpgPublicKeyBase64, gpgKeyPath)
+	script := fmt.Sprintf(`echo '%s' | base64 -d > %s`, rootio.GPGPublicKeyBase64, gpgKeyPath)
 	return e.runner.Run(ctx, "sh", "-c", script)
 }
 
