@@ -11,6 +11,7 @@ usage() {
   echo "  ROOTIO_API_KEY must be set (real API key, calls are made against the live API)."
   echo ""
   echo "  ROOTIO_API_URL  override API base URL (default: https://api.root.io)"
+  echo "  ROOTIO_PKG_URL  override package registry URL (default: https://pkg.root.io)"
   exit 1
 }
 
@@ -21,6 +22,7 @@ fi
 
 TARGET="${1:-all}"
 ROOTIO_API_URL="${ROOTIO_API_URL:-https://api.root.io}"
+ROOTIO_PKG_URL="${ROOTIO_PKG_URL:-https://pkg.root.io}"
 
 # ── 1. Build the patcher binary matching the Docker host architecture ─────────
 DOCKER_ARCH="$(docker version --format '{{.Server.Arch}}' 2>/dev/null || uname -m)"
@@ -50,6 +52,7 @@ run_test() {
     --file "$dockerfile" \
     --build-arg "ROOTIO_API_KEY=${ROOTIO_API_KEY}" \
     --build-arg "ROOTIO_API_URL=${ROOTIO_API_URL}" \
+    --build-arg "ROOTIO_PKG_URL=${ROOTIO_PKG_URL}" \
     --tag "$tag" \
     "$SCRIPT_DIR"
 

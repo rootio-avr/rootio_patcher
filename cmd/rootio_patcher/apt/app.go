@@ -111,7 +111,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	// 6. Execute remediation
-	registryURL := fmt.Sprintf("%s/%s/%s", pkgRegistryBase, osInfo.Ecosystem, osInfo.Codename)
+	registryURL := fmt.Sprintf("%s/%s/%s", a.pkgURL, osInfo.Ecosystem, osInfo.Codename)
 	hasPatches := len(response.Patches) > 0
 
 	if hasPatches {

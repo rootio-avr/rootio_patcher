@@ -2,6 +2,7 @@ FROM ubuntu:22.04
 
 ARG ROOTIO_API_KEY
 ARG ROOTIO_API_URL=https://api.root.io
+ARG ROOTIO_PKG_URL=https://pkg.root.io
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -33,6 +34,7 @@ RUN chmod +x /usr/local/bin/rootio_patcher
 # Run the patcher
 RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
     ROOTIO_API_URL=${ROOTIO_API_URL} \
+    ROOTIO_PKG_URL=${ROOTIO_PKG_URL} \
     rootio_patcher apt remediate --dry-run=false --verbose
 
 # Verify outcomes and print explicit PASS/FAIL for each check

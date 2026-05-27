@@ -3,6 +3,7 @@ package apt
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -14,8 +15,6 @@ const (
 	sourcesListDir = "/etc/apt/sources.list.d"
 	prefsDir       = "/etc/apt/preferences.d"
 	authConfDir    = "/etc/apt/auth.conf.d"
-
-	pkgRegistryBase = "https://pkg.root.io"
 )
 
 // lowLevelPackages require dpkg install to bypass apt's conflict resolver.
@@ -36,8 +35,8 @@ func NewRealRunner() CommandRunner { return &realRunner{} }
 
 func (r *realRunner) Run(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout = nil // inherit
-	cmd.Stderr = nil
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
@@ -55,7 +54,7 @@ func NewExecutor(apiKey, pkgURL string, verbose bool, runner CommandRunner) *Exe
 
 // Setup installs the Root.io APT repository, GPG key, auth config, and pin preferences
 func (e *Executor) Setup(ctx context.Context, osInfo *OSInfo) error {
-	registryURL := fmt.Sprintf("%s/%s/%s", pkgRegistryBase, osInfo.Ecosystem, osInfo.Codename)
+	registryURL := fmt.Sprintf("%s/%s/%s", e.pkgURL, osInfo.Ecosystem, osInfo.Codename)
 
 	steps := []struct {
 		desc string
@@ -170,9 +169,11 @@ func (e *Executor) writeAuthConf(ctx context.Context) error {
 	if err := e.runner.Run(ctx, "mkdir", "-p", authConfDir); err != nil {
 		return err
 	}
+	host := strings.TrimPrefix(e.pkgURL, "https://")
+	host = strings.SplitN(host, "/", 2)[0]
 	script := fmt.Sprintf(
-		`printf 'machine pkg.root.io\nlogin root\npassword %s\n' > %s/rootio.conf && chmod 600 %s/rootio.conf`,
-		e.apiKey, authConfDir, authConfDir,
+		`printf 'machine %s\nlogin root\npassword %s\n' > %s/rootio.conf && chmod 600 %s/rootio.conf`,
+		host, e.apiKey, authConfDir, authConfDir,
 	)
 	return e.runner.Run(ctx, "sh", "-c", script)
 }

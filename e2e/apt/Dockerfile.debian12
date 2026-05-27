@@ -2,6 +2,7 @@ FROM debian:bookworm-slim
 
 ARG ROOTIO_API_KEY
 ARG ROOTIO_API_URL=https://api.root.io
+ARG ROOTIO_PKG_URL=https://pkg.root.io
 
 # Install packages that the API will remediate:
 #   alias patches: tar, curl, wget, xz-utils, coreutils, libgcrypt20, libtasn1-6, util-linux
@@ -34,6 +35,7 @@ RUN chmod +x /usr/local/bin/rootio_patcher
 # Run the patcher
 RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
     ROOTIO_API_URL=${ROOTIO_API_URL} \
+    ROOTIO_PKG_URL=${ROOTIO_PKG_URL} \
     rootio_patcher apt remediate --dry-run=false --verbose
 
 # Verify outcomes and print explicit PASS/FAIL for each check
