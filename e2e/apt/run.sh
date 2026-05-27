@@ -46,6 +46,7 @@ run_test() {
 
   docker build \
     --no-cache \
+    --progress=plain \
     --file "$dockerfile" \
     --build-arg "ROOTIO_API_KEY=${ROOTIO_API_KEY}" \
     --build-arg "ROOTIO_API_URL=${ROOTIO_API_URL}" \

@@ -6,12 +6,7 @@ ARG ROOTIO_API_URL=https://api.root.io
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install packages that the API will remediate (upgrades only, no alias patches on ubuntu 22.04):
-#   - curl:       upgradeable via official repo
-#   - openssl:    upgradeable via official repo
-#   - wget:       upgradeable via official repo
-#   - tar:        upgradeable via official repo
-#   - bash:       upgradeable via official repo
-#   - util-linux: upgradeable via official repo
+#   - curl, openssl, wget, tar, bash, util-linux: all upgradeable via official repo
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -22,28 +17,57 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     util-linux \
  && rm -rf /var/lib/apt/lists/*
 
-# Capture baseline package state
-RUN echo "=== BEFORE ===" && \
-    dpkg-query --show --showformat='${Package}\t${Version}\n' \
+# Record baseline versions before patching
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  BEFORE patching                            │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
       curl openssl wget tar bash util-linux
 
 # Copy the pre-built patcher binary
 COPY rootio_patcher /usr/local/bin/rootio_patcher
 RUN chmod +x /usr/local/bin/rootio_patcher
 
-# Run the patcher (apply mode)
+# Run the patcher
 RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
     ROOTIO_API_URL=${ROOTIO_API_URL} \
     rootio_patcher apt remediate --dry-run=false --verbose
 
-# Verify: all binaries still work after upgrades
-RUN curl --version | head -1 && \
-    openssl version && \
-    wget --version | head -1 && \
-    tar --version | head -1 && \
-    bash --version | head -1
-
-# Show final package versions
-RUN echo "=== AFTER ===" && \
-    dpkg-query --show --showformat='${Package}\t${Version}\n' \
-      curl openssl wget tar bash util-linux
+# Verify outcomes and print explicit PASS/FAIL for each check
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  AFTER patching                             │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    \
+    BEFORE_CURL="7.81.0-1ubuntu1.13" && \
+    BEFORE_OPENSSL="3.0.2-0ubuntu1.12" && \
+    BEFORE_WGET="1.21.2-2ubuntu1" && \
+    BEFORE_TAR="1.34+dfsg-1build3" && \
+    BEFORE_BASH="5.1-6ubuntu1" && \
+    \
+    CURL_VER="$(dpkg-query --show --showformat='${Version}' curl 2>/dev/null)" && \
+    OPENSSL_VER="$(dpkg-query --show --showformat='${Version}' openssl 2>/dev/null)" && \
+    WGET_VER="$(dpkg-query --show --showformat='${Version}' wget 2>/dev/null)" && \
+    TAR_VER="$(dpkg-query --show --showformat='${Version}' tar 2>/dev/null)" && \
+    BASH_VER="$(dpkg-query --show --showformat='${Version}' bash 2>/dev/null)" && \
+    \
+    dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
+      curl openssl wget tar bash util-linux && \
+    \
+    FAIL=0 && \
+    \
+    [ "$CURL_VER" != "$BEFORE_CURL" ] && echo "  PASS  curl upgraded: $BEFORE_CURL → $CURL_VER" || { echo "  FAIL  curl not upgraded (still $CURL_VER)"; FAIL=1; } && \
+    [ "$OPENSSL_VER" != "$BEFORE_OPENSSL" ] && echo "  PASS  openssl upgraded: $BEFORE_OPENSSL → $OPENSSL_VER" || { echo "  FAIL  openssl not upgraded (still $OPENSSL_VER)"; FAIL=1; } && \
+    [ "$WGET_VER" != "$BEFORE_WGET" ] && echo "  PASS  wget upgraded: $BEFORE_WGET → $WGET_VER" || { echo "  FAIL  wget not upgraded (still $WGET_VER)"; FAIL=1; } && \
+    [ "$TAR_VER" != "$BEFORE_TAR" ] && echo "  PASS  tar upgraded: $BEFORE_TAR → $TAR_VER" || { echo "  FAIL  tar not upgraded (still $TAR_VER)"; FAIL=1; } && \
+    [ "$BASH_VER" != "$BEFORE_BASH" ] && echo "  PASS  bash upgraded: $BEFORE_BASH → $BASH_VER" || { echo "  FAIL  bash not upgraded (still $BASH_VER)"; FAIL=1; } && \
+    \
+    curl --version > /dev/null 2>&1 && echo "  PASS  curl binary works" || { echo "  FAIL  curl binary broken"; FAIL=1; } && \
+    openssl version > /dev/null 2>&1 && echo "  PASS  openssl binary works" || { echo "  FAIL  openssl binary broken"; FAIL=1; } && \
+    wget --version > /dev/null 2>&1 && echo "  PASS  wget binary works" || { echo "  FAIL  wget binary broken"; FAIL=1; } && \
+    tar --version > /dev/null 2>&1 && echo "  PASS  tar binary works" || { echo "  FAIL  tar binary broken"; FAIL=1; } && \
+    bash --version > /dev/null 2>&1 && echo "  PASS  bash binary works" || { echo "  FAIL  bash binary broken"; FAIL=1; } && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }
