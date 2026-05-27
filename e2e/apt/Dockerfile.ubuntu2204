@@ -5,16 +5,17 @@ ARG ROOTIO_API_URL=https://api.root.io
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install packages that the API will remediate (upgrades only, no alias patches on ubuntu 22.04):
-#   - curl, openssl, wget, tar, bash, util-linux: all upgradeable via official repo
+# Install packages that the API will remediate via Root.io patches:
+#   in-place version bump:  git, python3.11 (original package gets .root.io. version)
+#   alias replacement:      gnupg2, libgcrypt20, patch, wget (original removed, rootio-* installed)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    curl \
-    openssl \
+    git \
+    gnupg2 \
+    libgcrypt20 \
+    patch \
     wget \
-    tar \
-    bash \
-    util-linux \
+    python3.11 \
  && rm -rf /var/lib/apt/lists/*
 
 # Record baseline versions before patching
@@ -23,7 +24,7 @@ RUN echo "" && \
     echo "│  BEFORE patching                            │" && \
     echo "└─────────────────────────────────────────────┘" && \
     dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
-      curl openssl wget tar bash util-linux
+      git gnupg2 libgcrypt20 patch wget python3.11
 
 # Copy the pre-built patcher binary
 COPY rootio_patcher /usr/local/bin/rootio_patcher
@@ -40,34 +41,60 @@ RUN echo "" && \
     echo "│  AFTER patching                             │" && \
     echo "└─────────────────────────────────────────────┘" && \
     \
-    BEFORE_CURL="7.81.0-1ubuntu1.13" && \
-    BEFORE_OPENSSL="3.0.2-0ubuntu1.12" && \
-    BEFORE_WGET="1.21.2-2ubuntu1" && \
-    BEFORE_TAR="1.34+dfsg-1build3" && \
-    BEFORE_BASH="5.1-6ubuntu1" && \
-    \
-    CURL_VER="$(dpkg-query --show --showformat='${Version}' curl 2>/dev/null)" && \
-    OPENSSL_VER="$(dpkg-query --show --showformat='${Version}' openssl 2>/dev/null)" && \
-    WGET_VER="$(dpkg-query --show --showformat='${Version}' wget 2>/dev/null)" && \
-    TAR_VER="$(dpkg-query --show --showformat='${Version}' tar 2>/dev/null)" && \
-    BASH_VER="$(dpkg-query --show --showformat='${Version}' bash 2>/dev/null)" && \
+    GIT_VER="$(dpkg-query --show --showformat='${Version}' git 2>/dev/null)" && \
+    PYTHON_VER="$(dpkg-query --show --showformat='${Version}' python3.11 2>/dev/null)" && \
+    ROOTIO_GNUPG2="$(dpkg-query --show --showformat='${Version}' rootio-gnupg2 2>/dev/null)" && \
+    ROOTIO_LIBGCRYPT="$(dpkg-query --show --showformat='${Version}' rootio-libgcrypt20 2>/dev/null)" && \
+    ROOTIO_PATCH="$(dpkg-query --show --showformat='${Version}' rootio-patch 2>/dev/null)" && \
+    ROOTIO_WGET="$(dpkg-query --show --showformat='${Version}' rootio-wget 2>/dev/null)" && \
     \
     dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
-      curl openssl wget tar bash util-linux && \
+      git python3.11 2>/dev/null || true && \
+    dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
+      rootio-gnupg2 rootio-libgcrypt20 rootio-patch rootio-wget 2>/dev/null || true && \
     \
     FAIL=0 && \
     \
-    [ "$CURL_VER" != "$BEFORE_CURL" ] && echo "  PASS  curl upgraded: $BEFORE_CURL → $CURL_VER" || { echo "  FAIL  curl not upgraded (still $CURL_VER)"; FAIL=1; } && \
-    [ "$OPENSSL_VER" != "$BEFORE_OPENSSL" ] && echo "  PASS  openssl upgraded: $BEFORE_OPENSSL → $OPENSSL_VER" || { echo "  FAIL  openssl not upgraded (still $OPENSSL_VER)"; FAIL=1; } && \
-    [ "$WGET_VER" != "$BEFORE_WGET" ] && echo "  PASS  wget upgraded: $BEFORE_WGET → $WGET_VER" || { echo "  FAIL  wget not upgraded (still $WGET_VER)"; FAIL=1; } && \
-    [ "$TAR_VER" != "$BEFORE_TAR" ] && echo "  PASS  tar upgraded: $BEFORE_TAR → $TAR_VER" || { echo "  FAIL  tar not upgraded (still $TAR_VER)"; FAIL=1; } && \
-    [ "$BASH_VER" != "$BEFORE_BASH" ] && echo "  PASS  bash upgraded: $BEFORE_BASH → $BASH_VER" || { echo "  FAIL  bash not upgraded (still $BASH_VER)"; FAIL=1; } && \
+    case "$GIT_VER" in *.root.io.*) echo "  PASS  git patched in-place: $GIT_VER" ;; *) echo "  FAIL  git not patched (got $GIT_VER)"; FAIL=1 ;; esac && \
+    case "$PYTHON_VER" in *.root.io.*) echo "  PASS  python3.11 patched in-place: $PYTHON_VER" ;; *) echo "  FAIL  python3.11 not patched (got $PYTHON_VER)"; FAIL=1 ;; esac && \
+    if [ -n "$ROOTIO_GNUPG2" ]; then echo "  PASS  rootio-gnupg2 installed: $ROOTIO_GNUPG2"; else echo "  FAIL  rootio-gnupg2 not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_LIBGCRYPT" ]; then echo "  PASS  rootio-libgcrypt20 installed: $ROOTIO_LIBGCRYPT"; else echo "  FAIL  rootio-libgcrypt20 not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_PATCH" ]; then echo "  PASS  rootio-patch installed: $ROOTIO_PATCH"; else echo "  FAIL  rootio-patch not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_WGET" ]; then echo "  PASS  rootio-wget installed: $ROOTIO_WGET"; else echo "  FAIL  rootio-wget not installed"; FAIL=1; fi && \
     \
-    curl --version > /dev/null 2>&1 && echo "  PASS  curl binary works" || { echo "  FAIL  curl binary broken"; FAIL=1; } && \
-    openssl version > /dev/null 2>&1 && echo "  PASS  openssl binary works" || { echo "  FAIL  openssl binary broken"; FAIL=1; } && \
+    git --version > /dev/null 2>&1 && echo "  PASS  git binary works" || { echo "  FAIL  git binary broken"; FAIL=1; } && \
+    gpg --version > /dev/null 2>&1 && echo "  PASS  gpg binary works" || { echo "  FAIL  gpg binary broken"; FAIL=1; } && \
     wget --version > /dev/null 2>&1 && echo "  PASS  wget binary works" || { echo "  FAIL  wget binary broken"; FAIL=1; } && \
-    tar --version > /dev/null 2>&1 && echo "  PASS  tar binary works" || { echo "  FAIL  tar binary broken"; FAIL=1; } && \
-    bash --version > /dev/null 2>&1 && echo "  PASS  bash binary works" || { echo "  FAIL  bash binary broken"; FAIL=1; } && \
+    patch --version > /dev/null 2>&1 && echo "  PASS  patch binary works" || { echo "  FAIL  patch binary broken"; FAIL=1; } && \
+    python3.11 --version > /dev/null 2>&1 && echo "  PASS  python3.11 binary works" || { echo "  FAIL  python3.11 binary broken"; FAIL=1; } && \
+    \
+    echo "" && \
+    echo "=== APT CACHE STATE ===" && \
+    apt-cache policy git || true && \
+    apt-cache policy rootio-gnupg2 || true && \
+    apt-cache policy rootio-libgcrypt20 || true && \
+    apt-cache policy rootio-patch || true && \
+    apt-cache policy rootio-wget || true && \
+    apt-cache policy python3.11 || true && \
+    echo "" && \
+    echo "=== DPKG PACKAGE STATE ===" && \
+    (dpkg -l | grep -E "git|gnupg|libgcrypt|patch|wget|python3.11" || true) && \
+    echo "" && \
+    echo "=== BINARY OWNERSHIP ===" && \
+    dpkg -S /usr/bin/git || true && \
+    dpkg -S /usr/bin/gpg || true && \
+    dpkg -S /usr/bin/wget || true && \
+    dpkg -S /usr/bin/patch || true && \
+    dpkg -S /usr/bin/python3.11 || true && \
+    echo "" && \
+    echo "=== BINARY HASHES ===" && \
+    sha256sum /usr/bin/git /usr/bin/gpg /usr/bin/wget /usr/bin/patch /usr/bin/python3.11 || true && \
+    echo "" && \
+    echo "=== ROOTIO PACKAGE METADATA ===" && \
+    (dpkg -s rootio-gnupg2 | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    (dpkg -s rootio-libgcrypt20 | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    (dpkg -s rootio-patch | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    (dpkg -s rootio-wget | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
     \
     echo "" && \
     [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }
