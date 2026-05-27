@@ -2,9 +2,12 @@ package npm
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestYarn2Parser_Ecosystem(t *testing.T) {
@@ -465,5 +468,49 @@ func TestYarn2Parser_Parse_CacheKeyV9(t *testing.T) {
 	}
 	if len(packages) != 1 || packages[0].Name != "lodash" || packages[0].Version != "4.17.21" {
 		t.Errorf("Expected single lodash@4.17.21 entry, got %+v", packages)
+	}
+}
+
+func TestYarn2Parser_Parse_MetadataVersion(t *testing.T) {
+	ctx := context.Background()
+	parser := NewYarn2Parser()
+
+	tests := []struct {
+		name      string
+		version   string
+		wantError bool
+	}{
+		{name: "v2 accepted", version: "2", wantError: false},
+		{name: "v8 accepted", version: "8", wantError: false},
+		{name: "v9 accepted", version: "9", wantError: false},
+		{name: "v10 accepted (regression: two-digit)", version: "10", wantError: false},
+		{name: "v99 accepted", version: "99", wantError: false},
+		{name: "v1 rejected (yarn classic)", version: "1", wantError: true},
+		{name: "v0 rejected", version: "0", wantError: true},
+		{name: "non-numeric rejected", version: "berry", wantError: true},
+	}
+
+	body := `
+"lodash@npm:4.17.21":
+  version: 4.17.21
+  resolution: "lodash@npm:4.17.21"
+  checksum: 10c0/abcd1234
+  languageName: node
+  linkType: hard
+`
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lockFile := filepath.Join(t.TempDir(), "yarn.lock")
+			content := fmt.Sprintf("__metadata:\n  version: %s\n  cacheKey: 10c0\n%s", tt.version, body)
+			require.NoError(t, os.WriteFile(lockFile, []byte(content), 0644))
+
+			_, err := parser.Parse(ctx, lockFile)
+			if tt.wantError {
+				require.Error(t, err, "version %q should be rejected", tt.version)
+			} else {
+				require.NoError(t, err, "version %q should be accepted", tt.version)
+			}
+		})
 	}
 }

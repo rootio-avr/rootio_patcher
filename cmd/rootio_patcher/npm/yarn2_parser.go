@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
@@ -81,10 +82,8 @@ func (p *Yarn2Parser) Parse(ctx context.Context, filePath string) ([]common.Pack
 	}
 
 	versionStr := fmt.Sprintf("%v", version)
-	if !strings.HasPrefix(versionStr, "2") && !strings.HasPrefix(versionStr, "3") &&
-		!strings.HasPrefix(versionStr, "4") && !strings.HasPrefix(versionStr, "5") &&
-		!strings.HasPrefix(versionStr, "6") && !strings.HasPrefix(versionStr, "7") &&
-		!strings.HasPrefix(versionStr, "8") && !strings.HasPrefix(versionStr, "9") {
+	versionNum, err := strconv.Atoi(strings.TrimSpace(versionStr))
+	if err != nil || versionNum < 2 {
 		return nil, fmt.Errorf("yarn.lock version not supported (expected v2+, got v%s)", versionStr)
 	}
 
