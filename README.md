@@ -1,18 +1,18 @@
 # Root.io Patcher
 
-> Automated security patching for Python, npm, Maven, Go, NuGet, and Composer packages with Root.io
+> Automated security patching for Python, npm, Maven, Go, NuGet, Composer, and APT packages with Root.io
 
 [![Release](https://img.shields.io/github/v/release/rootio-avr/rootio_patcher)](https://github.com/rootio-avr/rootio_patcher/releases)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/rootio-avr/rootio_patcher)](https://golang.org/dl/)
 [![License](https://img.shields.io/github/license/rootio-avr/rootio_patcher)](LICENSE)
 
-`rootio_patcher` is a command-line tool that automatically identifies and patches vulnerabilities in your dependencies using Root.io's security fixes. It supports Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), and PHP (Composer) ecosystems, providing comprehensive security remediation across your entire stack.
+`rootio_patcher` is a command-line tool that automatically identifies and patches vulnerabilities in your dependencies using Root.io's security fixes. It supports Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), PHP (Composer), and Debian/Ubuntu OS packages (APT) ecosystems, providing comprehensive security remediation across your entire stack.
 
 ---
 
 ## Features
 
-- 🔍 **Multi-Ecosystem Support** - Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), and PHP (Composer)
+- 🔍 **Multi-Ecosystem Support** - Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), PHP (Composer), and Debian/Ubuntu OS packages (APT)
 - 🔧 **One-Command Patching** - Applies security fixes with a single command
 - 🌍 **Cross-Platform** - Works on Linux, macOS, and Windows
 - 🔒 **Secure by Default** - Dry-run mode enabled by default to preview changes
@@ -45,12 +45,16 @@ rootio_patcher go remediate
 # For Composer (PHP) packages
 rootio_patcher composer remediate
 
+# For APT (Debian/Ubuntu OS packages)
+rootio_patcher apt remediate
+
 # 3. Apply patches for real
 rootio_patcher pip remediate --dry-run=false
 rootio_patcher npm remediate --dry-run=false
 rootio_patcher maven remediate --dry-run=false
 rootio_patcher go remediate --dry-run=false
 rootio_patcher composer remediate --dry-run=false
+rootio_patcher apt remediate --dry-run=false
 ```
 
 ---
@@ -195,6 +199,22 @@ rootio_patcher composer remediate [FLAGS]
 > **Note:** `composer.lock` must exist before running the patcher. If it is missing, run `composer install` first. Platform requirements (`php`, `ext-*`) are not patched as they are managed by the OS, not Composer.
 
 > **CI/CD:** After patching, subsequent `composer install` runs in CI/CD require `COMPOSER_AUTH` to be set so Composer can authenticate with `pkg.root.io` to fetch patched packages. See the [Composer CI/CD example](#composer-php-project) below.
+
+#### APT (Debian/Ubuntu)
+
+```bash
+rootio_patcher apt remediate [FLAGS]
+```
+
+**Flags:**
+- `--dry-run` - Preview changes without applying (default: `true`)
+- `--verbose` - Print each remediation step (default: `false`)
+
+**How it works:** Post-install patching — scans installed packages via `dpkg-query`, calls the Root.io API, then applies fixes in two ways:
+- **Upgrades**: packages patched via the official Debian/Ubuntu repository are upgraded with `apt-get install`
+- **Root.io aliases**: packages requiring Root.io patches are installed from the Root.io APT repository (e.g. `rootio-curl` replaces `curl`). The Root.io repo is added before patching and removed on cleanup.
+
+Requires `root`/`sudo` — intended to run inside containers or as part of a privileged build step.
 
 ### Configuration Details
 
@@ -1073,6 +1093,36 @@ RUN mvn package -DskipTests
 CMD ["java", "-jar", "target/app.jar"]
 ```
 
+#### APT Dockerfile (Debian/Ubuntu)
+
+```dockerfile
+FROM debian:bookworm-slim
+# or: FROM ubuntu:22.04
+
+# Install your application dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl wget \
+ && rm -rf /var/lib/apt/lists/*
+
+# Download rootio_patcher
+RUN curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_linux_x86_64.tar.gz | tar xz && \
+    chmod +x rootio_patcher && \
+    mv rootio_patcher /usr/local/bin/
+
+# Patch OS-level vulnerabilities during build
+ARG ROOTIO_API_KEY
+RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} rootio_patcher apt remediate --dry-run=false
+
+# Your application
+COPY . .
+CMD ["./app"]
+```
+
+Build with:
+```bash
+docker build --build-arg ROOTIO_API_KEY=$ROOTIO_API_KEY -t myapp .
+```
+
 ---
 
 ## Vulnerability Gate
@@ -1420,6 +1470,17 @@ Then contact Root.io support with the package details that caused the issue.
 5. **Install**: Automatically runs `composer update --with-dependencies <affected-packages>` with credentials passed via `COMPOSER_AUTH` environment variable. The `vendor/` directory is fully populated after this step — no separate install needed.
 6. **Deploy**: Application is ready to pack and deploy. Future `composer install` runs in CI/CD require `COMPOSER_AUTH` to fetch patched packages from `pkg.root.io`.
 
+### APT (Debian/Ubuntu) - Post-Install Patching
+
+1. **Detection**: Identifies OS distribution and version
+2. **Discovery**: Scans installed packages via `dpkg-query`
+3. **Analysis**: Sends package list to Root.io API to check for known vulnerabilities
+4. **Reporting**: Displays available upgrades and Root.io patches with CVE information
+5. **Patching**: Applies fixes in two steps:
+   - Upgrades packages available via the official repository (`apt-get install`)
+   - Installs Root.io alias packages from the Root.io APT repository (e.g. `rootio-wget` replaces `wget`)
+6. **Cleanup**: Removes the Root.io APT repository and clears apt caches
+
 ---
 
 ## Security Considerations
@@ -1433,6 +1494,8 @@ Then contact Root.io support with the package details that caused the issue.
 - The tool runs `pip install` commands to apply patches. Ensure your Python environment has appropriate permissions.
 
 - By default, `DRY_RUN=true` prevents any changes. Review the dry-run output before applying patches.
+
+- The `apt remediate` command requires `root` privileges to install packages and modify APT configuration.
 
 ---
 

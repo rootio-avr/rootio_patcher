@@ -1,0 +1,117 @@
+FROM debian:bookworm-slim
+
+ARG ROOTIO_API_KEY
+ARG ROOTIO_API_URL=https://api.root.io
+ARG ROOTIO_PKG_URL=https://pkg.root.io
+
+# Install packages that the API will remediate:
+#   alias patches: tar, curl, wget, xz-utils, coreutils, libtasn1-6, util-linux
+#   upgrade only:  openssl
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    openssl \
+    wget \
+    tar \
+    xz-utils \
+    coreutils \
+    libtasn1-6 \
+    util-linux \
+ && rm -rf /var/lib/apt/lists/*
+
+# Record baseline versions before patching
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  BEFORE patching                            │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
+      curl openssl wget tar xz-utils coreutils libtasn1-6 util-linux
+
+# Copy the pre-built patcher binary
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run the patcher
+RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
+    ROOTIO_API_URL=${ROOTIO_API_URL} \
+    ROOTIO_PKG_URL=${ROOTIO_PKG_URL} \
+    rootio_patcher apt remediate --dry-run=false --verbose
+
+# Verify outcomes and print explicit PASS/FAIL for each check
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  AFTER patching                             │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    \
+    OPENSSL_VERSION="$(dpkg-query --show --showformat='${Version}' openssl 2>/dev/null)" && \
+    ROOTIO_TAR="$(dpkg-query --show --showformat='${Version}' rootio-tar 2>/dev/null)" && \
+    ROOTIO_CURL="$(dpkg-query --show --showformat='${Version}' rootio-curl 2>/dev/null)" && \
+    ROOTIO_WGET="$(dpkg-query --show --showformat='${Version}' rootio-wget 2>/dev/null)" && \
+    ROOTIO_XZ="$(dpkg-query --show --showformat='${Version}' rootio-xz-utils 2>/dev/null)" && \
+    ROOTIO_COREUTILS="$(dpkg-query --show --showformat='${Version}' rootio-coreutils 2>/dev/null)" && \
+    ROOTIO_LIBTASN1="$(dpkg-query --show --showformat='${Version}' rootio-libtasn1-6 2>/dev/null)" && \
+    ROOTIO_UTIL_LINUX="$(dpkg-query --show --showformat='${Version}' rootio-util-linux 2>/dev/null)" && \
+    \
+    FAIL=0 && \
+    \
+    if [ -n "$ROOTIO_TAR" ]; then echo "  PASS  rootio-tar installed: $ROOTIO_TAR"; else echo "  FAIL  rootio-tar not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_CURL" ]; then echo "  PASS  rootio-curl installed: $ROOTIO_CURL"; else echo "  FAIL  rootio-curl not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_WGET" ]; then echo "  PASS  rootio-wget installed: $ROOTIO_WGET"; else echo "  FAIL  rootio-wget not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_XZ" ]; then echo "  PASS  rootio-xz-utils installed: $ROOTIO_XZ"; else echo "  FAIL  rootio-xz-utils not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_COREUTILS" ]; then echo "  PASS  rootio-coreutils installed: $ROOTIO_COREUTILS"; else echo "  FAIL  rootio-coreutils not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_LIBTASN1" ]; then echo "  PASS  rootio-libtasn1-6 installed: $ROOTIO_LIBTASN1"; else echo "  FAIL  rootio-libtasn1-6 not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_UTIL_LINUX" ]; then echo "  PASS  rootio-util-linux installed: $ROOTIO_UTIL_LINUX"; else echo "  FAIL  rootio-util-linux not installed"; FAIL=1; fi && \
+    \
+    if [ -n "$OPENSSL_VERSION" ]; then echo "  PASS  openssl present: $OPENSSL_VERSION"; else echo "  FAIL  openssl missing"; FAIL=1; fi && \
+    \
+    tar --version > /dev/null 2>&1 && echo "  PASS  tar binary works" || { echo "  FAIL  tar binary broken"; FAIL=1; } && \
+    curl --version > /dev/null 2>&1 && echo "  PASS  curl binary works" || { echo "  FAIL  curl binary broken"; FAIL=1; } && \
+    wget --version > /dev/null 2>&1 && echo "  PASS  wget binary works" || { echo "  FAIL  wget binary broken"; FAIL=1; } && \
+    \
+    echo "" && \
+    echo "=== APT CACHE STATE ===" && \
+    apt-cache policy curl || true && \
+    apt-cache policy rootio-curl || true && \
+    apt-cache policy wget || true && \
+    apt-cache policy rootio-wget || true && \
+    apt-cache policy tar || true && \
+    apt-cache policy rootio-tar || true && \
+    apt-cache policy xz-utils || true && \
+    apt-cache policy rootio-xz-utils || true && \
+    apt-cache policy openssl || true && \
+    apt-cache policy coreutils || true && \
+    apt-cache policy rootio-coreutils || true && \
+    apt-cache policy libtasn1-6 || true && \
+    apt-cache policy rootio-libtasn1-6 || true && \
+    apt-cache policy util-linux || true && \
+    apt-cache policy rootio-util-linux || true && \
+    echo "" && \
+    echo "=== DPKG PACKAGE STATE ===" && \
+    (dpkg -l | grep -E "curl|wget|tar|xz-utils|openssl|coreutils|libtasn1|util-linux" || true) && \
+    echo "" && \
+    echo "=== BINARY OWNERSHIP ===" && \
+    dpkg -S /usr/bin/curl || true && \
+    dpkg -S /usr/bin/wget || true && \
+    dpkg -S /bin/tar || dpkg -S /usr/bin/tar || true && \
+    dpkg -S /usr/bin/xz || true && \
+    dpkg -S /usr/bin/openssl || true && \
+    dpkg -S /usr/bin/ls || true && \
+    dpkg -S /usr/bin/getopt || true && \
+    echo "" && \
+    echo "=== BINARY HASHES ===" && \
+    sha256sum /usr/bin/curl /usr/bin/wget /usr/bin/xz /usr/bin/openssl /usr/bin/ls || true && \
+    (sha256sum /usr/bin/tar 2>/dev/null || sha256sum /bin/tar 2>/dev/null) || true && \
+    echo "=== TAR LDD ===" && \
+    (ldd /usr/bin/tar 2>/dev/null || ldd /bin/tar 2>/dev/null) || true && \
+    echo "" && \
+    echo "=== ROOTIO PACKAGE METADATA ===" && \
+    (dpkg -s rootio-curl | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    (dpkg -s rootio-wget | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    (dpkg -s rootio-tar | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    (dpkg -s rootio-xz-utils | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    (dpkg -s rootio-coreutils | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    (dpkg -s rootio-libtasn1-6 | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    (dpkg -s rootio-util-linux | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }

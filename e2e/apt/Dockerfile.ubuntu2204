@@ -1,0 +1,97 @@
+FROM ubuntu:22.04
+
+ARG ROOTIO_API_KEY
+ARG ROOTIO_API_URL=https://api.root.io
+ARG ROOTIO_PKG_URL=https://pkg.root.io
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install packages that the API will remediate via Root.io patches:
+#   in-place version bump:  git, python3.11 (original package gets .root.io. version)
+#   alias replacement:      gnupg2, patch, wget (original removed, rootio-* installed)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    gnupg2 \
+    patch \
+    wget \
+    python3.11 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Record baseline versions before patching
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  BEFORE patching                            │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
+      git gnupg2 patch wget python3.11
+
+# Copy the pre-built patcher binary
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run the patcher
+RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
+    ROOTIO_API_URL=${ROOTIO_API_URL} \
+    ROOTIO_PKG_URL=${ROOTIO_PKG_URL} \
+    rootio_patcher apt remediate --dry-run=false --verbose
+
+# Verify outcomes and print explicit PASS/FAIL for each check
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  AFTER patching                             │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    \
+    GIT_VER="$(dpkg-query --show --showformat='${Version}' git 2>/dev/null)" && \
+    PYTHON_VER="$(dpkg-query --show --showformat='${Version}' python3.11 2>/dev/null)" && \
+    ROOTIO_GNUPG2="$(dpkg-query --show --showformat='${Version}' rootio-gnupg2 2>/dev/null)" && \
+    ROOTIO_PATCH="$(dpkg-query --show --showformat='${Version}' rootio-patch 2>/dev/null)" && \
+    ROOTIO_WGET="$(dpkg-query --show --showformat='${Version}' rootio-wget 2>/dev/null)" && \
+    \
+    dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
+      git python3.11 2>/dev/null || true && \
+    dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
+      rootio-gnupg2 rootio-patch rootio-wget 2>/dev/null || true && \
+    \
+    FAIL=0 && \
+    \
+    case "$GIT_VER" in *.root.io.*) echo "  PASS  git patched in-place: $GIT_VER" ;; *) echo "  FAIL  git not patched (got $GIT_VER)"; FAIL=1 ;; esac && \
+    case "$PYTHON_VER" in *.root.io.*) echo "  PASS  python3.11 patched in-place: $PYTHON_VER" ;; *) echo "  FAIL  python3.11 not patched (got $PYTHON_VER)"; FAIL=1 ;; esac && \
+    if [ -n "$ROOTIO_GNUPG2" ]; then echo "  PASS  rootio-gnupg2 installed: $ROOTIO_GNUPG2"; else echo "  FAIL  rootio-gnupg2 not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_PATCH" ]; then echo "  PASS  rootio-patch installed: $ROOTIO_PATCH"; else echo "  FAIL  rootio-patch not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_WGET" ]; then echo "  PASS  rootio-wget installed: $ROOTIO_WGET"; else echo "  FAIL  rootio-wget not installed"; FAIL=1; fi && \
+    \
+    git --version > /dev/null 2>&1 && echo "  PASS  git binary works" || { echo "  FAIL  git binary broken"; FAIL=1; } && \
+    gpg --version > /dev/null 2>&1 && echo "  PASS  gpg binary works" || { echo "  FAIL  gpg binary broken"; FAIL=1; } && \
+    wget --version > /dev/null 2>&1 && echo "  PASS  wget binary works" || { echo "  FAIL  wget binary broken"; FAIL=1; } && \
+    patch --version > /dev/null 2>&1 && echo "  PASS  patch binary works" || { echo "  FAIL  patch binary broken"; FAIL=1; } && \
+    python3.11 --version > /dev/null 2>&1 && echo "  PASS  python3.11 binary works" || { echo "  FAIL  python3.11 binary broken"; FAIL=1; } && \
+    \
+    echo "" && \
+    echo "=== APT CACHE STATE ===" && \
+    apt-cache policy git || true && \
+    apt-cache policy rootio-gnupg2 || true && \
+    apt-cache policy rootio-patch || true && \
+    apt-cache policy rootio-wget || true && \
+    apt-cache policy python3.11 || true && \
+    echo "" && \
+    echo "=== DPKG PACKAGE STATE ===" && \
+    (dpkg -l | grep -E "git|gnupg|patch|wget|python3.11" || true) && \
+    echo "" && \
+    echo "=== BINARY OWNERSHIP ===" && \
+    dpkg -S /usr/bin/git || true && \
+    dpkg -S /usr/bin/gpg || true && \
+    dpkg -S /usr/bin/wget || true && \
+    dpkg -S /usr/bin/patch || true && \
+    dpkg -S /usr/bin/python3.11 || true && \
+    echo "" && \
+    echo "=== BINARY HASHES ===" && \
+    sha256sum /usr/bin/git /usr/bin/gpg /usr/bin/wget /usr/bin/patch /usr/bin/python3.11 || true && \
+    echo "" && \
+    echo "=== ROOTIO PACKAGE METADATA ===" && \
+    (dpkg -s rootio-gnupg2 | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    (dpkg -s rootio-patch | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    (dpkg -s rootio-wget | grep -E "^(Package|Provides|Replaces|Conflicts|Version):") || true && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }
