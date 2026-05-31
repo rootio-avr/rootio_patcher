@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
-	"rootio_patcher/pkg/rootio"
 )
 
 func TestLoadIgnoreList_EmptyFileAndNoFlags(t *testing.T) {
@@ -54,30 +53,6 @@ func TestLoadIgnoreList_MergeDeduplicates(t *testing.T) {
 	}
 }
 
-func TestIsIgnored_Match(t *testing.T) {
-	set := map[string]struct{}{"express@4.17.1": {}}
-	patch := rootio.PackagePatch{PackageName: "express", Version: "4.17.1"}
-	if !common.IsIgnored(patch, set) {
-		t.Error("expected IsIgnored=true")
-	}
-}
-
-func TestIsIgnored_NoMatch(t *testing.T) {
-	set := map[string]struct{}{"express@4.17.1": {}}
-	patch := rootio.PackagePatch{PackageName: "express", Version: "4.18.0"}
-	if common.IsIgnored(patch, set) {
-		t.Error("expected IsIgnored=false for different version")
-	}
-}
-
-func TestIsIgnored_EmptySet(t *testing.T) {
-	set := map[string]struct{}{}
-	patch := rootio.PackagePatch{PackageName: "express", Version: "4.17.1"}
-	if common.IsIgnored(patch, set) {
-		t.Error("expected IsIgnored=false for empty set")
-	}
-}
-
 func TestIgnoreListToPackages_Empty(t *testing.T) {
 	result := common.IgnoreListToPackages(map[string]struct{}{})
 	if len(result) != 0 {
@@ -98,8 +73,8 @@ func TestIgnoreListToPackages_SingleEntry(t *testing.T) {
 
 func TestIgnoreListToPackages_MultipleEntries(t *testing.T) {
 	set := map[string]struct{}{
-		"express@4.17.1":  {},
-		"lodash@4.17.20":  {},
+		"express@4.17.1": {},
+		"lodash@4.17.20": {},
 	}
 	result := common.IgnoreListToPackages(set)
 	if len(result) != 2 {

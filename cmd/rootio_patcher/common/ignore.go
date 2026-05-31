@@ -8,7 +8,6 @@ import (
 	"rootio_patcher/pkg/rootio"
 )
 
-
 // LoadIgnoreList reads .rootioignore at ignoreFilePath (silently skipped if absent)
 // and merges with flagEntries. Each entry is "package@version".
 // Lines starting with "#" and blank lines are ignored.
@@ -36,13 +35,6 @@ func LoadIgnoreList(ignoreFilePath string, flagEntries []string) map[string]stru
 	}
 
 	return set
-}
-
-// IsIgnored reports whether patch is in the ignore set.
-// The key format is "PackageName@Version" (case-sensitive, exact match).
-func IsIgnored(patch rootio.PackagePatch, ignoreSet map[string]struct{}) bool {
-	_, ok := ignoreSet[patch.PackageName+"@"+patch.Version]
-	return ok
 }
 
 // IgnoreListToPackages converts an ignore set (keys: "name@version") to a slice of Package
