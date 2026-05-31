@@ -40,7 +40,7 @@ func TestNpmApp_RealAPIResponse(t *testing.T) {
 
 	// Create app with mock that returns the EXACT response from the user's example
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -86,6 +86,7 @@ func TestNpmApp_RealAPIResponse(t *testing.T) {
 		"npm",
 		false, // not dry-run
 		true,  // useAlias (default)
+		nil,
 		logger,
 		NewParser(),
 		mockAPIClient,

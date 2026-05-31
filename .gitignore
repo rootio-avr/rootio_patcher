@@ -47,4 +47,7 @@ Thumbs.db
 # Binaries
 /rootio_patcher
 /rootio_patcher.exe
+
+# Git worktrees
+.worktrees/
 /rootio_patcher_testbed

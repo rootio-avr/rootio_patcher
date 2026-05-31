@@ -20,7 +20,7 @@ func TestGoLangApp_Run_FileNotFound(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", "/nonexistent/go.mod", true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", "/nonexistent/go.mod", true, nil, logger,
 		NewGoModParser(logger), &MockAPIClient{}, &MockCommandRunner{},
 	)
 
@@ -40,7 +40,7 @@ require golang.org/x/sys v0.0.0-20230101000000-abcdef123456 // indirect
 `)
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, nil, logger,
 		NewGoModParser(logger), &MockAPIClient{}, &MockCommandRunner{},
 	)
 
@@ -60,10 +60,10 @@ require github.com/google/uuid v1.3.0
 	apiErr := errors.New("API unavailable")
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, nil, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 				return nil, apiErr
 			},
 		},
@@ -85,10 +85,10 @@ require github.com/google/uuid v1.3.0
 `)
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, nil, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{Patches: []rootio.PackagePatch{}}, nil
 			},
 		},
@@ -107,10 +107,10 @@ func TestGoLangApp_Run_DryRun(t *testing.T) {
 	cmdRunner := &MockCommandRunner{}
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true /* dry-run */, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true /* dry-run */, nil, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{
 					Patches: []rootio.PackagePatch{
 						{
@@ -147,10 +147,10 @@ require github.com/google/uuid v1.3.0
 	cmdRunner := &MockCommandRunner{}
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false /* not dry-run */, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false /* not dry-run */, nil, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{
 					Patches: []rootio.PackagePatch{
 						{
@@ -197,10 +197,10 @@ require github.com/google/uuid v1.3.0
 	cmdRunner := &MockCommandRunner{}
 
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, nil, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{
 					Patches: []rootio.PackagePatch{
 						{
@@ -235,10 +235,10 @@ require github.com/google/uuid v1.3.0
 	cmdRunner := &MockCommandRunner{}
 
 	app := NewApp(
-		"my-api-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, logger,
+		"my-api-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, nil, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{
 					Patches: []rootio.PackagePatch{
 						{
@@ -274,10 +274,10 @@ require github.com/google/uuid v1.3.0
 
 	var capturedEcosystem string
 	app := NewApp(
-		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, logger,
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, nil, logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 				capturedEcosystem = ecosystem
 				return &rootio.AnalyzePackagesResponse{}, nil
 			},
@@ -287,4 +287,35 @@ require github.com/google/uuid v1.3.0
 
 	require.NoError(t, app.Run(ctx))
 	assert.Equal(t, "golang", capturedEcosystem)
+}
+
+func TestGoLangApp_Run_ForwardsIgnoreListToAPI(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	goModPath := writeGoMod(t, t.TempDir(), `module example.com/app
+
+go 1.21
+
+require github.com/google/uuid v1.3.0
+`)
+
+	var capturedIgnore []rootio.Package
+	app := NewApp(
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true,
+		[]string{"github.com/google/uuid@v1.3.0"}, logger,
+		NewGoModParser(logger),
+		&MockAPIClient{
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, ignore []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+				capturedIgnore = ignore
+				return &rootio.AnalyzePackagesResponse{}, nil
+			},
+		},
+		&MockCommandRunner{},
+	)
+
+	require.NoError(t, app.Run(ctx))
+	require.Len(t, capturedIgnore, 1)
+	assert.Equal(t, "github.com/google/uuid", capturedIgnore[0].Name)
+	assert.Equal(t, "v1.3.0", capturedIgnore[0].Version)
 }

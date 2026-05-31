@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
@@ -16,23 +17,27 @@ type App struct {
 	apiURL    string
 	path      string // file or directory path
 	dryRun    bool
+	ignoreSet map[string]struct{}
 	logger    *slog.Logger
 	parser    common.Parser
 	apiClient common.APIClient
 }
 
 // NewApp creates a new NuGet application instance.
-func NewApp(apiKey, apiURL, path string, dryRun bool, logger *slog.Logger) *App {
-	return NewAppWithServices(apiKey, apiURL, path, dryRun, logger,
-		NewParser(logger),
-		rootio.NewClient(apiURL, apiKey),
-	)
+func NewApp(apiKey, apiURL, path string, dryRun bool, ignoreEntries []string, logger *slog.Logger) *App {
+	ignoreDir := path
+	if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		ignoreDir = filepath.Dir(path)
+	}
+	ignoreFilePath := filepath.Join(ignoreDir, ".rootioignore")
+	return NewAppWithServices(apiKey, apiURL, path, dryRun, common.LoadIgnoreList(ignoreFilePath, ignoreEntries), logger, NewParser(logger), rootio.NewClient(apiURL, apiKey))
 }
 
 // NewAppWithServices creates a new NuGet app with injected services (for testing).
 func NewAppWithServices(
 	apiKey, apiURL, path string,
 	dryRun bool,
+	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	parser common.Parser,
 	apiClient common.APIClient,
@@ -42,6 +47,7 @@ func NewAppWithServices(
 		apiURL:    apiURL,
 		path:      path,
 		dryRun:    dryRun,
+		ignoreSet: ignoreSet,
 		logger:    logger,
 		parser:    parser,
 		apiClient: apiClient,
@@ -83,7 +89,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 4. Analyze for vulnerabilities
 	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, "nuget")
+	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "nuget")
 	if err != nil {
 		return fmt.Errorf("failed to analyze packages: %w", err)
 	}
@@ -143,6 +149,7 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	fmt.Println("  Run: rootio_patcher nuget remediate --dry-run=false")
 	fmt.Println("  Then run: dotnet restore")
 }
+
 
 // applyPatches updates the manifest file(s) with patched versions.
 // Packages are grouped by their source file (Location) so each file is updated independently.

@@ -42,6 +42,7 @@ type App struct {
 	filePath  string
 	dryRun    bool
 	useAlias  bool
+	ignoreSet map[string]struct{}
 	logger    *slog.Logger
 	parser    common.Parser
 	apiClient common.APIClient
@@ -49,9 +50,9 @@ type App struct {
 }
 
 // NewApp creates a new App with default injected services.
-func NewApp(apiKey, apiURL, pkgURL, filePath string, dryRun, useAlias bool, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, pkgURL, filePath string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
 	return NewAppWithServices(
-		apiKey, apiURL, pkgURL, filePath, dryRun, useAlias, logger,
+		apiKey, apiURL, pkgURL, filePath, dryRun, useAlias, ignoreEntries, logger,
 		NewParser(logger, pkgURL),
 		rootio.NewClient(apiURL, apiKey),
 		NewRealCommandRunner(),
@@ -62,11 +63,13 @@ func NewApp(apiKey, apiURL, pkgURL, filePath string, dryRun, useAlias bool, logg
 func NewAppWithServices(
 	apiKey, apiURL, pkgURL, filePath string,
 	dryRun, useAlias bool,
+	ignoreEntries []string,
 	logger *slog.Logger,
 	parser common.Parser,
 	apiClient common.APIClient,
 	cmdRunner CommandRunner,
 ) *App {
+	ignoreFilePath := filepath.Join(filepath.Dir(filePath), ".rootioignore")
 	return &App{
 		apiKey:    apiKey,
 		apiURL:    apiURL,
@@ -74,6 +77,7 @@ func NewAppWithServices(
 		filePath:  filePath,
 		dryRun:    dryRun,
 		useAlias:  useAlias,
+		ignoreSet: common.LoadIgnoreList(ignoreFilePath, ignoreEntries),
 		logger:    logger,
 		parser:    parser,
 		apiClient: apiClient,
@@ -110,7 +114,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, "composer")
+	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "composer")
 	if err != nil {
 		return fmt.Errorf("failed to analyze packages: %w", err)
 	}

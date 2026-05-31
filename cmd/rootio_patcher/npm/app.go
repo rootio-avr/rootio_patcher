@@ -20,6 +20,7 @@ type App struct {
 	lockFilePath    string
 	packageJSONPath string
 	dryRun          bool
+	ignoreSet       map[string]struct{}
 	useAlias        bool // Controls direct dep rewrite format: true=keep npm: prefix, false=replace package name
 	logger          *slog.Logger
 	parser          npmParser
@@ -28,7 +29,7 @@ type App struct {
 
 // NewApp creates a new npm application instance.
 // directory is the project root where the lock file and package.json live (use "." for CWD).
-func NewApp(apiKey, apiURL, packageManager, directory string, dryRun, useAlias bool, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, packageManager, directory string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
 	lockFileName := lockFileNameForPackageManager(packageManager)
 	lockFilePath := filepath.Join(directory, lockFileName)
 
@@ -37,12 +38,16 @@ func NewApp(apiKey, apiURL, packageManager, directory string, dryRun, useAlias b
 		parser = NewNpmParser()
 	}
 
+	ignoreFilePath := filepath.Join(directory, ".rootioignore")
+	ignoreSet := common.LoadIgnoreList(ignoreFilePath, ignoreEntries)
+
 	return NewAppWithServices(
 		apiKey,
 		apiURL,
 		lockFilePath,
 		dryRun,
 		useAlias,
+		ignoreSet,
 		logger,
 		parser,
 		rootio.NewClient(apiURL, apiKey),
@@ -67,6 +72,7 @@ func lockFileNameForPackageManager(packageManager string) string {
 func NewAppWithServices(
 	apiKey, apiURL, packageManagerOrPath string,
 	dryRun, useAlias bool,
+	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	parser npmParser,
 	apiClient common.APIClient,
@@ -104,6 +110,7 @@ func NewAppWithServices(
 		packageJSONPath: packageJSONPath,
 		dryRun:          dryRun,
 		useAlias:        useAlias,
+		ignoreSet:       ignoreSet,
 		logger:          logger,
 		parser:          parser,
 		apiClient:       apiClient,
@@ -146,7 +153,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 4. Call backend API to analyze vulnerabilities
 	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, "npm")
+	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "npm")
 	if err != nil {
 		return fmt.Errorf("failed to analyze packages: %w", err)
 	}
@@ -155,6 +162,11 @@ func (a *App) Run(ctx context.Context) error {
 	a.logger.DebugContext(ctx, "Vulnerability analysis complete",
 		slog.Int("patches_available", len(response.Patches)),
 		slog.Int("packages_skipped", len(response.Skipped)))
+
+	if len(response.Patches) == 0 {
+		fmt.Println("\nNo patches needed - all packages are up to date!")
+		return nil
+	}
 
 	if len(response.Patches) == 0 {
 		fmt.Println("\nNo patches needed - all packages are up to date!")
@@ -271,7 +283,7 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 			PackageName:   patch.PackageName,
 			Version:       patch.Version,
 			Value:         overrideValue,
-			PatchInfo:     patchInfo,      // Used for direct dependency rewrite
+			PatchInfo:     patchInfo, // Used for direct dependency rewrite
 			Parents:       parents,
 			RewriteDirect: direct,
 			UseAlias:      a.useAlias,

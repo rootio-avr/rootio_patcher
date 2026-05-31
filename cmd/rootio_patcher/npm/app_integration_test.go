@@ -41,7 +41,7 @@ func TestNpmApp_UpdatePackageJSON_Npm(t *testing.T) {
 
 	// Create app with mock services
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -79,6 +79,7 @@ func TestNpmApp_UpdatePackageJSON_Npm(t *testing.T) {
 		"npm",
 		false, // not dry-run
 		true,  // useAlias (default)
+		nil,
 		logger,
 		NewParser(),
 		mockAPIClient,
@@ -151,7 +152,7 @@ func TestNpmApp_UpdatePackageJSON_Yarn(t *testing.T) {
 
 	// Create app with mock services
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -187,6 +188,7 @@ express@4.18.0:
 		"yarn",
 		false, // not dry-run
 		true,  // useAlias (default)
+		nil,
 		logger,
 		yarnParser,
 		mockAPIClient,
@@ -249,7 +251,7 @@ func TestNpmApp_UpdatePackageJSON_Pnpm(t *testing.T) {
 
 	// Create app with mock services
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -285,6 +287,7 @@ func TestNpmApp_UpdatePackageJSON_Pnpm(t *testing.T) {
 		"pnpm",
 		false, // not dry-run
 		true,  // useAlias (default)
+		nil,
 		logger,
 		mockPnpmParser,
 		mockAPIClient,
@@ -361,7 +364,7 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 
 	// Create app with mock services
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -402,6 +405,7 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 		"npm",
 		false, // not dry-run
 		true,  // useAlias (default)
+		nil,
 		logger,
 		NewParser(),
 		mockAPIClient,
@@ -503,7 +507,7 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 
 	// Create app with mock services
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -553,6 +557,7 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 		"npm",
 		false, // not dry-run
 		true,  // useAlias (default)
+		nil,
 		logger,
 		NewParser(),
 		mockAPIClient,

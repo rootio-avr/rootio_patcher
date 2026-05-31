@@ -23,6 +23,7 @@ func TestNuGetApp_Run_PathNotFound(t *testing.T) {
 		"test-key", "https://api.root.io",
 		"/nonexistent/path",
 		true,
+		nil,
 		testAppLogger(),
 		&MockParser{},
 		&MockAPIClient{},
@@ -44,6 +45,7 @@ func TestNuGetApp_Run_NoPackages(t *testing.T) {
 		"test-key", "https://api.root.io",
 		csproj,
 		true,
+		nil,
 		testAppLogger(),
 		&MockParser{},
 		&MockAPIClient{},
@@ -66,6 +68,7 @@ func TestNuGetApp_Run_APIError(t *testing.T) {
 		"test-key", "https://api.root.io",
 		csproj,
 		true,
+		nil,
 		testAppLogger(),
 		&MockParser{
 			ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
@@ -75,7 +78,7 @@ func TestNuGetApp_Run_APIError(t *testing.T) {
 			},
 		},
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 				return nil, apiErr
 			},
 		},
@@ -102,6 +105,7 @@ func TestNuGetApp_Run_NoPatches(t *testing.T) {
 		"test-key", "https://api.root.io",
 		csproj,
 		true,
+		nil,
 		testAppLogger(),
 		&MockParser{
 			ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
@@ -111,7 +115,7 @@ func TestNuGetApp_Run_NoPatches(t *testing.T) {
 			},
 		},
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{Patches: nil}, nil
 			},
 		},
@@ -139,6 +143,7 @@ func TestNuGetApp_Run_DryRun(t *testing.T) {
 		"test-key", "https://api.root.io",
 		csproj,
 		true, // dry-run
+		nil,
 		testAppLogger(),
 		&MockParser{
 			ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
@@ -148,7 +153,7 @@ func TestNuGetApp_Run_DryRun(t *testing.T) {
 			},
 		},
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{
 					Patches: []rootio.PackagePatch{
 						{PackageName: "Newtonsoft.Json", Version: "12.0.3", Patch: rootio.PatchInfo{Name: "Newtonsoft.Json", Version: "13.0.1"}},
@@ -187,6 +192,7 @@ func TestNuGetApp_Run_ApplyPatches(t *testing.T) {
 		"test-key", "https://api.root.io",
 		csproj,
 		false, // NOT dry-run
+		nil,
 		testAppLogger(),
 		&MockNuGetParser{
 			NuGetParser: NewParser(testAppLogger()),
@@ -197,7 +203,7 @@ func TestNuGetApp_Run_ApplyPatches(t *testing.T) {
 			},
 		},
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{
 					Patches: []rootio.PackagePatch{
 						{
@@ -242,6 +248,7 @@ func TestNuGetApp_Run_UsesPatchAlias(t *testing.T) {
 		"test-key", "https://api.root.io",
 		csproj,
 		false,
+		nil,
 		testAppLogger(),
 		&MockNuGetParser{
 			NuGetParser: NewParser(testAppLogger()),
@@ -252,7 +259,7 @@ func TestNuGetApp_Run_UsesPatchAlias(t *testing.T) {
 			},
 		},
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{
 					Patches: []rootio.PackagePatch{
 						{
@@ -293,6 +300,7 @@ func TestNuGetApp_Run_EcosystemPassedToAPI(t *testing.T) {
 		"test-key", "https://api.root.io",
 		csproj,
 		true,
+		nil,
 		testAppLogger(),
 		&MockParser{
 			ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
@@ -302,7 +310,7 @@ func TestNuGetApp_Run_EcosystemPassedToAPI(t *testing.T) {
 			},
 		},
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 				capturedEcosystem = ecosystem
 				return &rootio.AnalyzePackagesResponse{}, nil
 			},

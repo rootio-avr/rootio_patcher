@@ -22,6 +22,7 @@ func TestMavenApp_Run_FileNotFound(t *testing.T) {
 		"https://api.root.io",
 		"/nonexistent/pom.xml",
 		true,
+		nil,
 		logger,
 		&MockParser{},
 		&MockAPIClient{},
@@ -57,6 +58,7 @@ func TestMavenApp_Run_NoPackages(t *testing.T) {
 		"https://api.root.io",
 		pomFile,
 		true,
+		nil,
 		logger,
 		&MockParser{},
 		&MockAPIClient{},
@@ -90,7 +92,7 @@ func TestMavenApp_Run_APIError(t *testing.T) {
 
 	expectedError := errors.New("API error")
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return nil, expectedError
 		},
 	}
@@ -108,6 +110,7 @@ func TestMavenApp_Run_APIError(t *testing.T) {
 		"https://api.root.io",
 		pomFile,
 		true,
+		nil,
 		logger,
 		mockParser,
 		mockAPIClient,
@@ -143,7 +146,7 @@ func TestMavenApp_Run_NoPatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{},
 			}, nil
@@ -155,6 +158,7 @@ func TestMavenApp_Run_NoPatches(t *testing.T) {
 		"https://api.root.io",
 		pomFile,
 		true,
+		nil,
 		logger,
 		&MockParser{},
 		mockAPIClient,
@@ -187,7 +191,7 @@ func TestMavenApp_Run_DryRun(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -206,6 +210,7 @@ func TestMavenApp_Run_DryRun(t *testing.T) {
 		"https://api.root.io",
 		pomFile,
 		true, // dry-run
+		nil,
 		logger,
 		&MockParser{},
 		mockAPIClient,
@@ -247,7 +252,7 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -277,6 +282,7 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 		"https://api.root.io",
 		pomFile,
 		false, // NOT dry-run
+		nil,
 		logger,
 		mockParser,
 		mockAPIClient,
@@ -324,7 +330,7 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -354,6 +360,7 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 		"https://api.root.io",
 		pomFile,
 		false, // NOT dry-run
+		nil,
 		logger,
 		mockParser,
 		mockAPIClient,

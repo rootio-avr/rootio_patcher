@@ -25,6 +25,7 @@ func newTestApp(filePath string, dryRun, useAlias bool, parser common.Parser, ap
 		filePath,
 		dryRun,
 		useAlias,
+		nil,
 		logger,
 		parser,
 		apiClient,
@@ -56,7 +57,7 @@ func TestComposerApp_Run_APIError(t *testing.T) {
 
 	expectedErr := errors.New("API error")
 	mockAPI := &MockAPIClient{
-		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 			return nil, expectedErr
 		},
 	}
@@ -78,7 +79,7 @@ func TestComposerApp_Run_NoPatches(t *testing.T) {
 	require.NoError(t, os.WriteFile(composerFile, []byte(`{"require":{"vendor/pkg":"^2.1.0"}}`), 0644))
 
 	mockAPI := &MockAPIClient{
-		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{Patches: []rootio.PackagePatch{}}, nil
 		},
 	}
@@ -100,7 +101,7 @@ func TestComposerApp_Run_DryRun(t *testing.T) {
 	require.NoError(t, os.WriteFile(composerFile, []byte(original), 0644))
 
 	mockAPI := &MockAPIClient{
-		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -138,7 +139,7 @@ func TestComposerApp_Run_ApplyPatches_DirectPatch(t *testing.T) {
 	require.NoError(t, os.WriteFile(composerFile, []byte(`{"require":{"vendor/pkg":"^2.1.0"}}`), 0644))
 
 	mockAPI := &MockAPIClient{
-		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -184,7 +185,7 @@ func TestComposerApp_Run_ApplyPatches_WithAlias(t *testing.T) {
 	require.NoError(t, os.WriteFile(composerFile, []byte(`{"require":{"vendor/pkg":"^2.1.0"}}`), 0644))
 
 	mockAPI := &MockAPIClient{
-		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
