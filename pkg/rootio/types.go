@@ -9,6 +9,7 @@ type Package struct {
 // AnalyzePackagesRequest is the request for analyzing packages for vulnerabilities
 type AnalyzePackagesRequest struct {
 	Packages []Package `json:"packages"`
+	Ignore   []Package `json:"ignore,omitempty"`
 }
 
 // PatchInfo contains package name and version

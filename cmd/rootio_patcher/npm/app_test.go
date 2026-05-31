@@ -23,6 +23,7 @@ func TestNpmApp_Run_FileNotFound(t *testing.T) {
 		"/nonexistent/package-lock.json",
 		true,  // dryRun
 		true,  // useAlias
+		nil,
 		logger,
 		&MockParser{},
 		&MockAPIClient{},
@@ -52,6 +53,7 @@ func TestNpmApp_Run_NoPackages(t *testing.T) {
 		lockFile,
 		true,  // dryRun
 		true,  // useAlias
+		nil,
 		logger,
 		&MockParser{},
 		&MockAPIClient{},
@@ -83,7 +85,7 @@ func TestNpmApp_Run_APIError(t *testing.T) {
 
 	expectedError := errors.New("API error")
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return nil, expectedError
 		},
 	}
@@ -102,6 +104,7 @@ func TestNpmApp_Run_APIError(t *testing.T) {
 		lockFile,
 		true,  // dryRun
 		true,  // useAlias
+		nil,
 		logger,
 		mockParser,
 		mockAPIClient,
@@ -135,7 +138,7 @@ func TestNpmApp_Run_NoPatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{},
 			}, nil
@@ -148,6 +151,7 @@ func TestNpmApp_Run_NoPatches(t *testing.T) {
 		lockFile,
 		true,  // dryRun
 		true,  // useAlias
+		nil,
 		logger,
 		&MockParser{},
 		mockAPIClient,
@@ -191,7 +195,7 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -219,6 +223,7 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 		lockFile,
 		true,  // dry-run
 		true,  // useAlias
+		nil,
 		logger,
 		mockParser,
 		mockAPIClient,
@@ -282,7 +287,7 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -312,6 +317,7 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 		lockFile,
 		false, // NOT dry-run
 		true,  // useAlias
+		nil,
 		logger,
 		mockParser,
 		mockAPIClient,

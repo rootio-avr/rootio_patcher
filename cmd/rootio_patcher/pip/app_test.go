@@ -25,7 +25,7 @@ func TestPipApp_Run_NoPackages(t *testing.T) {
 	mockAPIClient := &MockAPIClient{}
 
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", true, true, logger, mockPipService, mockAPIClient, nil)
+	app := NewAppWithServices(cfg, "python", true, true, nil, logger, mockPipService, mockAPIClient, nil)
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -47,7 +47,7 @@ func TestPipApp_Run_CollectorError(t *testing.T) {
 	mockAPIClient := &MockAPIClient{}
 
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", true, true, logger, mockPipService, mockAPIClient, nil)
+	app := NewAppWithServices(cfg, "python", true, true, nil, logger, mockPipService, mockAPIClient, nil)
 
 	err := app.Run(ctx)
 	if err == nil {
@@ -72,14 +72,13 @@ func TestPipApp_Run_APIError(t *testing.T) {
 
 	expectedError := errors.New("API error")
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return nil, expectedError
 		},
 	}
 
-
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", true, true, logger, mockPipService, mockAPIClient, nil)
+	app := NewAppWithServices(cfg, "python", true, true, nil, logger, mockPipService, mockAPIClient, nil)
 
 	err := app.Run(ctx)
 	if err == nil {
@@ -103,7 +102,7 @@ func TestPipApp_Run_NoPatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{},
 				Skipped: []rootio.SkippedPackage{},
@@ -111,9 +110,8 @@ func TestPipApp_Run_NoPatches(t *testing.T) {
 		},
 	}
 
-
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", true, true, logger, mockPipService, mockAPIClient, nil)
+	app := NewAppWithServices(cfg, "python", true, true, nil, logger, mockPipService, mockAPIClient, nil)
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -138,7 +136,7 @@ func TestPipApp_Run_DryRunWithPatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -155,7 +153,7 @@ func TestPipApp_Run_DryRunWithPatches(t *testing.T) {
 
 	mockReporter := common.NewReporter("https://pkg.root.io", logger)
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", true, true, logger, mockPipService, mockAPIClient, mockReporter)
+	app := NewAppWithServices(cfg, "python", true, true, nil, logger, mockPipService, mockAPIClient, mockReporter)
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -184,7 +182,7 @@ func TestPipApp_Run_ApplyPatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -201,7 +199,7 @@ func TestPipApp_Run_ApplyPatches(t *testing.T) {
 
 	mockReporter := common.NewReporter("https://pkg.root.io", logger)
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", false, true, logger, mockPipService, mockAPIClient, mockReporter)
+	app := NewAppWithServices(cfg, "python", false, true, nil, logger, mockPipService, mockAPIClient, mockReporter)
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -230,7 +228,7 @@ func TestPipApp_Run_ApplyPatchError(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -246,7 +244,7 @@ func TestPipApp_Run_ApplyPatchError(t *testing.T) {
 
 	mockReporter := common.NewReporter("https://pkg.root.io", logger)
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", false, true, logger, mockPipService, mockAPIClient, mockReporter)
+	app := NewAppWithServices(cfg, "python", false, true, nil, logger, mockPipService, mockAPIClient, mockReporter)
 
 	err := app.Run(ctx)
 	if err == nil {
@@ -276,7 +274,7 @@ func TestPipApp_Run_PipPackageUsesSpecialHandler(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -292,7 +290,7 @@ func TestPipApp_Run_PipPackageUsesSpecialHandler(t *testing.T) {
 
 	mockReporter := common.NewReporter("https://pkg.root.io", logger)
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", false, false, logger, mockPipService, mockAPIClient, mockReporter)
+	app := NewAppWithServices(cfg, "python", false, false, nil, logger, mockPipService, mockAPIClient, mockReporter)
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -323,7 +321,7 @@ func TestPipApp_Run_MultiplePatches(t *testing.T) {
 	}
 
 	mockAPIClient := &MockAPIClient{
-		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 			return &rootio.AnalyzePackagesResponse{
 				Patches: []rootio.PackagePatch{
 					{
@@ -345,7 +343,7 @@ func TestPipApp_Run_MultiplePatches(t *testing.T) {
 
 	mockReporter := common.NewReporter("https://pkg.root.io", logger)
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", false, true, logger, mockPipService, mockAPIClient, mockReporter)
+	app := NewAppWithServices(cfg, "python", false, true, nil, logger, mockPipService, mockAPIClient, mockReporter)
 
 	err := app.Run(ctx)
 	if err != nil {

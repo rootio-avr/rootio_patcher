@@ -28,10 +28,11 @@ func NewClient(baseURL, apiKey string) *Client {
 
 // AnalyzePackages sends packages to the backend for vulnerability analysis
 func (c *Client) AnalyzePackages(
-	ctx context.Context, packages []Package, ecosystem string,
+	ctx context.Context, packages []Package, ignore []Package, ecosystem string,
 ) (*AnalyzePackagesResponse, error) {
 	request := AnalyzePackagesRequest{
 		Packages: packages,
+		Ignore:   ignore,
 	}
 
 	body, err := json.Marshal(request)

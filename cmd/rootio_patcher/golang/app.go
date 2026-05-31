@@ -40,6 +40,7 @@ type App struct {
 	pkgURL    string
 	goModPath string
 	dryRun    bool
+	ignoreSet map[string]struct{}
 	logger    *slog.Logger
 	parser    GoModParser
 	apiClient common.APIClient
@@ -50,17 +51,20 @@ type App struct {
 func NewApp(
 	apiKey, apiURL, pkgURL, goModPath string,
 	dryRun bool,
+	ignoreEntries []string,
 	logger *slog.Logger,
 	parser GoModParser,
 	apiClient common.APIClient,
 	cmdRunner CommandRunner,
 ) *App {
+	ignoreFilePath := filepath.Join(filepath.Dir(goModPath), ".rootioignore")
 	return &App{
 		apiKey:    apiKey,
 		apiURL:    apiURL,
 		pkgURL:    pkgURL,
 		goModPath: goModPath,
 		dryRun:    dryRun,
+		ignoreSet: common.LoadIgnoreList(ignoreFilePath, ignoreEntries),
 		logger:    logger,
 		parser:    parser,
 		apiClient: apiClient,
@@ -121,7 +125,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 4. Call API
 	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, "golang")
+	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "golang")
 	if err != nil {
 		return fmt.Errorf("failed to analyze packages: %w", err)
 	}
@@ -131,6 +135,11 @@ func (a *App) Run(ctx context.Context) error {
 		slog.Int("packages_skipped", len(response.Skipped)))
 
 	// 5. Handle no patches
+	if len(response.Patches) == 0 {
+		fmt.Println("\nNo patches available - all packages are up to date!")
+		return nil
+	}
+
 	if len(response.Patches) == 0 {
 		fmt.Println("\nNo patches available - all packages are up to date!")
 		return nil
@@ -190,6 +199,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	return nil
 }
+
 
 // reportDryRun prints the replace directives that would be added without modifying files.
 func (a *App) reportDryRun(patches []rootio.PackagePatch) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
@@ -16,28 +17,23 @@ type App struct {
 	apiURL    string
 	filePath  string
 	dryRun    bool
+	ignoreSet map[string]struct{}
 	logger    *slog.Logger
 	parser    common.Parser
 	apiClient common.APIClient
 }
 
 // NewApp creates a new Maven application instance
-func NewApp(apiKey, apiURL, filePath string, dryRun bool, logger *slog.Logger) *App {
-	return NewAppWithServices(
-		apiKey,
-		apiURL,
-		filePath,
-		dryRun,
-		logger,
-		NewParser(logger),
-		rootio.NewClient(apiURL, apiKey),
-	)
+func NewApp(apiKey, apiURL, filePath string, dryRun bool, ignoreEntries []string, logger *slog.Logger) *App {
+	ignoreFilePath := filepath.Join(filepath.Dir(filePath), ".rootioignore")
+	return NewAppWithServices(apiKey, apiURL, filePath, dryRun, common.LoadIgnoreList(ignoreFilePath, ignoreEntries), logger, NewParser(logger), rootio.NewClient(apiURL, apiKey))
 }
 
 // NewAppWithServices creates a new Maven app with injected services (for testing)
 func NewAppWithServices(
 	apiKey, apiURL, filePath string,
 	dryRun bool,
+	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	parser common.Parser,
 	apiClient common.APIClient,
@@ -47,6 +43,7 @@ func NewAppWithServices(
 		apiURL:    apiURL,
 		filePath:  filePath,
 		dryRun:    dryRun,
+		ignoreSet: ignoreSet,
 		logger:    logger,
 		parser:    parser,
 		apiClient: apiClient,
@@ -88,7 +85,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 4. Call backend API to analyze vulnerabilities
 	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, "maven")
+	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "maven")
 	if err != nil {
 		return fmt.Errorf("failed to analyze packages: %w", err)
 	}

@@ -38,10 +38,11 @@ require (
 		"https://pkg.root.io",
 		goModPath,
 		false,
+		nil,
 		logger,
 		NewGoModParser(logger), // real parser
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, packages []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(_ context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
 				assert.Equal(t, "golang", ecosystem)
 				assert.Len(t, packages, 2, "both packages should be sent to the API")
 				return &rootio.AnalyzePackagesResponse{
@@ -106,10 +107,11 @@ replace github.com/pkg/errors v0.9.1 => github.com/pkg/errors-fork v0.9.1-custom
 		"https://pkg.root.io",
 		goModPath,
 		false,
+		nil,
 		logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{
 					Patches: []rootio.PackagePatch{
 						{
@@ -161,10 +163,11 @@ replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uu
 		"https://pkg.root.io",
 		goModPath,
 		false,
+		nil,
 		logger,
 		NewGoModParser(logger),
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{
 					Patches: []rootio.PackagePatch{
 						{
@@ -218,10 +221,11 @@ require github.com/google/uuid v1.3.0
 		"https://pkg.root.io",
 		goModPath,
 		false,
+		nil,
 		logger,
 		NewGoModParser(logger), // real parser
 		&MockAPIClient{
-			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 				return &rootio.AnalyzePackagesResponse{
 					Patches: []rootio.PackagePatch{
 						{

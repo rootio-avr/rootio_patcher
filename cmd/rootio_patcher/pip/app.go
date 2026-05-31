@@ -17,6 +17,7 @@ type App struct {
 	pythonPath string
 	dryRun     bool
 	useAlias   bool
+	ignoreSet  map[string]struct{}
 	logger     *slog.Logger
 
 	pipService Service
@@ -25,12 +26,12 @@ type App struct {
 }
 
 // NewApp creates a new pip application instance
-func NewApp(cfg *config.Config, pythonPath string, dryRun, useAlias bool, logger *slog.Logger) *App {
+func NewApp(cfg *config.Config, pythonPath string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
 	pipService := NewService(pythonPath, cfg.PKGURL, cfg.APIKey, cfg.PipIndexURL, useAlias, logger)
 	apiClient := rootio.NewClient(cfg.APIURL, cfg.APIKey)
 	reporter := common.NewReporter(cfg.PKGURL, logger)
 
-	return NewAppWithServices(cfg, pythonPath, dryRun, useAlias, logger, pipService, apiClient, reporter)
+	return NewAppWithServices(cfg, pythonPath, dryRun, useAlias, ignoreEntries, logger, pipService, apiClient, reporter)
 }
 
 // NewAppWithServices creates a new pip application with injected services (for testing)
@@ -38,16 +39,19 @@ func NewAppWithServices(
 	cfg *config.Config,
 	pythonPath string,
 	dryRun, useAlias bool,
+	ignoreEntries []string,
 	logger *slog.Logger,
 	pipService Service,
 	apiClient common.APIClient,
 	reporter *common.Reporter,
 ) *App {
+	ignoreSet := common.LoadIgnoreList(".rootioignore", ignoreEntries)
 	return &App{
 		cfg:        cfg,
 		pythonPath: pythonPath,
 		dryRun:     dryRun,
 		useAlias:   useAlias,
+		ignoreSet:  ignoreSet,
 		logger:     logger,
 		pipService: pipService,
 		apiClient:  apiClient,
@@ -78,7 +82,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 3. Call backend API to analyze vulnerabilities
 	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, "pypi")
+	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "pypi")
 	if err != nil {
 		return fmt.Errorf("failed to analyze packages: %w", err)
 	}
@@ -110,6 +114,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	return nil
 }
+
 
 // applyPatches applies patches sequentially, exits on first failure
 func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) error {

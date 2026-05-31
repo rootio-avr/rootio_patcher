@@ -64,9 +64,10 @@ type PipCmd struct {
 
 // PipRemediateCmd remediates installed Python packages
 type PipRemediateCmd struct {
-	PythonPath string `default:"python" help:"Path to Python interpreter"`
-	DryRun     bool   `default:"true" help:"Preview changes without applying them"`
-	UseAlias   bool   `default:"true" help:"Use Root.io aliased packages"`
+	PythonPath string   `default:"python" help:"Path to Python interpreter"`
+	DryRun     bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias   bool     `default:"true" help:"Use Root.io aliased packages"`
+	Ignore     []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // NpmCmd handles npm-related commands
@@ -80,6 +81,7 @@ type NpmRemediateCmd struct {
 	Directory      string `default:"." short:"C" help:"Project directory containing the lock file and package.json (defaults to current directory)"`
 	DryRun         bool   `default:"true" help:"Preview changes without applying them"`
 	UseAlias       bool   `default:"true" help:"Use Root.io aliased packages (@rootio/pkg) instead of original package names"`
+	Ignore         []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // MavenCmd handles Maven-related commands
@@ -89,8 +91,9 @@ type MavenCmd struct {
 
 // MavenRemediateCmd remediates Maven packages by patching pom.xml
 type MavenRemediateCmd struct {
-	File   string `default:"pom.xml" help:"Path to pom.xml"`
-	DryRun bool   `default:"true" help:"Preview changes without applying them"`
+	File   string   `default:"pom.xml" help:"Path to pom.xml"`
+	DryRun bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 func main() {
@@ -160,7 +163,7 @@ func createLogger(logLevelStr string) *slog.Logger {
 func (cmd *PipRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting pip remediation")
 
-	app := pip.NewApp(cfg, cmd.PythonPath, cmd.DryRun, cmd.UseAlias, logger)
+	app := pip.NewApp(cfg, cmd.PythonPath, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
 
@@ -175,7 +178,7 @@ func (cmd *NpmRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 		return fmt.Errorf("invalid directory: %w", err)
 	}
 
-	app := npm.NewApp(cfg.APIKey, cfg.APIURL, cmd.PackageManager, dir, cmd.DryRun, cmd.UseAlias, logger)
+	app := npm.NewApp(cfg.APIKey, cfg.APIURL, cmd.PackageManager, dir, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
 
@@ -183,7 +186,7 @@ func (cmd *NpmRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 func (cmd *MavenRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting Maven remediation", slog.String("file", cmd.File))
 
-	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cmd.File, cmd.DryRun, logger)
+	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cmd.File, cmd.DryRun, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
 
@@ -194,8 +197,9 @@ type GoCmd struct {
 
 // GoRemediateCmd remediates Go modules by adding replace directives to go.mod
 type GoRemediateCmd struct {
-	GoMod  string `default:"go.mod" help:"Path to go.mod"`
-	DryRun bool   `default:"true" help:"Preview changes without applying them"`
+	GoMod  string   `default:"go.mod" help:"Path to go.mod"`
+	DryRun bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // Run executes the go remediate command
@@ -203,7 +207,7 @@ func (cmd *GoRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *
 	logger.InfoContext(ctx, "Starting Go module remediation", slog.String("go_mod", cmd.GoMod))
 
 	app := golang.NewApp(
-		cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.GoMod, cmd.DryRun, logger,
+		cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.GoMod, cmd.DryRun, cmd.Ignore, logger,
 		golang.NewGoModParser(logger),
 		rootio.NewClient(cfg.APIURL, cfg.APIKey),
 		golang.NewRealCommandRunner(),
@@ -218,9 +222,10 @@ type NuGetCmd struct {
 
 // NuGetRemediateCmd remediates NuGet packages by patching manifest files
 type NuGetRemediateCmd struct {
-	File      string `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
-	Directory string `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
-	DryRun    bool   `default:"true" help:"Preview changes without applying them"`
+	File      string   `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
+	Directory string   `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
+	DryRun    bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore    []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // ComposerCmd handles Composer-related commands
@@ -230,9 +235,10 @@ type ComposerCmd struct {
 
 // ComposerRemediateCmd remediates Composer packages by patching composer.json
 type ComposerRemediateCmd struct {
-	File     string `default:"composer.json" help:"Path to composer.json"`
-	DryRun   bool   `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool   `default:"false" help:"Use Root.io aliased packages"`
+	File     string   `default:"composer.json" help:"Path to composer.json"`
+	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias bool     `default:"false" help:"Use Root.io aliased packages"`
+	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // Run executes the composer remediate command
@@ -244,7 +250,7 @@ func (cmd *ComposerRemediateCmd) Run(ctx context.Context, cfg *config.Config, lo
 		return fmt.Errorf("invalid file path: %w", err)
 	}
 
-	app := composer.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, filePath, cmd.DryRun, cmd.UseAlias, logger)
+	app := composer.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, filePath, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
 
@@ -266,6 +272,6 @@ func (cmd *NuGetRemediateCmd) Run(ctx context.Context, cfg *config.Config, logge
 		}
 	}
 
-	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, path, cmd.DryRun, logger)
+	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, path, cmd.DryRun, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
