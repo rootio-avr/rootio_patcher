@@ -2,6 +2,7 @@ package apk
 
 import (
 	"context"
+	"os"
 
 	"rootio_patcher/pkg/rootio"
 )
@@ -37,6 +38,19 @@ func (m *MockScanner) ListPackages(ctx context.Context) ([]InstalledPackage, err
 	}
 	return []InstalledPackage{}, nil
 }
+
+// mockFS is a no-op fileSystem for tests — file operations succeed silently
+type mockFS struct{}
+
+func (mockFS) MkdirAll(_ string, _ os.FileMode) error            { return nil }
+func (mockFS) WriteFile(_ string, _ []byte, _ os.FileMode) error { return nil }
+func (mockFS) ReadFile(_ string) ([]byte, error) {
+	return []byte("https://dl-cdn.alpinelinux.org/alpine/v3.19/main\n"), nil
+}
+func (mockFS) OpenFile(_ string, _ int, _ os.FileMode) (*os.File, error) {
+	return os.CreateTemp("", "apk-test-repo")
+}
+func (mockFS) Remove(_ string) error { return nil }
 
 // CommandCall records a single runner invocation
 type CommandCall struct {

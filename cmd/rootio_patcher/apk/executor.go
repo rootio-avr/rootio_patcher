@@ -1,7 +1,9 @@
 package apk
 
 import (
+	"bufio"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -38,16 +40,38 @@ func (r *realRunner) Run(ctx context.Context, name string, args ...string) error
 	return cmd.Run()
 }
 
+// fileSystem abstracts file I/O for testability
+type fileSystem interface {
+	MkdirAll(path string, perm os.FileMode) error
+	WriteFile(name string, data []byte, perm os.FileMode) error
+	ReadFile(name string) ([]byte, error)
+	OpenFile(name string, flag int, perm os.FileMode) (*os.File, error)
+	Remove(name string) error
+}
+
+type realFS struct{}
+
+func (realFS) MkdirAll(path string, perm os.FileMode) error { return os.MkdirAll(path, perm) }
+func (realFS) WriteFile(name string, data []byte, perm os.FileMode) error {
+	return os.WriteFile(name, data, perm)
+}
+func (realFS) ReadFile(name string) ([]byte, error) { return os.ReadFile(name) }
+func (realFS) OpenFile(name string, flag int, perm os.FileMode) (*os.File, error) {
+	return os.OpenFile(name, flag, perm)
+}
+func (realFS) Remove(name string) error { return os.Remove(name) }
+
 // Executor performs the actual apk remediation steps on the running system
 type Executor struct {
 	apiKey  string
 	pkgURL  string
 	runner  CommandRunner
+	fs      fileSystem
 	verbose bool
 }
 
 func NewExecutor(apiKey, pkgURL string, verbose bool, runner CommandRunner) *Executor {
-	return &Executor{apiKey: apiKey, pkgURL: pkgURL, verbose: verbose, runner: runner}
+	return &Executor{apiKey: apiKey, pkgURL: pkgURL, verbose: verbose, runner: runner, fs: realFS{}}
 }
 
 // Setup installs the Root.io APK repository and public key
@@ -58,8 +82,8 @@ func (e *Executor) Setup(ctx context.Context, osInfo *OSInfo) error {
 		desc string
 		fn   func() error
 	}{
-		{"install public key", func() error { return e.installPublicKey(ctx) }},
-		{"add APK repository", func() error { return e.addRepo(ctx, registryURL) }},
+		{"install public key", func() error { return e.installPublicKey() }},
+		{"add APK repository", func() error { return e.addRepo(registryURL) }},
 		{"apk update", func() error { return e.ApkUpdate(ctx) }},
 	}
 
@@ -109,21 +133,41 @@ func (e *Executor) InstallPatches(ctx context.Context, patches []rootio.PackageP
 }
 
 // Cleanup removes the Root.io APK repo entry and public key
-func (e *Executor) Cleanup(ctx context.Context) error {
+func (e *Executor) Cleanup(_ context.Context) error {
 	e.logf("→ cleanup")
 
-	// Remove the repo line we added (marked with apkRepoMark)
-	script := fmt.Sprintf(`grep -v '%s' %s > /tmp/apk-repos.tmp && mv /tmp/apk-repos.tmp %s`,
-		apkRepoMark, apkRepoFile, apkRepoFile)
-	if err := e.runner.Run(ctx, "sh", "-c", script); err != nil {
+	if err := e.removeRepoLine(apkRepoFile, apkRepoMark); err != nil {
 		return fmt.Errorf("remove repo entry: %w", err)
 	}
 
-	if err := e.runner.Run(ctx, "rm", "-f", apkKeyPath); err != nil {
+	if err := e.fs.Remove(apkKeyPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove public key: %w", err)
 	}
 
 	return nil
+}
+
+// removeRepoLine rewrites path omitting any line containing marker.
+func (e *Executor) removeRepoLine(path, marker string) error {
+	data, err := e.fs.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var kept []string
+	sc := bufio.NewScanner(strings.NewReader(string(data)))
+	for sc.Scan() {
+		if !strings.Contains(sc.Text(), marker) {
+			kept = append(kept, sc.Text())
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	content := strings.Join(kept, "\n")
+	if len(kept) > 0 {
+		content += "\n"
+	}
+	return e.fs.WriteFile(path, []byte(content), 0o644)
 }
 
 // ApkUpdate runs `apk update`
@@ -132,24 +176,31 @@ func (e *Executor) ApkUpdate(ctx context.Context) error {
 }
 
 // installPublicKey writes the Root.io RSA public key to /etc/apk/keys/
-func (e *Executor) installPublicKey(ctx context.Context) error {
-	if err := e.runner.Run(ctx, "mkdir", "-p", "/etc/apk/keys"); err != nil {
+func (e *Executor) installPublicKey() error {
+	if err := e.fs.MkdirAll("/etc/apk/keys", 0o755); err != nil {
 		return err
 	}
-	script := fmt.Sprintf(`echo '%s' | base64 -d > %s`, rootio.APKPublicKeyBase64, apkKeyPath)
-	return e.runner.Run(ctx, "sh", "-c", script)
+	keyBytes, err := base64.StdEncoding.DecodeString(rootio.APKPublicKeyBase64)
+	if err != nil {
+		return fmt.Errorf("decode public key: %w", err)
+	}
+	return e.fs.WriteFile(apkKeyPath, keyBytes, 0o644)
 }
 
 // addRepo appends the Root.io APK repository to /etc/apk/repositories
-func (e *Executor) addRepo(ctx context.Context, registryURL string) error {
-	// Include API key as user:password in the URL for authenticated access
+func (e *Executor) addRepo(registryURL string) error {
 	authedURL := registryURL
 	if e.apiKey != "" {
 		host := strings.TrimPrefix(registryURL, "https://")
 		authedURL = fmt.Sprintf("https://root:%s@%s", e.apiKey, host)
 	}
-	script := fmt.Sprintf(`echo '%s' >> %s`, authedURL, apkRepoFile)
-	return e.runner.Run(ctx, "sh", "-c", script)
+	f, err := e.fs.OpenFile(apkRepoFile, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintln(f, authedURL)
+	return err
 }
 
 func (e *Executor) logf(format string, args ...any) {

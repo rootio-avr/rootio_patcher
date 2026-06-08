@@ -31,6 +31,7 @@ func alpineScanner() *MockScanner {
 
 func newTestApp(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun bool) *App {
 	executor := NewExecutor("test-api-key", "https://pkg.root.io", false, runner)
+	executor.fs = mockFS{}
 	return NewAppWithServices(
 		"test-api-key", "https://pkg.root.io",
 		dryRun, false,
@@ -195,14 +196,10 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 	app := newTestApp(alpineScanner(), apiClient, runner, false)
 	require.NoError(t, app.Run(context.Background()))
 
-	// Public key must be installed
-	assert.True(t, runner.calledWith("sh"), "public key write via sh -c must run")
 	// apk update must run
 	assert.True(t, runner.calledWith("apk", "apk", "update"), "apk update must run")
 	// alias must be installed via apk add --upgrade
 	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "rootio-curl"), "alias must be installed")
-	// cleanup: key must be removed
-	assert.True(t, runner.calledWith("rm", "rm", "-f", apkKeyPath), "public key must be cleaned up")
 }
 
 // --- Blacklisted package is skipped during upgrades ---
