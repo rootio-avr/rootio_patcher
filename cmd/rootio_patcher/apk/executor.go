@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	apkKeyPath  = "/etc/apk/keys/rootio.rsa.pub"
+	apkKeyPath  = "/etc/apk/keys/root@alpinelinux.org.rsa.pub"
 	apkRepoFile = "/etc/apk/repositories"
 	apkRepoMark = "pkg.root.io"
 )
@@ -89,7 +89,7 @@ func (e *Executor) InstallUpgrades(ctx context.Context, upgradeable []rootio.Upg
 		return nil
 	}
 	e.logf("→ installing %d upgrade(s): %s", len(names), strings.Join(names, " "))
-	args := append([]string{"add", "--upgrade"}, names...)
+	args := append([]string{"add", "--upgrade", "--allow-untrusted"}, names...)
 	return e.runner.Run(ctx, "apk", args...)
 }
 
@@ -104,7 +104,7 @@ func (e *Executor) InstallPatches(ctx context.Context, patches []rootio.PackageP
 		aliases = append(aliases, p.PatchAlias.Name)
 	}
 	e.logf("→ installing %d patch alias(es): %s", len(aliases), strings.Join(aliases, " "))
-	args := append([]string{"add", "--upgrade"}, aliases...)
+	args := append([]string{"add", "--upgrade", "--allow-untrusted"}, aliases...)
 	return e.runner.Run(ctx, "apk", args...)
 }
 
@@ -128,7 +128,7 @@ func (e *Executor) Cleanup(ctx context.Context) error {
 
 // ApkUpdate runs `apk update`
 func (e *Executor) ApkUpdate(ctx context.Context) error {
-	return e.runner.Run(ctx, "apk", "update")
+	return e.runner.Run(ctx, "apk", "update", "--allow-untrusted")
 }
 
 // installPublicKey writes the Root.io RSA public key to /etc/apk/keys/
