@@ -22,15 +22,15 @@ func alpineScanner() *MockScanner {
 		},
 		ListPackagesFunc: func(_ context.Context) ([]InstalledPackage, error) {
 			return []InstalledPackage{
-				{Name: "curl", Version: "8.5.0-r0"},
-				{Name: "openssl", Version: "3.1.4-r5"},
+				{Name: "curl", Version: "8.5.0"},
+				{Name: "openssl", Version: "3.1.4"},
 			}, nil
 		},
 	}
 }
 
 func newTestApp(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun bool) *App {
-	executor := NewExecutor("test-api-key", "https://pkg.root.io", false, runner)
+	executor := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
 	executor.fs = mockFS{}
 	return NewAppWithServices(
 		"test-api-key", "https://pkg.root.io",
@@ -73,6 +73,23 @@ func TestApp_Run_NoPackages(t *testing.T) {
 	}
 	app := newTestApp(scanner, apiClient, &MockRunner{}, true)
 	require.NoError(t, app.Run(context.Background()))
+}
+
+// --- Package scan failure ---
+
+func TestApp_Run_PackageScanFailure(t *testing.T) {
+	scanner := &MockScanner{
+		DetectOSFunc: func(_ context.Context) (*OSInfo, error) {
+			return &OSInfo{DistroVersion: "3.19"}, nil
+		},
+		ListPackagesFunc: func(_ context.Context) ([]InstalledPackage, error) {
+			return nil, errors.New("apk info -v failed")
+		},
+	}
+	app := newTestApp(scanner, &MockAPIClient{}, &MockRunner{}, true)
+	err := app.Run(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "package scan failed")
 }
 
 // --- API failure ---

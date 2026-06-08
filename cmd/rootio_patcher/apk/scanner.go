@@ -29,15 +29,16 @@ type SystemProbe interface {
 	QueryInstalledPackages(ctx context.Context) ([]byte, error)
 }
 
-type realProbe struct{}
+type realProbe struct {
+	fs fileSystem
+}
 
-func (r *realProbe) ReadOSRelease(ctx context.Context) (string, error) {
-	cmd := exec.CommandContext(ctx, "sh", "-c", "cat /etc/alpine-release")
-	out, err := cmd.Output()
+func (r *realProbe) ReadOSRelease(_ context.Context) (string, error) {
+	data, err := r.fs.ReadFile("/etc/alpine-release")
 	if err != nil {
 		return "", fmt.Errorf("failed to read /etc/alpine-release: %w", err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return strings.TrimSpace(string(data)), nil
 }
 
 func (r *realProbe) QueryInstalledPackages(ctx context.Context) ([]byte, error) {
@@ -59,7 +60,7 @@ type osScanner struct {
 	probe SystemProbe
 }
 
-func NewScanner() Scanner { return &osScanner{probe: &realProbe{}} }
+func NewScanner() Scanner { return &osScanner{probe: &realProbe{fs: realFS{}}} }
 
 func NewScannerWithProbe(probe SystemProbe) Scanner { return &osScanner{probe: probe} }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -42,15 +43,15 @@ func (r *realRunner) Run(ctx context.Context, name string, args ...string) error
 
 // Executor performs the actual apk remediation steps on the running system
 type Executor struct {
-	apiKey  string
-	pkgURL  string
-	runner  CommandRunner
-	fs      fileSystem
-	verbose bool
+	apiKey string
+	pkgURL string
+	runner CommandRunner
+	fs     fileSystem
+	logger *slog.Logger
 }
 
-func NewExecutor(apiKey, pkgURL string, verbose bool, runner CommandRunner) *Executor {
-	return &Executor{apiKey: apiKey, pkgURL: pkgURL, verbose: verbose, runner: runner, fs: realFS{}}
+func NewExecutor(apiKey, pkgURL string, logger *slog.Logger, runner CommandRunner) *Executor {
+	return &Executor{apiKey: apiKey, pkgURL: pkgURL, logger: logger, runner: runner, fs: realFS{}}
 }
 
 // Setup installs the Root.io APK repository and public key
@@ -67,7 +68,7 @@ func (e *Executor) Setup(ctx context.Context, osInfo *OSInfo) error {
 	}
 
 	for _, s := range steps {
-		e.logf("→ %s", s.desc)
+		e.logf("apk setup", "step", s.desc)
 		if err := s.fn(); err != nil {
 			return fmt.Errorf("%s: %w", s.desc, err)
 		}
@@ -83,7 +84,7 @@ func (e *Executor) InstallUpgrades(ctx context.Context, upgradeable []rootio.Upg
 	var names []string
 	for _, u := range upgradeable {
 		if packageBlacklist[u.PackageName] {
-			e.logf("→ skipping blacklisted package %s", u.PackageName)
+			e.logf("skipping blacklisted package", "package", u.PackageName)
 			continue
 		}
 		names = append(names, u.PackageName)
@@ -91,7 +92,7 @@ func (e *Executor) InstallUpgrades(ctx context.Context, upgradeable []rootio.Upg
 	if len(names) == 0 {
 		return nil
 	}
-	e.logf("→ installing %d upgrade(s): %s", len(names), strings.Join(names, " "))
+	e.logf("installing upgrades", "packages", strings.Join(names, " "))
 	args := append([]string{"add", "--upgrade"}, names...)
 	return e.runner.Run(ctx, "apk", args...)
 }
@@ -106,14 +107,14 @@ func (e *Executor) InstallPatches(ctx context.Context, patches []rootio.PackageP
 	for _, p := range patches {
 		aliases = append(aliases, p.PatchAlias.Name)
 	}
-	e.logf("→ installing %d patch alias(es): %s", len(aliases), strings.Join(aliases, " "))
+	e.logf("installing patch aliases", "packages", strings.Join(aliases, " "))
 	args := append([]string{"add", "--upgrade"}, aliases...)
 	return e.runner.Run(ctx, "apk", args...)
 }
 
 // Cleanup removes the Root.io APK repo entry and public key
 func (e *Executor) Cleanup(_ context.Context) error {
-	e.logf("→ cleanup")
+	e.logf("apk cleanup")
 
 	if err := e.removeRepoLine(apkRepoFile, apkRepoMark); err != nil {
 		return fmt.Errorf("remove repo entry: %w", err)
@@ -182,8 +183,6 @@ func (e *Executor) addRepo(registryURL string) error {
 	return err
 }
 
-func (e *Executor) logf(format string, args ...any) {
-	if e.verbose {
-		fmt.Printf("[apk] "+format+"\n", args...)
-	}
+func (e *Executor) logf(msg string, args ...any) {
+	e.logger.Debug(msg, args...)
 }

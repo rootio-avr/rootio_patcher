@@ -29,7 +29,7 @@ type App struct {
 
 func NewApp(apiKey, apiURL, pkgURL string, dryRun, verbose bool, logger *slog.Logger) *App {
 	client := rootio.NewClient(apiURL, apiKey)
-	executor := NewExecutor(apiKey, pkgURL, verbose, NewRealRunner())
+	executor := NewExecutor(apiKey, pkgURL, logger, NewRealRunner())
 	return NewAppWithServices(apiKey, pkgURL, dryRun, verbose, logger, NewScanner(), client, executor)
 }
 
