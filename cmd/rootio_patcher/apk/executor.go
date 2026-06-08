@@ -89,7 +89,7 @@ func (e *Executor) InstallUpgrades(ctx context.Context, upgradeable []rootio.Upg
 		return nil
 	}
 	e.logf("→ installing %d upgrade(s): %s", len(names), strings.Join(names, " "))
-	args := append([]string{"add", "--upgrade", "--allow-untrusted"}, names...)
+	args := append([]string{"add", "--upgrade"}, names...)
 	return e.runner.Run(ctx, "apk", args...)
 }
 
@@ -104,7 +104,7 @@ func (e *Executor) InstallPatches(ctx context.Context, patches []rootio.PackageP
 		aliases = append(aliases, p.PatchAlias.Name)
 	}
 	e.logf("→ installing %d patch alias(es): %s", len(aliases), strings.Join(aliases, " "))
-	args := append([]string{"add", "--upgrade", "--allow-untrusted"}, aliases...)
+	args := append([]string{"add", "--upgrade"}, aliases...)
 	return e.runner.Run(ctx, "apk", args...)
 }
 
@@ -128,7 +128,7 @@ func (e *Executor) Cleanup(ctx context.Context) error {
 
 // ApkUpdate runs `apk update`
 func (e *Executor) ApkUpdate(ctx context.Context) error {
-	return e.runner.Run(ctx, "apk", "update", "--allow-untrusted")
+	return e.runner.Run(ctx, "apk", "update")
 }
 
 // installPublicKey writes the Root.io RSA public key to /etc/apk/keys/
@@ -136,7 +136,7 @@ func (e *Executor) installPublicKey(ctx context.Context) error {
 	if err := e.runner.Run(ctx, "mkdir", "-p", "/etc/apk/keys"); err != nil {
 		return err
 	}
-	script := fmt.Sprintf(`echo '%s' | base64 -d > %s`, rootio.GPGPublicKeyBase64, apkKeyPath)
+	script := fmt.Sprintf(`echo '%s' | base64 -d > %s`, rootio.APKPublicKeyBase64, apkKeyPath)
 	return e.runner.Run(ctx, "sh", "-c", script)
 }
 
