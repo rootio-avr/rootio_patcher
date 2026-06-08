@@ -4,23 +4,22 @@ ARG ROOTIO_API_KEY
 ARG ROOTIO_API_URL=https://api.root.io
 ARG ROOTIO_PKG_URL=https://pkg.root.io
 
-# Install packages that the API will remediate via Root.io aliases:
-#   wget (CVE-2024-10524), less (CVE-2024-32487), vim (CVE-2024-43374,CVE-2024-41957)
-#   socat (CVE-2024-54661), nghttp2 (CVE-2024-28182)
+# Install packages that the API will remediate via Root.io aliases
 RUN apk add --no-cache \
     ca-certificates \
-    wget \
     less \
-    vim \
-    socat \
-    nghttp2
+    botan \
+    indent \
+    darkhttpd \
+    jbig2dec \
+    libpcap
 
 # Record baseline versions before patching
 RUN echo "" && \
     echo "┌─────────────────────────────────────────────┐" && \
     echo "│  BEFORE patching                            │" && \
     echo "└─────────────────────────────────────────────┘" && \
-    apk info -v wget less vim socat nghttp2 2>/dev/null || true
+    apk info -v less botan indent darkhttpd jbig2dec libpcap 2>/dev/null || true
 
 # Copy the pre-built patcher binary
 COPY rootio_patcher /usr/local/bin/rootio_patcher
@@ -38,27 +37,25 @@ RUN echo "" && \
     echo "│  AFTER patching                             │" && \
     echo "└─────────────────────────────────────────────┘" && \
     \
-    ROOTIO_WGET="$(apk info -v rootio-wget 2>/dev/null | head -1)" && \
     ROOTIO_LESS="$(apk info -v rootio-less 2>/dev/null | head -1)" && \
-    ROOTIO_VIM="$(apk info -v rootio-vim 2>/dev/null | head -1)" && \
-    ROOTIO_SOCAT="$(apk info -v rootio-socat 2>/dev/null | head -1)" && \
-    ROOTIO_NGHTTP2="$(apk info -v rootio-nghttp2 2>/dev/null | head -1)" && \
+    ROOTIO_BOTAN="$(apk info -v rootio-botan 2>/dev/null | head -1)" && \
+    ROOTIO_INDENT="$(apk info -v rootio-indent 2>/dev/null | head -1)" && \
+    ROOTIO_DARKHTTPD="$(apk info -v rootio-darkhttpd 2>/dev/null | head -1)" && \
+    ROOTIO_JBIG2DEC="$(apk info -v rootio-jbig2dec 2>/dev/null | head -1)" && \
+    ROOTIO_LIBPCAP="$(apk info -v rootio-libpcap 2>/dev/null | head -1)" && \
     \
     FAIL=0 && \
     \
-    if [ -n "$ROOTIO_WGET" ];    then echo "  PASS  rootio-wget installed: $ROOTIO_WGET";       else echo "  FAIL  rootio-wget not installed";    FAIL=1; fi && \
-    if [ -n "$ROOTIO_LESS" ];    then echo "  PASS  rootio-less installed: $ROOTIO_LESS";       else echo "  FAIL  rootio-less not installed";    FAIL=1; fi && \
-    if [ -n "$ROOTIO_VIM" ];     then echo "  PASS  rootio-vim installed: $ROOTIO_VIM";         else echo "  FAIL  rootio-vim not installed";     FAIL=1; fi && \
-    if [ -n "$ROOTIO_SOCAT" ];   then echo "  PASS  rootio-socat installed: $ROOTIO_SOCAT";     else echo "  FAIL  rootio-socat not installed";   FAIL=1; fi && \
-    if [ -n "$ROOTIO_NGHTTP2" ]; then echo "  PASS  rootio-nghttp2 installed: $ROOTIO_NGHTTP2"; else echo "  FAIL  rootio-nghttp2 not installed"; FAIL=1; fi && \
-    \
-    wget  --version > /dev/null 2>&1 && echo "  PASS  wget binary works"  || { echo "  FAIL  wget binary broken";  FAIL=1; } && \
-    vim   --version > /dev/null 2>&1 && echo "  PASS  vim binary works"   || { echo "  FAIL  vim binary broken";   FAIL=1; } && \
-    socat -V        > /dev/null 2>&1 && echo "  PASS  socat binary works" || { echo "  FAIL  socat binary broken"; FAIL=1; } && \
+    if [ -n "$ROOTIO_LESS" ];     then echo "  PASS  rootio-less installed: $ROOTIO_LESS";         else echo "  FAIL  rootio-less not installed";     FAIL=1; fi && \
+    if [ -n "$ROOTIO_BOTAN" ];      then echo "  PASS  rootio-botan installed: $ROOTIO_BOTAN";           else echo "  FAIL  rootio-botan not installed";      FAIL=1; fi && \
+    if [ -n "$ROOTIO_INDENT" ];   then echo "  PASS  rootio-indent installed: $ROOTIO_INDENT";     else echo "  FAIL  rootio-indent not installed";   FAIL=1; fi && \
+    if [ -n "$ROOTIO_DARKHTTPD" ];then echo "  PASS  rootio-darkhttpd installed: $ROOTIO_DARKHTTPD"; else echo "  FAIL  rootio-darkhttpd not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_JBIG2DEC" ]; then echo "  PASS  rootio-jbig2dec installed: $ROOTIO_JBIG2DEC"; else echo "  FAIL  rootio-jbig2dec not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_LIBPCAP" ];  then echo "  PASS  rootio-libpcap installed: $ROOTIO_LIBPCAP";   else echo "  FAIL  rootio-libpcap not installed";  FAIL=1; fi && \
     \
     echo "" && \
     echo "=== APK PACKAGE STATE ===" && \
-    (apk info -v | grep -E "wget|less|vim|socat|nghttp2" || true) && \
+    (apk info -v | grep -E "less|botan|indent|darkhttpd|jbig2dec|libpcap" || true) && \
     \
     echo "" && \
     [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }

@@ -24,12 +24,8 @@ TARGET="${1:-all}"
 ROOTIO_API_URL="${ROOTIO_API_URL:-https://api.root.io}"
 ROOTIO_PKG_URL="${ROOTIO_PKG_URL:-https://pkg.root.io}"
 
-# ── 1. Build the patcher binary matching the Docker host architecture ─────────
-DOCKER_ARCH="$(docker version --format '{{.Server.Arch}}' 2>/dev/null || uname -m)"
-case "$DOCKER_ARCH" in
-  arm64|aarch64) GOARCH=arm64 ;;
-  *)             GOARCH=amd64 ;;
-esac
+# ── 1. Build the patcher binary for amd64 (Root.io APK repo only has amd64) ───
+GOARCH=amd64
 echo "==> Building rootio_patcher (linux/${GOARCH})..."
 BINARY="$SCRIPT_DIR/rootio_patcher"
 (cd "$REPO_ROOT" && GOOS=linux GOARCH="$GOARCH" go build -o "$BINARY" ./cmd/rootio_patcher)
@@ -49,6 +45,7 @@ run_test() {
   docker build \
     --no-cache \
     --progress=plain \
+    --platform linux/amd64 \
     --file "$dockerfile" \
     --build-arg "ROOTIO_API_KEY=${ROOTIO_API_KEY}" \
     --build-arg "ROOTIO_API_URL=${ROOTIO_API_URL}" \
