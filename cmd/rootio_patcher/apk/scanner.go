@@ -109,15 +109,38 @@ func parseApkInfoOutput(out []byte) ([]InstalledPackage, error) {
 	return packages, sc.Err()
 }
 
-// splitApkNameVersion splits "curl-8.5.0-r0" → ("curl", "8.5.0-r0").
+// splitApkNameVersion splits "curl-8.5.0-r0" → ("curl", "8.5.0").
 // Splits on "-", finds the first segment that starts with a digit — that marks
 // the start of the version. Mirrors the logic in the backend alpine package manager.
+// The Alpine revision suffix (-rN) is stripped because the API stores only the
+// upstream version (e.g. "8.5.0", not "8.5.0-r0").
 func splitApkNameVersion(s string) (name, version string, ok bool) {
 	segments := strings.Split(s, "-")
 	for i, seg := range segments {
 		if len(seg) > 0 && seg[0] >= '0' && seg[0] <= '9' {
-			return strings.Join(segments[:i], "-"), strings.Join(segments[i:], "-"), true
+			ver := strings.Join(segments[i:], "-")
+			return strings.Join(segments[:i], "-"), stripAlpineRevision(ver), true
 		}
 	}
 	return "", "", false
+}
+
+// stripAlpineRevision removes the trailing Alpine build revision suffix (-rN)
+// from a version string, e.g. "8.5.0-r0" → "8.5.0", "643-r2" → "643".
+// The API stores versions without this suffix.
+func stripAlpineRevision(ver string) string {
+	if idx := strings.LastIndex(ver, "-r"); idx >= 0 {
+		suffix := ver[idx+2:]
+		allDigits := len(suffix) > 0
+		for _, c := range suffix {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			return ver[:idx]
+		}
+	}
+	return ver
 }

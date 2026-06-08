@@ -62,9 +62,9 @@ func TestScanner_ListPackages_Normal(t *testing.T) {
 	pkgs, err := s.ListPackages(context.Background())
 	require.NoError(t, err)
 	require.Len(t, pkgs, 3)
-	assert.Equal(t, InstalledPackage{Name: "curl", Version: "8.5.0-r0"}, pkgs[0])
-	assert.Equal(t, InstalledPackage{Name: "openssl", Version: "3.1.4-r5"}, pkgs[1])
-	assert.Equal(t, InstalledPackage{Name: "ca-certificates", Version: "20240226-r0"}, pkgs[2])
+	assert.Equal(t, InstalledPackage{Name: "curl", Version: "8.5.0"}, pkgs[0])
+	assert.Equal(t, InstalledPackage{Name: "openssl", Version: "3.1.4"}, pkgs[1])
+	assert.Equal(t, InstalledPackage{Name: "ca-certificates", Version: "20240226"}, pkgs[2])
 }
 
 func TestScanner_ListPackages_HyphenatedName(t *testing.T) {
@@ -74,9 +74,9 @@ func TestScanner_ListPackages_HyphenatedName(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pkgs, 2)
 	assert.Equal(t, "ca-certificates", pkgs[0].Name)
-	assert.Equal(t, "20240226-r0", pkgs[0].Version)
+	assert.Equal(t, "20240226", pkgs[0].Version)
 	assert.Equal(t, "util-linux", pkgs[1].Name)
-	assert.Equal(t, "2.39-r1", pkgs[1].Version)
+	assert.Equal(t, "2.39", pkgs[1].Version)
 }
 
 func TestScanner_ListPackages_SkipsEmptyLines(t *testing.T) {
