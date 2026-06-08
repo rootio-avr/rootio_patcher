@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 usage() {
-  echo "Usage: ROOTIO_API_KEY=<key> $0 [alpine318|all]"
+  echo "Usage: ROOTIO_API_KEY=<key> $0 [alpine319|all]"
   echo ""
   echo "  Builds the patcher binary, then runs the apk e2e test(s) inside Docker."
   echo "  ROOTIO_API_KEY must be set (real API key, calls are made against the live API)."
@@ -62,11 +62,11 @@ run_test() {
 
 # ── 3. Dispatch ───────────────────────────────────────────────────────────────
 case "$TARGET" in
-  alpine318)
-    run_test "alpine318" "$SCRIPT_DIR/Dockerfile.alpine318"
+  alpine319)
+    run_test "alpine319" "$SCRIPT_DIR/Dockerfile.alpine319"
     ;;
   all)
-    run_test "alpine318" "$SCRIPT_DIR/Dockerfile.alpine318"
+    run_test "alpine319" "$SCRIPT_DIR/Dockerfile.alpine319"
     echo ""
     echo "✓ All apk e2e tests passed"
     ;;
