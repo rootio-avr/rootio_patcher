@@ -42,13 +42,24 @@ func (m *MockScanner) ListPackages(ctx context.Context) ([]InstalledPackage, err
 // mockFS is a no-op fileSystem for tests — file operations succeed silently
 type mockFS struct{}
 
+// spyFS wraps mockFS and records which paths were opened for writing
+type spyFS struct {
+	mockFS
+	OpenedPaths []string
+}
+
+func (s *spyFS) OpenFile(name string, flag int, perm os.FileMode) (*os.File, error) {
+	s.OpenedPaths = append(s.OpenedPaths, name)
+	return s.mockFS.OpenFile(name, flag, perm)
+}
+
 func (mockFS) MkdirAll(_ string, _ os.FileMode) error            { return nil }
 func (mockFS) WriteFile(_ string, _ []byte, _ os.FileMode) error { return nil }
 func (mockFS) ReadFile(_ string) ([]byte, error) {
 	return []byte("https://dl-cdn.alpinelinux.org/alpine/v3.19/main\n"), nil
 }
 func (mockFS) OpenFile(_ string, _ int, _ os.FileMode) (*os.File, error) {
-	return os.CreateTemp("", "apk-test-repo")
+	return os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 }
 func (mockFS) Remove(_ string) error { return nil }
 

@@ -169,6 +169,7 @@ func TestApp_Run_DryRun_NoCommands(t *testing.T) {
 
 func TestApp_Run_OnlyUpgrades(t *testing.T) {
 	runner := &MockRunner{}
+	spy := &spyFS{}
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
 			return &rootio.OsAnalyzeResponse{
@@ -178,18 +179,15 @@ func TestApp_Run_OnlyUpgrades(t *testing.T) {
 			}, nil
 		},
 	}
-	app := newTestApp(alpineScanner(), apiClient, runner, false)
+	executor := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
+	executor.fs = spy
+	app := NewAppWithServices("test-api-key", "https://pkg.root.io", false, false, logger(), alpineScanner(), apiClient, executor)
 	require.NoError(t, app.Run(context.Background()))
 
 	assert.True(t, runner.calledWith("apk", "apk", "update"), "apk update must run")
 	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "openssl"), "must install upgrade")
-	// Root.io repo must NOT be set up for upgrades-only
-	for _, c := range runner.Calls {
-		if c.Name == "sh" {
-			for _, a := range c.Args {
-				assert.NotContains(t, a, apkRepoMark, "Root.io repo must not be added for upgrades-only")
-			}
-		}
+	for _, p := range spy.OpenedPaths {
+		assert.NotEqual(t, apkRepoFile, p, "Root.io repo must not be written for upgrades-only")
 	}
 }
 
