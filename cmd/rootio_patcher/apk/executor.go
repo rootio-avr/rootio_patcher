@@ -13,7 +13,7 @@ import (
 const (
 	apkKeyPath  = "/etc/apk/keys/rootio.rsa.pub"
 	apkRepoFile = "/etc/apk/repositories"
-	apkRepoMark = "# rootio-repo"
+	apkRepoMark = "pkg.root.io"
 )
 
 // packageBlacklist contains packages that must never be upgraded via apk.
@@ -148,7 +148,7 @@ func (e *Executor) addRepo(ctx context.Context, registryURL string) error {
 		host := strings.TrimPrefix(registryURL, "https://")
 		authedURL = fmt.Sprintf("https://root:%s@%s", e.apiKey, host)
 	}
-	script := fmt.Sprintf(`echo '%s %s' >> %s`, authedURL, apkRepoMark, apkRepoFile)
+	script := fmt.Sprintf(`echo '%s' >> %s`, authedURL, apkRepoFile)
 	return e.runner.Run(ctx, "sh", "-c", script)
 }
 
