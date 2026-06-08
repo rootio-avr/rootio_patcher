@@ -1,0 +1,57 @@
+FROM alpine:3.18
+
+ARG ROOTIO_API_KEY
+ARG ROOTIO_API_URL=https://api.root.io
+ARG ROOTIO_PKG_URL=https://pkg.root.io
+
+# Install packages that the API will remediate:
+#   alias patches: curl, wget
+#   upgrade only:  openssl
+RUN apk add --no-cache \
+    ca-certificates \
+    curl \
+    wget \
+    openssl
+
+# Record baseline versions before patching
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  BEFORE patching                            │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    apk info -v curl wget openssl 2>/dev/null || true
+
+# Copy the pre-built patcher binary
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run the patcher
+RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
+    ROOTIO_API_URL=${ROOTIO_API_URL} \
+    ROOTIO_PKG_URL=${ROOTIO_PKG_URL} \
+    rootio_patcher apk remediate --dry-run=false --verbose
+
+# Verify outcomes and print explicit PASS/FAIL for each check
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  AFTER patching                             │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    \
+    OPENSSL_VERSION="$(apk info -v openssl 2>/dev/null | head -1)" && \
+    ROOTIO_CURL="$(apk info -v rootio-curl 2>/dev/null | head -1)" && \
+    ROOTIO_WGET="$(apk info -v rootio-wget 2>/dev/null | head -1)" && \
+    \
+    FAIL=0 && \
+    \
+    if [ -n "$ROOTIO_CURL" ]; then echo "  PASS  rootio-curl installed: $ROOTIO_CURL"; else echo "  FAIL  rootio-curl not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_WGET" ]; then echo "  PASS  rootio-wget installed: $ROOTIO_WGET"; else echo "  FAIL  rootio-wget not installed"; FAIL=1; fi && \
+    if [ -n "$OPENSSL_VERSION" ]; then echo "  PASS  openssl present: $OPENSSL_VERSION"; else echo "  FAIL  openssl missing"; FAIL=1; fi && \
+    \
+    curl --version > /dev/null 2>&1 && echo "  PASS  curl binary works" || { echo "  FAIL  curl binary broken"; FAIL=1; } && \
+    wget --version > /dev/null 2>&1 && echo "  PASS  wget binary works" || { echo "  FAIL  wget binary broken"; FAIL=1; } && \
+    \
+    echo "" && \
+    echo "=== APK PACKAGE STATE ===" && \
+    (apk info -v | grep -E "curl|wget|openssl" || true) && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }
