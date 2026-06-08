@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
+	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -106,7 +106,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 5. Dry-run: print what would be done
 	if a.dryRun {
-		a.reportDryRun(response)
+		common.ReportOsDryRun(response, "rootio_patcher apt remediate --dry-run=false")
 		return nil
 	}
 
@@ -153,35 +153,4 @@ func (a *App) Run(ctx context.Context) error {
 
 	fmt.Println("\n✓ apt remediation complete")
 	return nil
-}
-
-func (a *App) reportDryRun(response *rootio.OsAnalyzeResponse) {
-	fmt.Println("\n=== DRY-RUN MODE ===")
-
-	if len(response.Upgradeable) > 0 {
-		fmt.Printf("\n%d package(s) upgradeable via official repo:\n", len(response.Upgradeable))
-		for _, u := range response.Upgradeable {
-			cves := ""
-			if len(u.CVEIDs) > 0 {
-				cves = " (fixes: " + strings.Join(u.CVEIDs, ", ") + ")"
-			}
-			fmt.Printf("  • %s %s → %s%s\n", u.PackageName, u.CurrentVersion, u.UpgradeVersion, cves)
-		}
-	}
-
-	if len(response.Patches) > 0 {
-		fmt.Printf("\n%d package(s) patchable via Root.io alias:\n", len(response.Patches))
-		for _, p := range response.Patches {
-			cves := ""
-			if len(p.CVEIDs) > 0 {
-				cves = " (fixes: " + strings.Join(p.CVEIDs, ", ") + ")"
-			}
-			fmt.Printf("  • %s %s → %s %s%s\n",
-				p.PackageName, p.Version,
-				p.PatchAlias.Name, p.PatchAlias.Version,
-				cves)
-		}
-	}
-
-	fmt.Println("\nTo apply: rootio_patcher apt remediate --dry-run=false")
 }
