@@ -9,7 +9,8 @@ import (
 
 // ReportOsDryRun prints the dry-run summary for OS-level remediations (apt, apk, …).
 // cmd is the full apply command shown to the user, e.g. "rootio_patcher apt remediate --dry-run=false".
-func ReportOsDryRun(response *rootio.OsAnalyzeResponse, cmd string) {
+// useAlias controls whether the aliased (rootio-*) or original package name is shown.
+func ReportOsDryRun(response *rootio.OsAnalyzeResponse, cmd string, useAlias bool) {
 	fmt.Println("\n=== DRY-RUN MODE ===")
 
 	if len(response.Upgradeable) > 0 {
@@ -24,15 +25,23 @@ func ReportOsDryRun(response *rootio.OsAnalyzeResponse, cmd string) {
 	}
 
 	if len(response.Patches) > 0 {
-		fmt.Printf("\n%d package(s) patchable via Root.io alias:\n", len(response.Patches))
+		label := "Root.io alias"
+		if !useAlias {
+			label = "Root.io non-aliased"
+		}
+		fmt.Printf("\n%d package(s) patchable via %s:\n", len(response.Patches), label)
 		for _, p := range response.Patches {
 			cves := ""
 			if len(p.CVEIDs) > 0 {
 				cves = " (fixes: " + strings.Join(p.CVEIDs, ", ") + ")"
 			}
+			patchInfo := p.PatchAlias
+			if !useAlias {
+				patchInfo = p.Patch
+			}
 			fmt.Printf("  • %s %s → %s %s%s\n",
 				p.PackageName, p.Version,
-				p.PatchAlias.Name, p.PatchAlias.Version,
+				patchInfo.Name, patchInfo.Version,
 				cves)
 		}
 	}

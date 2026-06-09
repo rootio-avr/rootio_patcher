@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,11 +31,15 @@ func alpineScanner() *MockScanner {
 }
 
 func newTestApp(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun bool) *App {
+	return newTestAppWithAlias(scanner, apiClient, runner, dryRun, true)
+}
+
+func newTestAppWithAlias(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, useAlias bool) *App {
 	executor := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
 	executor.fs = mockFS{}
 	return NewAppWithServices(
 		"test-api-key", "https://pkg.root.io",
-		dryRun, false,
+		dryRun, useAlias, false,
 		logger(),
 		scanner, apiClient, executor,
 	)
@@ -181,7 +186,7 @@ func TestApp_Run_OnlyUpgrades(t *testing.T) {
 	}
 	executor := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
 	executor.fs = spy
-	app := NewAppWithServices("test-api-key", "https://pkg.root.io", false, false, logger(), alpineScanner(), apiClient, executor)
+	app := NewAppWithServices("test-api-key", "https://pkg.root.io", false, true, false, logger(), alpineScanner(), apiClient, executor)
 	require.NoError(t, app.Run(context.Background()))
 
 	assert.True(t, runner.calledWith("apk", "apk", "update"), "apk update must run")
@@ -242,4 +247,64 @@ func TestApp_Run_BlacklistedPackageSkipped(t *testing.T) {
 		}
 	}
 	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "openssl"), "non-blacklisted upgrade must still run")
+}
+
+// --- Non-aliased: installs original names ---
+
+func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
+	runner := &MockRunner{}
+	apiClient := &MockAPIClient{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "curl",
+						Version:     "8.5.0-r0",
+						Patch:       rootio.PatchInfo{Name: "curl", Version: "8.5.0-r007"},
+						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "8.5.0-r007"},
+					},
+					{
+						PackageName: "openssl",
+						Version:     "3.1.4-r5",
+						Patch:       rootio.PatchInfo{Name: "openssl", Version: "3.1.4-r5007"},
+						PatchAlias:  rootio.PatchInfo{Name: "rootio-openssl", Version: "3.1.4-r5007"},
+					},
+				},
+			}, nil
+		},
+	}
+	app := newTestAppWithAlias(alpineScanner(), apiClient, runner, false, false /* useAlias=false */)
+	require.NoError(t, app.Run(context.Background()))
+
+	// Must install under original names
+	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "curl", "openssl"),
+		"non-aliased must install original package names")
+
+	// Must NOT install any rootio-* aliased name
+	for _, c := range runner.Calls {
+		for _, a := range c.Args {
+			assert.False(t, strings.HasPrefix(a, "rootio-"), "non-aliased mode must not use rootio-* package names, got %q", a)
+		}
+	}
+}
+
+func TestApp_Run_NonAliased_DryRun_NoCommands(t *testing.T) {
+	runner := &MockRunner{}
+	apiClient := &MockAPIClient{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "curl",
+						Version:     "8.5.0-r0",
+						Patch:       rootio.PatchInfo{Name: "curl", Version: "8.5.0-r007"},
+						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "8.5.0-r007"},
+					},
+				},
+			}, nil
+		},
+	}
+	app := newTestAppWithAlias(alpineScanner(), apiClient, runner, true /* dry-run */, false /* useAlias=false */)
+	require.NoError(t, app.Run(context.Background()))
+	assert.Empty(t, runner.Calls, "dry-run must not execute any commands")
 }
