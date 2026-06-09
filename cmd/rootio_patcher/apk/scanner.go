@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"rootio_patcher/cmd/rootio_patcher/common"
 )
 
 // OSInfo holds the detected Alpine OS version
@@ -15,11 +17,8 @@ type OSInfo struct {
 	DistroVersion string
 }
 
-// InstalledPackage is an apk-installed package name+version
-type InstalledPackage struct {
-	Name    string
-	Version string
-}
+// InstalledPackage is an alias for common.InstalledPackage
+type InstalledPackage = common.InstalledPackage
 
 // SystemProbe executes OS-level queries and returns their raw output for parsing.
 type SystemProbe interface {

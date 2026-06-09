@@ -3,10 +3,9 @@ package apt
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 
+	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -24,21 +23,10 @@ var lowLevelPackages = map[string]bool{
 	"rootio-libc6":      true,
 }
 
-// CommandRunner executes shell commands, streaming stdout/stderr to the terminal
-type CommandRunner interface {
-	Run(ctx context.Context, name string, args ...string) error
-}
+// CommandRunner is an alias for common.CommandRunner
+type CommandRunner = common.CommandRunner
 
-type realRunner struct{}
-
-func NewRealRunner() CommandRunner { return &realRunner{} }
-
-func (r *realRunner) Run(ctx context.Context, name string, args ...string) error {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
+func NewRealRunner() CommandRunner { return common.NewRealRunner() }
 
 // Executor performs the actual apt remediation steps on the running system
 type Executor struct {

@@ -9,10 +9,8 @@ import (
 	"rootio_patcher/pkg/rootio"
 )
 
-// APIClient is the interface for calling the Root.io OS package analysis endpoint
-type APIClient interface {
-	AnalyzeOsPackages(ctx context.Context, endpoint, ecosystem, distroVersion string, packages []rootio.Package) (*rootio.OsAnalyzeResponse, error)
-}
+// APIClient is an alias for common.OsAPIClient
+type APIClient = common.OsAPIClient
 
 // App orchestrates the apt remediate workflow
 type App struct {
