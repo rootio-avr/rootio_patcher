@@ -226,17 +226,18 @@ type GoCmd struct {
 
 // GoRemediateCmd remediates Go modules by adding replace directives to go.mod
 type GoRemediateCmd struct {
-	GoMod  string   `default:"go.mod" help:"Path to go.mod"`
-	DryRun bool     `default:"true" help:"Preview changes without applying them"`
-	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	GoMod    string   `default:"go.mod" help:"Path to go.mod"`
+	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias bool     `default:"true" help:"Use Root.io aliased modules (pkg.root.io/*); set false to use original module paths"`
+	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // Run executes the go remediate command
 func (cmd *GoRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
-	logger.InfoContext(ctx, "Starting Go module remediation", slog.String("go_mod", cmd.GoMod))
+	logger.InfoContext(ctx, "Starting Go module remediation", slog.String("go_mod", cmd.GoMod), slog.Bool("use_alias", cmd.UseAlias))
 
 	app := golang.NewApp(
-		cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.GoMod, cmd.DryRun, cmd.Ignore, logger,
+		cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.GoMod, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger,
 		golang.NewGoModParser(logger),
 		rootio.NewClient(cfg.APIURL, cfg.APIKey),
 		golang.NewRealCommandRunner(),
