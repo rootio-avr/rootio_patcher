@@ -14,6 +14,10 @@ import (
 	"rootio_patcher/pkg/rootio"
 )
 
+// aliasedModuleHost is the module path prefix used for all Root.io aliased packages,
+// regardless of which proxy environment (prod, dev, etc.) is configured.
+const aliasedModuleHost = "pkg.root.io"
+
 // CommandRunner runs external commands in a given directory with optional extra environment variables.
 type CommandRunner interface {
 	Run(ctx context.Context, dir string, env []string, name string, args ...string) error
@@ -93,13 +97,9 @@ func (a *App) buildGoEnv(noSumDB string) []string {
 	}
 }
 
-// goEnv returns env vars for aliased patching: GONOSUMDB covers the Root.io proxy host.
+// goEnv returns env vars for aliased patching: GONOSUMDB covers the fixed aliased module host.
 func (a *App) goEnv() []string {
-	u, err := url.Parse(a.pkgURL)
-	if err != nil {
-		return nil
-	}
-	return a.buildGoEnv(u.Hostname())
+	return a.buildGoEnv(aliasedModuleHost)
 }
 
 // goEnvNonAliased returns env vars for non-aliased patching: GONOSUMDB is scoped to only
