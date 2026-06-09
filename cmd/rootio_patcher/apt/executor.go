@@ -79,10 +79,23 @@ func (e *Executor) InstallUpgrades(ctx context.Context, upgradeable []rootio.Upg
 	return e.runner.Run(ctx, "apt-get", args...)
 }
 
-// InstallPatches installs Root.io aliased packages and removes the originals they replace
-func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patches []rootio.PackagePatch) error {
+// InstallPatches installs Root.io packages.
+// When useAlias is true the rootio-* aliased package is installed (aliased path).
+// When useAlias is false the original package name is installed from the Root.io registry
+// at pin-priority 1001, which APT already prefers over the upstream repo (non-aliased path).
+func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patches []rootio.PackagePatch, useAlias bool) error {
 	if len(patches) == 0 {
 		return nil
+	}
+
+	if !useAlias {
+		var names []string
+		for _, p := range patches {
+			names = append(names, p.Patch.Name)
+			e.logf("→ installing non-aliased %s", p.Patch.Name)
+		}
+		args := append([]string{"install", "-y", "--allow-downgrades"}, names...)
+		return e.runner.Run(ctx, "apt-get", args...)
 	}
 
 	// Block original packages from being pulled in from the Root.io registry

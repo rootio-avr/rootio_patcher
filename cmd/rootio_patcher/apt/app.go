@@ -17,22 +17,22 @@ type App struct {
 	inner *common.OsApp[OSInfo]
 }
 
-func NewApp(apiKey, apiURL, pkgURL string, dryRun, verbose bool, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, pkgURL string, dryRun, useAlias, verbose bool, logger *slog.Logger) *App {
 	client := rootio.NewClient(apiURL, apiKey)
 	executor := NewExecutor(apiKey, pkgURL, verbose, NewRealRunner())
-	return NewAppWithServices(apiKey, pkgURL, dryRun, verbose, logger, NewScanner(), client, executor)
+	return NewAppWithServices(apiKey, pkgURL, dryRun, useAlias, verbose, logger, NewScanner(), client, executor)
 }
 
 func NewAppWithServices(
 	apiKey, pkgURL string,
-	dryRun, verbose bool,
+	dryRun, useAlias, verbose bool,
 	logger *slog.Logger,
 	scanner Scanner,
 	apiClient APIClient,
 	executor *Executor,
 ) *App {
 	return &App{inner: common.NewOsApp(
-		pkgURL, dryRun, logger,
+		pkgURL, dryRun, useAlias, logger,
 		scanner, apiClient, executor,
 		aptConfig(),
 	)}

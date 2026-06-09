@@ -1,0 +1,72 @@
+FROM alpine:3.19
+
+ARG ROOTIO_API_KEY
+ARG ROOTIO_API_URL=https://api.root.io
+ARG ROOTIO_PKG_URL=https://pkg.root.io
+
+# Same packages as the aliased test — the API returns the same patches,
+# the patcher installs them under their original names (non-aliased path).
+RUN apk add --no-cache \
+    ca-certificates \
+    less \
+    botan \
+    indent \
+    darkhttpd \
+    jbig2dec \
+    libpcap
+
+# Record baseline versions before patching
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  BEFORE patching                            │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    apk info -v less botan indent darkhttpd jbig2dec libpcap 2>/dev/null || true
+
+# Copy the pre-built patcher binary
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run the patcher in non-aliased mode
+RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
+    ROOTIO_API_URL=${ROOTIO_API_URL} \
+    ROOTIO_PKG_URL=${ROOTIO_PKG_URL} \
+    rootio_patcher apk remediate --dry-run=false --use-alias=false --verbose
+
+# Verify outcomes and print explicit PASS/FAIL for each check
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  AFTER patching (non-aliased)               │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    \
+    LESS_VERSION="$(apk info -v less 2>/dev/null | head -1)" && \
+    BOTAN_VERSION="$(apk info -v botan 2>/dev/null | head -1)" && \
+    INDENT_VERSION="$(apk info -v indent 2>/dev/null | head -1)" && \
+    DARKHTTPD_VERSION="$(apk info -v darkhttpd 2>/dev/null | head -1)" && \
+    JBIG2DEC_VERSION="$(apk info -v jbig2dec 2>/dev/null | head -1)" && \
+    LIBPCAP_VERSION="$(apk info -v libpcap 2>/dev/null | head -1)" && \
+    \
+    FAIL=0 && \
+    \
+    echo "=== Version checks (original package names, Root.io registry) ===" && \
+    echo "  less:      $LESS_VERSION" && \
+    echo "  botan:     $BOTAN_VERSION" && \
+    echo "  indent:    $INDENT_VERSION" && \
+    echo "  darkhttpd: $DARKHTTPD_VERSION" && \
+    echo "  jbig2dec:  $JBIG2DEC_VERSION" && \
+    echo "  libpcap:   $LIBPCAP_VERSION" && \
+    \
+    echo "" && \
+    echo "=== Aliased packages must NOT be installed ===" && \
+    if ! apk info rootio-less      2>/dev/null | grep -q .; then echo "  PASS  rootio-less not installed";      else echo "  FAIL  rootio-less is installed (should not be in non-aliased mode)";      FAIL=1; fi && \
+    if ! apk info rootio-botan     2>/dev/null | grep -q .; then echo "  PASS  rootio-botan not installed";     else echo "  FAIL  rootio-botan is installed (should not be in non-aliased mode)";     FAIL=1; fi && \
+    if ! apk info rootio-indent    2>/dev/null | grep -q .; then echo "  PASS  rootio-indent not installed";    else echo "  FAIL  rootio-indent is installed (should not be in non-aliased mode)";    FAIL=1; fi && \
+    if ! apk info rootio-darkhttpd 2>/dev/null | grep -q .; then echo "  PASS  rootio-darkhttpd not installed"; else echo "  FAIL  rootio-darkhttpd is installed (should not be in non-aliased mode)"; FAIL=1; fi && \
+    if ! apk info rootio-jbig2dec  2>/dev/null | grep -q .; then echo "  PASS  rootio-jbig2dec not installed";  else echo "  FAIL  rootio-jbig2dec is installed (should not be in non-aliased mode)";  FAIL=1; fi && \
+    if ! apk info rootio-libpcap   2>/dev/null | grep -q .; then echo "  PASS  rootio-libpcap not installed";   else echo "  FAIL  rootio-libpcap is installed (should not be in non-aliased mode)";   FAIL=1; fi && \
+    \
+    echo "" && \
+    echo "=== APK PACKAGE STATE ===" && \
+    (apk info -v | grep -E "less|botan|indent|darkhttpd|jbig2dec|libpcap" || true) && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }

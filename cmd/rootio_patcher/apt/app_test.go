@@ -31,10 +31,14 @@ func debianScanner() *MockScanner {
 }
 
 func newTestApp(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun bool) *App {
+	return newTestAppWithAlias(scanner, apiClient, runner, dryRun, true)
+}
+
+func newTestAppWithAlias(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, useAlias bool) *App {
 	executor := NewExecutor("test-api-key", "https://pkg.root.io", false, runner)
 	return NewAppWithServices(
 		"test-api-key", "https://pkg.root.io",
-		dryRun, false,
+		dryRun, useAlias, false,
 		logger(),
 		scanner, apiClient, executor,
 	)
@@ -264,4 +268,92 @@ func TestApp_Run_LowLevelPackage_UsesDpkg(t *testing.T) {
 			assert.NotContains(t, c.Args, "rootio-util-linux", "low-level package must not go through apt-get install")
 		}
 	}
+}
+
+// --- Non-aliased: installs original names, no alias dance ---
+
+func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
+	runner := &MockRunner{}
+	apiClient := &MockAPIClient{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "curl",
+						Version:     "7.88.1-10+deb12u5",
+						Patch:       rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u5+root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
+					},
+					{
+						PackageName: "openssl",
+						Version:     "3.0.11-1",
+						Patch:       rootio.PatchInfo{Name: "openssl", Version: "3.0.11-1+root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "rootio-openssl", Version: "3.0.11-1.root.io.1"},
+					},
+				},
+			}, nil
+		},
+	}
+	app := newTestAppWithAlias(debianScanner(), apiClient, runner, false, false /* useAlias=false */)
+	require.NoError(t, app.Run(context.Background()))
+
+	// Must install under original names
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "--allow-downgrades", "curl", "openssl"),
+		"non-aliased must install original package names")
+
+	// Must NOT install any rootio-* aliased name
+	for _, c := range runner.Calls {
+		for _, a := range c.Args {
+			assert.False(t, strings.HasPrefix(a, "rootio-"), "non-aliased mode must not use rootio-* package names, got %q", a)
+		}
+	}
+}
+
+func TestApp_Run_NonAliased_NoRemoveOriginals(t *testing.T) {
+	runner := &MockRunner{}
+	apiClient := &MockAPIClient{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "curl",
+						Version:     "7.88.1-10+deb12u5",
+						Patch:       rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u5+root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
+					},
+				},
+			}, nil
+		},
+	}
+	app := newTestAppWithAlias(debianScanner(), apiClient, runner, false, false /* useAlias=false */)
+	require.NoError(t, app.Run(context.Background()))
+
+	// Non-aliased path must not remove originals (they are the installed packages)
+	for _, c := range runner.Calls {
+		if c.Name == "env" {
+			joined := strings.Join(c.Args, " ")
+			assert.NotContains(t, joined, "remove", "non-aliased path must not remove original packages")
+		}
+	}
+}
+
+func TestApp_Run_NonAliased_DryRun_ShowsOriginalNames(t *testing.T) {
+	runner := &MockRunner{}
+	apiClient := &MockAPIClient{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "curl",
+						Version:     "7.88.1-10+deb12u5",
+						Patch:       rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u5+root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
+					},
+				},
+			}, nil
+		},
+	}
+	app := newTestAppWithAlias(debianScanner(), apiClient, runner, true /* dry-run */, false /* useAlias=false */)
+	require.NoError(t, app.Run(context.Background()))
+	assert.Empty(t, runner.Calls, "dry-run must not execute any commands")
 }

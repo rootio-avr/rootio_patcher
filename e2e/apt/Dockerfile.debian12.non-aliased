@@ -1,0 +1,84 @@
+FROM debian:bookworm-slim
+
+ARG ROOTIO_API_KEY
+ARG ROOTIO_API_URL=https://api.root.io
+ARG ROOTIO_PKG_URL=https://pkg.root.io
+
+# Same packages as the aliased test — the API returns the same patches,
+# the patcher installs them under their original names (non-aliased path).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    openssl \
+    wget \
+    tar \
+    xz-utils \
+    coreutils \
+    libtasn1-6 \
+    util-linux \
+ && rm -rf /var/lib/apt/lists/*
+
+# Record baseline versions before patching
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  BEFORE patching                            │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
+      curl openssl wget tar xz-utils coreutils libtasn1-6 util-linux
+
+# Copy the pre-built patcher binary
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run the patcher in non-aliased mode
+RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
+    ROOTIO_API_URL=${ROOTIO_API_URL} \
+    ROOTIO_PKG_URL=${ROOTIO_PKG_URL} \
+    rootio_patcher apt remediate --dry-run=false --use-alias=false --verbose
+
+# Verify outcomes and print explicit PASS/FAIL for each check
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  AFTER patching (non-aliased)               │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    \
+    TAR_VERSION="$(dpkg-query --show --showformat='${Version}' tar 2>/dev/null)" && \
+    WGET_VERSION="$(dpkg-query --show --showformat='${Version}' wget 2>/dev/null)" && \
+    XZ_VERSION="$(dpkg-query --show --showformat='${Version}' xz-utils 2>/dev/null)" && \
+    COREUTILS_VERSION="$(dpkg-query --show --showformat='${Version}' coreutils 2>/dev/null)" && \
+    LIBTASN1_VERSION="$(dpkg-query --show --showformat='${Version}' libtasn1-6 2>/dev/null)" && \
+    UTIL_LINUX_VERSION="$(dpkg-query --show --showformat='${Version}' util-linux 2>/dev/null)" && \
+    OPENSSL_VERSION="$(dpkg-query --show --showformat='${Version}' openssl 2>/dev/null)" && \
+    \
+    FAIL=0 && \
+    \
+    echo "=== Version checks (original package names, Root.io registry) ===" && \
+    if echo "$TAR_VERSION"       | grep -q "root.io"; then echo "  PASS  tar has Root.io version: $TAR_VERSION";           else echo "  FAIL  tar version does not contain 'root.io': $TAR_VERSION";           FAIL=1; fi && \
+    if echo "$WGET_VERSION"      | grep -q "root.io"; then echo "  PASS  wget has Root.io version: $WGET_VERSION";         else echo "  FAIL  wget version does not contain 'root.io': $WGET_VERSION";         FAIL=1; fi && \
+    if echo "$XZ_VERSION"        | grep -q "root.io"; then echo "  PASS  xz-utils has Root.io version: $XZ_VERSION";       else echo "  FAIL  xz-utils version does not contain 'root.io': $XZ_VERSION";       FAIL=1; fi && \
+    if echo "$COREUTILS_VERSION" | grep -q "root.io"; then echo "  PASS  coreutils has Root.io version: $COREUTILS_VERSION"; else echo "  FAIL  coreutils version does not contain 'root.io': $COREUTILS_VERSION"; FAIL=1; fi && \
+    if echo "$LIBTASN1_VERSION"  | grep -q "root.io"; then echo "  PASS  libtasn1-6 has Root.io version: $LIBTASN1_VERSION"; else echo "  FAIL  libtasn1-6 version does not contain 'root.io': $LIBTASN1_VERSION"; FAIL=1; fi && \
+    if echo "$UTIL_LINUX_VERSION"| grep -q "root.io"; then echo "  PASS  util-linux has Root.io version: $UTIL_LINUX_VERSION"; else echo "  FAIL  util-linux version does not contain 'root.io': $UTIL_LINUX_VERSION"; FAIL=1; fi && \
+    \
+    echo "" && \
+    echo "=== Aliased packages must NOT be installed ===" && \
+    if ! dpkg-query --show rootio-tar       2>/dev/null | grep -q .; then echo "  PASS  rootio-tar not installed";       else echo "  FAIL  rootio-tar is installed (should not be in non-aliased mode)";       FAIL=1; fi && \
+    if ! dpkg-query --show rootio-wget      2>/dev/null | grep -q .; then echo "  PASS  rootio-wget not installed";      else echo "  FAIL  rootio-wget is installed (should not be in non-aliased mode)";      FAIL=1; fi && \
+    if ! dpkg-query --show rootio-xz-utils  2>/dev/null | grep -q .; then echo "  PASS  rootio-xz-utils not installed";  else echo "  FAIL  rootio-xz-utils is installed (should not be in non-aliased mode)";  FAIL=1; fi && \
+    if ! dpkg-query --show rootio-coreutils 2>/dev/null | grep -q .; then echo "  PASS  rootio-coreutils not installed"; else echo "  FAIL  rootio-coreutils is installed (should not be in non-aliased mode)"; FAIL=1; fi && \
+    if ! dpkg-query --show rootio-libtasn1-6 2>/dev/null | grep -q .; then echo "  PASS  rootio-libtasn1-6 not installed"; else echo "  FAIL  rootio-libtasn1-6 is installed (should not be in non-aliased mode)"; FAIL=1; fi && \
+    if ! dpkg-query --show rootio-util-linux 2>/dev/null | grep -q .; then echo "  PASS  rootio-util-linux not installed"; else echo "  FAIL  rootio-util-linux is installed (should not be in non-aliased mode)"; FAIL=1; fi && \
+    \
+    echo "" && \
+    echo "=== Binary smoke tests ===" && \
+    if [ -n "$OPENSSL_VERSION" ]; then echo "  PASS  openssl present: $OPENSSL_VERSION"; else echo "  FAIL  openssl missing"; FAIL=1; fi && \
+    tar --version > /dev/null 2>&1 && echo "  PASS  tar binary works" || { echo "  FAIL  tar binary broken"; FAIL=1; } && \
+    curl --version > /dev/null 2>&1 && echo "  PASS  curl binary works" || { echo "  FAIL  curl binary broken"; FAIL=1; } && \
+    wget --version > /dev/null 2>&1 && echo "  PASS  wget binary works" || { echo "  FAIL  wget binary broken"; FAIL=1; } && \
+    \
+    echo "" && \
+    echo "=== DPKG PACKAGE STATE ===" && \
+    (dpkg -l | grep -E "curl|wget|tar|xz-utils|openssl|coreutils|libtasn1|util-linux" || true) && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }
