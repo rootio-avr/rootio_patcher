@@ -75,7 +75,7 @@ func (e *Executor) InstallUpgrades(ctx context.Context, upgradeable []rootio.Upg
 		names[i] = u.PackageName
 	}
 	e.logf("→ installing %d upgrade(s): %s", len(names), strings.Join(names, " "))
-	args := append([]string{"install", "-y"}, names...)
+	args := append([]string{"install", "-y", "--allow-downgrades"}, names...)
 	return e.runner.Run(ctx, "apt-get", args...)
 }
 

@@ -172,7 +172,7 @@ func TestApp_Run_OnlyUpgrades(t *testing.T) {
 	require.NoError(t, app.Run(context.Background()))
 
 	assert.True(t, runner.calledWith("apt-get", "apt-get", "update"), "apt-get update must run")
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "openssl"), "must install upgrade")
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "--allow-downgrades", "openssl"), "must install upgrade")
 	// GPG key setup must NOT happen for upgrades-only
 	for _, c := range runner.Calls {
 		joined := c.Name + " " + strings.Join(c.Args, " ")
