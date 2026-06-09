@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 usage() {
-  echo "Usage: ROOTIO_API_KEY=<key> $0 [debian12|ubuntu2204|all]"
+  echo "Usage: ROOTIO_API_KEY=<key> $0 [debian12|ubuntu2204|debian12-non-aliased|all]"
   echo ""
   echo "  Builds the patcher binary, then runs the apt e2e test(s) inside Docker."
   echo "  ROOTIO_API_KEY must be set (real API key, calls are made against the live API)."
@@ -68,9 +68,13 @@ case "$TARGET" in
   ubuntu2204)
     run_test "ubuntu2204" "$SCRIPT_DIR/Dockerfile.ubuntu2204"
     ;;
+  debian12-non-aliased)
+    run_test "debian12-non-aliased" "$SCRIPT_DIR/Dockerfile.debian12.non-aliased"
+    ;;
   all)
     run_test "debian12"  "$SCRIPT_DIR/Dockerfile.debian12"
     run_test "ubuntu2204" "$SCRIPT_DIR/Dockerfile.ubuntu2204"
+    run_test "debian12-non-aliased" "$SCRIPT_DIR/Dockerfile.debian12.non-aliased"
     echo ""
     echo "✓ All apt e2e tests passed"
     ;;
