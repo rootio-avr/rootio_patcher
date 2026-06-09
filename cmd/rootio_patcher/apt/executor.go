@@ -3,6 +3,7 @@ package apt
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
@@ -41,8 +42,8 @@ func NewExecutor(apiKey, pkgURL string, verbose bool, runner CommandRunner) *Exe
 }
 
 // Setup installs the Root.io APT repository, GPG key, auth config, and pin preferences
-func (e *Executor) Setup(ctx context.Context, osInfo *OSInfo) error {
-	registryURL := fmt.Sprintf("%s/%s/%s", e.pkgURL, osInfo.Ecosystem, osInfo.Codename)
+func (e *Executor) Setup(ctx context.Context, registryURL string) error {
+	codename := path.Base(registryURL)
 
 	steps := []struct {
 		desc string
@@ -50,9 +51,9 @@ func (e *Executor) Setup(ctx context.Context, osInfo *OSInfo) error {
 	}{
 		{"install GPG key", func() error { return e.installGPGKey(ctx) }},
 		{"write auth config", func() error { return e.writeAuthConf(ctx) }},
-		{"add APT source", func() error { return e.addSource(ctx, registryURL, osInfo.Codename) }},
+		{"add APT source", func() error { return e.addSource(ctx, registryURL, codename) }},
 		{"set pin priorities", func() error { return e.setPinPriority(ctx, registryURL) }},
-		{"apt-get update", func() error { return e.AptUpdate(ctx) }},
+		{"apt-get update", func() error { return e.IndexUpdate(ctx) }},
 	}
 
 	for _, s := range steps {
@@ -200,8 +201,13 @@ func (e *Executor) blockOriginalFromRegistry(ctx context.Context, pkgName, regis
 	return e.runner.Run(ctx, "sh", "-c", script)
 }
 
-func (e *Executor) AptUpdate(ctx context.Context) error {
+func (e *Executor) IndexUpdate(ctx context.Context) error {
 	return e.runner.Run(ctx, "apt-get", "update")
+}
+
+// PostUpgradesOnly clears apt caches when only official upgrades were applied (no Root.io repo)
+func (e *Executor) PostUpgradesOnly(ctx context.Context) error {
+	return e.ClearAptCaches(ctx)
 }
 
 // installLowLevel uses dpkg to install a package that conflicts with apt's resolver

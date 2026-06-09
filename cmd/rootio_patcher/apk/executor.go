@@ -44,16 +44,14 @@ func NewExecutor(apiKey, pkgURL string, logger *slog.Logger, runner CommandRunne
 }
 
 // Setup installs the Root.io APK repository and public key
-func (e *Executor) Setup(ctx context.Context, osInfo *OSInfo) error {
-	registryURL := fmt.Sprintf("%s/alpine/%s", e.pkgURL, osInfo.DistroVersion)
-
+func (e *Executor) Setup(ctx context.Context, registryURL string) error {
 	steps := []struct {
 		desc string
 		fn   func() error
 	}{
 		{"install public key", func() error { return e.installPublicKey() }},
 		{"add APK repository", func() error { return e.addRepo(registryURL) }},
-		{"apk update", func() error { return e.ApkUpdate(ctx) }},
+		{"apk update", func() error { return e.IndexUpdate(ctx) }},
 	}
 
 	for _, s := range steps {
@@ -88,7 +86,8 @@ func (e *Executor) InstallUpgrades(ctx context.Context, upgradeable []rootio.Upg
 
 // InstallPatches installs Root.io aliased packages via `apk add --upgrade`.
 // APK handles replacement automatically via the `provides` mechanism.
-func (e *Executor) InstallPatches(ctx context.Context, patches []rootio.PackagePatch) error {
+// registryURL is accepted to satisfy the OsExecutor interface but is unused by APK.
+func (e *Executor) InstallPatches(ctx context.Context, _ string, patches []rootio.PackagePatch) error {
 	if len(patches) == 0 {
 		return nil
 	}
@@ -139,10 +138,13 @@ func (e *Executor) removeRepoLine(path, marker string) error {
 	return e.fs.WriteFile(path, []byte(content), 0o644)
 }
 
-// ApkUpdate runs `apk update`
-func (e *Executor) ApkUpdate(ctx context.Context) error {
+// IndexUpdate runs `apk update`
+func (e *Executor) IndexUpdate(ctx context.Context) error {
 	return e.runner.Run(ctx, "apk", "update")
 }
+
+// PostUpgradesOnly is a no-op for APK — no cache cleanup needed
+func (e *Executor) PostUpgradesOnly(_ context.Context) error { return nil }
 
 // installPublicKey writes the Root.io RSA public key to /etc/apk/keys/
 func (e *Executor) installPublicKey() error {
