@@ -1,18 +1,18 @@
 # Root.io Patcher
 
-> Automated security patching for Python, npm, Maven, Go, NuGet, Composer, and APT packages with Root.io
+> Automated security patching for Python, npm, Maven, Go, NuGet, Composer, APT, and APK packages with Root.io
 
 [![Release](https://img.shields.io/github/v/release/rootio-avr/rootio_patcher)](https://github.com/rootio-avr/rootio_patcher/releases)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/rootio-avr/rootio_patcher)](https://golang.org/dl/)
 [![License](https://img.shields.io/github/license/rootio-avr/rootio_patcher)](LICENSE)
 
-`rootio_patcher` is a command-line tool that automatically identifies and patches vulnerabilities in your dependencies using Root.io's security fixes. It supports Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), PHP (Composer), and Debian/Ubuntu OS packages (APT) ecosystems, providing comprehensive security remediation across your entire stack.
+`rootio_patcher` is a command-line tool that automatically identifies and patches vulnerabilities in your dependencies using Root.io's security fixes. It supports Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), PHP (Composer), Debian/Ubuntu OS packages (APT), and Alpine Linux OS packages (APK) ecosystems, providing comprehensive security remediation across your entire stack.
 
 ---
 
 ## Features
 
-- 🔍 **Multi-Ecosystem Support** - Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), PHP (Composer), and Debian/Ubuntu OS packages (APT)
+- 🔍 **Multi-Ecosystem Support** - Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), PHP (Composer), Debian/Ubuntu OS packages (APT), and Alpine Linux OS packages (APK)
 - 🔧 **One-Command Patching** - Applies security fixes with a single command
 - 🌍 **Cross-Platform** - Works on Linux, macOS, and Windows
 - 🔒 **Secure by Default** - Dry-run mode enabled by default to preview changes
@@ -48,6 +48,9 @@ rootio_patcher composer remediate
 # For APT (Debian/Ubuntu OS packages)
 rootio_patcher apt remediate
 
+# For APK (Alpine Linux OS packages)
+rootio_patcher apk remediate
+
 # 3. Apply patches for real
 rootio_patcher pip remediate --dry-run=false
 rootio_patcher npm remediate --dry-run=false
@@ -55,6 +58,7 @@ rootio_patcher maven remediate --dry-run=false
 rootio_patcher go remediate --dry-run=false
 rootio_patcher composer remediate --dry-run=false
 rootio_patcher apt remediate --dry-run=false
+rootio_patcher apk remediate --dry-run=false
 ```
 
 ---
@@ -208,13 +212,37 @@ rootio_patcher apt remediate [FLAGS]
 
 **Flags:**
 - `--dry-run` - Preview changes without applying (default: `true`)
+- `--use-alias` - Install Root.io aliased packages (`rootio-*`) or the original package names (default: `true`)
 - `--verbose` - Print each remediation step (default: `false`)
 
 **How it works:** Post-install patching — scans installed packages via `dpkg-query`, calls the Root.io API, then applies fixes in two ways:
 - **Upgrades**: packages patched via the official Debian/Ubuntu repository are upgraded with `apt-get install`
-- **Root.io aliases**: packages requiring Root.io patches are installed from the Root.io APT repository (e.g. `rootio-curl` replaces `curl`). The Root.io repo is added before patching and removed on cleanup.
+- **Root.io patches**: packages requiring Root.io patches are installed from the Root.io APT repository, in one of two modes controlled by `--use-alias`:
+  - `--use-alias=true` (default): installs the aliased package (e.g. `rootio-curl` replaces `curl`)
+  - `--use-alias=false`: installs under the original package name (e.g. `curl`) from the Root.io repository, which is pinned at priority 1001 so APT prefers it over the upstream version
 
 Requires `root`/`sudo` — intended to run inside containers or as part of a privileged build step.
+
+#### APK (Alpine Linux)
+
+```bash
+rootio_patcher apk remediate [FLAGS]
+```
+
+**Flags:**
+- `--dry-run` - Preview changes without applying (default: `true`)
+- `--use-alias` - Install Root.io aliased packages (`rootio-*`) or the original package names (default: `true`)
+- `--verbose` - Print each remediation step (default: `false`)
+
+**How it works:** Post-install patching — scans installed packages via `apk info -v`, calls the Root.io API, then applies fixes in two ways:
+- **Upgrades**: packages patched via the official Alpine repository are upgraded with `apk add --upgrade`
+- **Root.io patches**: packages requiring Root.io patches are installed from the Root.io APK repository, in one of two modes controlled by `--use-alias`:
+  - `--use-alias=true` (default): installs the aliased package (e.g. `rootio-curl`); APK handles replacement of the original via the `provides` mechanism
+  - `--use-alias=false`: installs under the original package name (e.g. `curl`) directly from the Root.io repository
+
+Requires `root` — intended to run inside containers or as part of a privileged build step.
+
+> **Note:** The Root.io APK repository currently only publishes `amd64` packages.
 
 ### Configuration Details
 
@@ -235,13 +263,26 @@ Set to `false` to actually apply patches:
 rootio_patcher pip remediate --dry-run=false
 ```
 
-#### `--use-alias` Flag (pip only)
+#### `--use-alias` Flag (pip, apt, apk)
 
-Root.io provides two types of patches:
+Root.io publishes each security patch under **two** package names: the original name (e.g. `curl`, `openssl`) and an aliased name with a `rootio-` prefix (e.g. `rootio-curl`, `rootio-openssl`). The `--use-alias` flag controls which variant the patcher installs.
 
-- **Direct Patches** (`--use-alias=false`): Patches are applied using the original package name with a new patched version.
+- **Aliased packages** (`--use-alias=true`, the default): Installs the `rootio-*` package name. The original package is replaced by the aliased one, which carries the patched binaries.
 
-- **Aliased Packages** (`--use-alias=true`): Root.io maintains patched versions under a different package name (e.g., `rootio-django` instead of `django`). This is the default for pip.
+- **Non-aliased packages** (`--use-alias=false`): Installs the patch under the **original** package name. The Root.io registry is still used — it is configured at a higher priority than the upstream repo so the patched version wins — but the installed package name stays `curl`, `openssl`, etc.
+
+The non-aliased mode is useful when downstream tooling checks for the presence of the original package name, or when you want the package manifest to look unchanged after patching.
+
+```bash
+# APT: non-aliased (original names, Root.io registry)
+rootio_patcher apt remediate --dry-run=false --use-alias=false
+
+# APK: non-aliased
+rootio_patcher apk remediate --dry-run=false --use-alias=false
+
+# pip: non-aliased
+rootio_patcher pip remediate --dry-run=false --use-alias=false
+```
 
 #### `--python-path` Flag (pip only)
 
@@ -1123,6 +1164,35 @@ Build with:
 docker build --build-arg ROOTIO_API_KEY=$ROOTIO_API_KEY -t myapp .
 ```
 
+#### APK Dockerfile (Alpine Linux)
+
+```dockerfile
+FROM alpine:3.19
+
+# Install your application dependencies
+RUN apk add --no-cache ca-certificates curl wget
+
+# Download rootio_patcher
+RUN curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_linux_x86_64.tar.gz | tar xz && \
+    chmod +x rootio_patcher && \
+    mv rootio_patcher /usr/local/bin/
+
+# Patch OS-level vulnerabilities during build
+ARG ROOTIO_API_KEY
+RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} rootio_patcher apk remediate --dry-run=false
+
+# Your application
+COPY . .
+CMD ["./app"]
+```
+
+Build with:
+```bash
+docker build --build-arg ROOTIO_API_KEY=$ROOTIO_API_KEY -t myapp .
+```
+
+> **Note:** The Root.io APK repository currently only publishes `amd64` packages. Ensure your Docker build targets `linux/amd64` (e.g. `docker build --platform linux/amd64 ...`) when building on ARM hosts.
+
 ---
 
 ## Vulnerability Gate
@@ -1180,12 +1250,12 @@ A reusable composite action is included in this repository. It wraps the vulnera
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `api-key` | Yes | — | Root.io API key |
-| `ecosystem` | Yes | — | `pip`, `npm`, `maven`, `go`, `nuget`, or `composer` |
+| `ecosystem` | Yes | — | `pip`, `npm`, `maven`, `go`, `nuget`, `composer`, `apt`, or `apk` |
 | `working-directory` | No | `.` | Directory inside the repo where the tool should run (e.g. `services/api`) |
 | `package-manager` | No | `npm` | *(npm)* `npm`, `yarn`, or `pnpm` |
 | `directory` | No | `.` | *(npm)* Project directory containing the lock file |
 | `python-path` | No | `python` | *(pip)* Path to Python interpreter |
-| `use-alias` | No | `true` | *(pip)* Use Root.io aliased packages |
+| `use-alias` | No | `true` | *(pip, apt, apk)* Install Root.io aliased packages (`rootio-*`); set `false` to install under original names |
 | `file` | No | `pom.xml` | *(maven)* Path to pom.xml; *(composer)* Path to composer.json |
 
 Advanced settings (`ROOTIO_API_URL`, `ROOTIO_PKG_URL`, `ROOTIO_PIP_INDEX_URL`, `LOG_LEVEL`) are not inputs — pass them as environment variables on the calling step instead:
@@ -1478,8 +1548,19 @@ Then contact Root.io support with the package details that caused the issue.
 4. **Reporting**: Displays available upgrades and Root.io patches with CVE information
 5. **Patching**: Applies fixes in two steps:
    - Upgrades packages available via the official repository (`apt-get install`)
-   - Installs Root.io alias packages from the Root.io APT repository (e.g. `rootio-wget` replaces `wget`)
+   - Installs Root.io patches from the Root.io APT repository — either as aliased packages (e.g. `rootio-wget`) or under the original name (e.g. `wget`) depending on `--use-alias`
 6. **Cleanup**: Removes the Root.io APT repository and clears apt caches
+
+### APK (Alpine Linux) - Post-Install Patching
+
+1. **Detection**: Identifies Alpine Linux version
+2. **Discovery**: Scans installed packages via `apk info -v`
+3. **Analysis**: Sends package list to Root.io API to check for known vulnerabilities
+4. **Reporting**: Displays available upgrades and Root.io patches with CVE information
+5. **Patching**: Applies fixes in two steps:
+   - Upgrades packages available via the official Alpine repository (`apk add --upgrade`)
+   - Installs Root.io patches from the Root.io APK repository — either as aliased packages (e.g. `rootio-curl`; APK handles replacement via `provides`) or under the original name (e.g. `curl`) depending on `--use-alias`
+6. **Cleanup**: Removes the Root.io APK repository entry and public key
 
 ---
 
@@ -1495,7 +1576,7 @@ Then contact Root.io support with the package details that caused the issue.
 
 - By default, `DRY_RUN=true` prevents any changes. Review the dry-run output before applying patches.
 
-- The `apt remediate` command requires `root` privileges to install packages and modify APT configuration.
+- The `apt remediate` and `apk remediate` commands require `root` privileges to install packages and modify repository configuration.
 
 ---
 
