@@ -20,13 +20,8 @@ type OSInfo struct {
 // InstalledPackage is an alias for common.InstalledPackage
 type InstalledPackage = common.InstalledPackage
 
-// SystemProbe executes OS-level queries and returns their raw output for parsing.
-type SystemProbe interface {
-	// ReadOSRelease returns the Alpine version string from /etc/alpine-release
-	ReadOSRelease(ctx context.Context) (string, error)
-	// QueryInstalledPackages returns the raw output of `apk info -v`
-	QueryInstalledPackages(ctx context.Context) ([]byte, error)
-}
+// SystemProbe is an alias for common.SystemProbe
+type SystemProbe = common.SystemProbe
 
 type realProbe struct {
 	fs fileSystem
@@ -50,43 +45,24 @@ func (r *realProbe) QueryInstalledPackages(ctx context.Context) ([]byte, error) 
 }
 
 // Scanner reads OS info and installed packages from the running system
-type Scanner interface {
-	DetectOS(ctx context.Context) (*OSInfo, error)
-	ListPackages(ctx context.Context) ([]InstalledPackage, error)
-}
+type Scanner = common.Scanner[OSInfo]
 
-type osScanner struct {
-	probe SystemProbe
-}
+func NewScanner() Scanner { return NewScannerWithProbe(&realProbe{fs: realFS{}}) }
 
-func NewScanner() Scanner { return &osScanner{probe: &realProbe{fs: realFS{}}} }
-
-func NewScannerWithProbe(probe SystemProbe) Scanner { return &osScanner{probe: probe} }
-
-func (s *osScanner) DetectOS(ctx context.Context) (*OSInfo, error) {
-	line, err := s.probe.ReadOSRelease(ctx)
-	if err != nil {
-		return nil, err
+func NewScannerWithProbe(probe SystemProbe) Scanner {
+	return &common.OsScanner[OSInfo]{
+		Probe:         probe,
+		ParseRelease:  parseAlpineRelease,
+		ParsePackages: parseApkInfoOutput,
 	}
-	return parseAlpineRelease(line)
-}
-
-func (s *osScanner) ListPackages(ctx context.Context) ([]InstalledPackage, error) {
-	out, err := s.probe.QueryInstalledPackages(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return parseApkInfoOutput(out)
 }
 
 func parseAlpineRelease(line string) (*OSInfo, error) {
-	// /etc/alpine-release contains e.g. "3.18.4"
 	parts := strings.SplitN(line, ".", 3)
 	if len(parts) < 2 {
 		return nil, fmt.Errorf("unexpected /etc/alpine-release content: %q", line)
 	}
-	distroVersion := parts[0] + "." + parts[1]
-	return &OSInfo{DistroVersion: distroVersion}, nil
+	return &OSInfo{DistroVersion: parts[0] + "." + parts[1]}, nil
 }
 
 // parseApkInfoOutput parses `apk info -v` output.
