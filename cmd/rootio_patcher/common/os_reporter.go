@@ -35,10 +35,7 @@ func ReportOsDryRun(response *rootio.OsAnalyzeResponse, cmd string, useAlias boo
 			if len(p.CVEIDs) > 0 {
 				cves = " (fixes: " + strings.Join(p.CVEIDs, ", ") + ")"
 			}
-			patchInfo := p.PatchAlias
-			if !useAlias {
-				patchInfo = p.Patch
-			}
+			patchInfo := GetPatchInfo(p, useAlias)
 			fmt.Printf("  • %s %s → %s %s%s\n",
 				p.PackageName, p.Version,
 				patchInfo.Name, patchInfo.Version,

@@ -94,11 +94,7 @@ func (e *Executor) InstallPatches(ctx context.Context, _ string, patches []rooti
 	}
 	var names []string
 	for _, p := range patches {
-		if useAlias {
-			names = append(names, p.PatchAlias.Name)
-		} else {
-			names = append(names, p.Patch.Name)
-		}
+		names = append(names, common.GetPatchInfo(p, useAlias).Name)
 	}
 	if useAlias {
 		e.logf("installing patch aliases", "packages", strings.Join(names, " "))
