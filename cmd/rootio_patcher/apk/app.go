@@ -1,4 +1,4 @@
-package apt
+package apk
 
 import (
 	"context"
@@ -12,14 +12,14 @@ import (
 // APIClient is an alias for common.OsAPIClient
 type APIClient = common.OsAPIClient
 
-// App orchestrates the apt remediate workflow
+// App orchestrates the apk remediate workflow
 type App struct {
 	inner *common.OsApp[OSInfo]
 }
 
 func NewApp(apiKey, apiURL, pkgURL string, dryRun, verbose bool, logger *slog.Logger) *App {
 	client := rootio.NewClient(apiURL, apiKey)
-	executor := NewExecutor(apiKey, pkgURL, verbose, NewRealRunner())
+	executor := NewExecutor(apiKey, pkgURL, logger, NewRealRunner())
 	return NewAppWithServices(apiKey, pkgURL, dryRun, verbose, logger, NewScanner(), client, executor)
 }
 
@@ -34,32 +34,28 @@ func NewAppWithServices(
 	return &App{inner: common.NewOsApp(
 		pkgURL, dryRun, logger,
 		scanner, apiClient, executor,
-		aptConfig(),
+		apkConfig(),
 	)}
 }
 
 func (a *App) Run(ctx context.Context) error { return a.inner.Run(ctx) }
 
-func aptConfig() common.OsAppConfig[OSInfo] {
+func apkConfig() common.OsAppConfig[OSInfo] {
 	return common.OsAppConfig[OSInfo]{
-		Name:          "apt",
-		NoPackagesMsg: "No packages found via dpkg-query",
-		UpdateMsg:     "\nUpdating package lists...",
-		UpdateErrMsg:  "apt-get update failed",
-		SetupMsg:      "\nSetting up Root.io APT repository...",
-		CleanupMsg:    "\nCleaning up Root.io APT repository...",
+		Name:          "apk",
+		NoPackagesMsg: "No packages found via apk info -v",
+		UpdateMsg:     "\nUpdating package index...",
+		UpdateErrMsg:  "apk update failed",
+		SetupMsg:      "\nSetting up Root.io APK repository...",
+		CleanupMsg:    "\nCleaning up Root.io APK repository...",
 		GetAPIParams: func(o *OSInfo) (endpoint, ecosystem, distroVersion string) {
-			return "apt", o.Ecosystem, o.DistroVersion
+			return "apk", "alpine", o.DistroVersion
 		},
 		GetRegistryURL: func(pkgURL string, o *OSInfo) string {
-			return fmt.Sprintf("%s/%s/%s", pkgURL, o.Ecosystem, o.Codename)
+			return fmt.Sprintf("%s/alpine/%s", pkgURL, o.DistroVersion)
 		},
 		LogOsInfo: func(ctx context.Context, logger *slog.Logger, o *OSInfo) {
-			logger.DebugContext(ctx, "Detected OS",
-				slog.String("ecosystem", o.Ecosystem),
-				slog.String("distro_version", o.DistroVersion),
-				slog.String("codename", o.Codename),
-			)
+			logger.DebugContext(ctx, "Detected OS", slog.String("distro_version", o.DistroVersion))
 		},
 	}
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/alecthomas/kong"
 
+	"rootio_patcher/cmd/rootio_patcher/apk"
 	"rootio_patcher/cmd/rootio_patcher/apt"
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/cmd/rootio_patcher/composer"
@@ -35,7 +36,8 @@ type CLI struct {
 	Go       GoCmd       `cmd:"" help:"Go module remediation"`
 	Nuget    NuGetCmd    `cmd:"" help:"NuGet package remediation"`
 	Composer ComposerCmd `cmd:"" help:"Composer (PHP) package remediation"`
-	Apt   	 AptCmd   	 `cmd:"" help:"APT (Debian/Ubuntu) OS-level package remediation"`
+	Apt      AptCmd      `cmd:"" help:"APT (Debian/Ubuntu) OS-level package remediation"`
+	Apk      ApkCmd      `cmd:"" help:"APK (Alpine Linux) OS-level package remediation"`
 }
 
 // AptCmd handles APT-related commands
@@ -54,6 +56,25 @@ func (cmd *AptRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 	logger.InfoContext(ctx, "Starting apt remediation", slog.Bool("dry_run", cmd.DryRun))
 
 	app := apt.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.Verbose, logger)
+	return app.Run(ctx)
+}
+
+// ApkCmd handles APK-related commands
+type ApkCmd struct {
+	Remediate ApkRemediateCmd `cmd:"" help:"Remediate Alpine Linux OS packages (post-install patching)"`
+}
+
+// ApkRemediateCmd remediates installed APK packages
+type ApkRemediateCmd struct {
+	DryRun  bool `default:"true" help:"Preview changes without applying them"`
+	Verbose bool `default:"false" help:"Print each remediation step"`
+}
+
+// Run executes the apk remediate command
+func (cmd *ApkRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	logger.InfoContext(ctx, "Starting apk remediation", slog.Bool("dry_run", cmd.DryRun))
+
+	app := apk.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.Verbose, logger)
 	return app.Run(ctx)
 }
 
@@ -77,10 +98,10 @@ type NpmCmd struct {
 
 // NpmRemediateCmd remediates npm packages by patching lock file and package.json
 type NpmRemediateCmd struct {
-	PackageManager string `default:"npm" enum:"npm,yarn,pnpm" help:"Package manager to use (npm, yarn, or pnpm)"`
-	Directory      string `default:"." short:"C" help:"Project directory containing the lock file and package.json (defaults to current directory)"`
-	DryRun         bool   `default:"true" help:"Preview changes without applying them"`
-	UseAlias       bool   `default:"true" help:"Use Root.io aliased packages (@rootio/pkg) instead of original package names"`
+	PackageManager string   `default:"npm" enum:"npm,yarn,pnpm" help:"Package manager to use (npm, yarn, or pnpm)"`
+	Directory      string   `default:"." short:"C" help:"Project directory containing the lock file and package.json (defaults to current directory)"`
+	DryRun         bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias       bool     `default:"true" help:"Use Root.io aliased packages (@rootio/pkg) instead of original package names"`
 	Ignore         []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 

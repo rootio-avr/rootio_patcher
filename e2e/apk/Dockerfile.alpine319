@@ -1,0 +1,61 @@
+FROM alpine:3.19
+
+ARG ROOTIO_API_KEY
+ARG ROOTIO_API_URL=https://api.root.io
+ARG ROOTIO_PKG_URL=https://pkg.root.io
+
+# Install packages that the API will remediate via Root.io aliases
+RUN apk add --no-cache \
+    ca-certificates \
+    less \
+    botan \
+    indent \
+    darkhttpd \
+    jbig2dec \
+    libpcap
+
+# Record baseline versions before patching
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  BEFORE patching                            │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    apk info -v less botan indent darkhttpd jbig2dec libpcap 2>/dev/null || true
+
+# Copy the pre-built patcher binary
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run the patcher
+RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
+    ROOTIO_API_URL=${ROOTIO_API_URL} \
+    ROOTIO_PKG_URL=${ROOTIO_PKG_URL} \
+    rootio_patcher apk remediate --dry-run=false --verbose
+
+# Verify outcomes and print explicit PASS/FAIL for each check
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  AFTER patching                             │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    \
+    ROOTIO_LESS="$(apk info -v rootio-less 2>/dev/null | head -1)" && \
+    ROOTIO_BOTAN="$(apk info -v rootio-botan 2>/dev/null | head -1)" && \
+    ROOTIO_INDENT="$(apk info -v rootio-indent 2>/dev/null | head -1)" && \
+    ROOTIO_DARKHTTPD="$(apk info -v rootio-darkhttpd 2>/dev/null | head -1)" && \
+    ROOTIO_JBIG2DEC="$(apk info -v rootio-jbig2dec 2>/dev/null | head -1)" && \
+    ROOTIO_LIBPCAP="$(apk info -v rootio-libpcap 2>/dev/null | head -1)" && \
+    \
+    FAIL=0 && \
+    \
+    if [ -n "$ROOTIO_LESS" ];     then echo "  PASS  rootio-less installed: $ROOTIO_LESS";         else echo "  FAIL  rootio-less not installed";     FAIL=1; fi && \
+    if [ -n "$ROOTIO_BOTAN" ];      then echo "  PASS  rootio-botan installed: $ROOTIO_BOTAN";           else echo "  FAIL  rootio-botan not installed";      FAIL=1; fi && \
+    if [ -n "$ROOTIO_INDENT" ];   then echo "  PASS  rootio-indent installed: $ROOTIO_INDENT";     else echo "  FAIL  rootio-indent not installed";   FAIL=1; fi && \
+    if [ -n "$ROOTIO_DARKHTTPD" ];then echo "  PASS  rootio-darkhttpd installed: $ROOTIO_DARKHTTPD"; else echo "  FAIL  rootio-darkhttpd not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_JBIG2DEC" ]; then echo "  PASS  rootio-jbig2dec installed: $ROOTIO_JBIG2DEC"; else echo "  FAIL  rootio-jbig2dec not installed"; FAIL=1; fi && \
+    if [ -n "$ROOTIO_LIBPCAP" ];  then echo "  PASS  rootio-libpcap installed: $ROOTIO_LIBPCAP";   else echo "  FAIL  rootio-libpcap not installed";  FAIL=1; fi && \
+    \
+    echo "" && \
+    echo "=== APK PACKAGE STATE ===" && \
+    (apk info -v | grep -E "less|botan|indent|darkhttpd|jbig2dec|libpcap" || true) && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }

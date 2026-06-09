@@ -1,11 +1,10 @@
-package apt
+package apk
 
 import (
 	"context"
 	"errors"
 	"log/slog"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,22 +15,23 @@ import (
 
 func logger() *slog.Logger { return slog.New(slog.NewTextHandler(os.Stdout, nil)) }
 
-func debianScanner() *MockScanner {
+func alpineScanner() *MockScanner {
 	return &MockScanner{
 		DetectOSFunc: func(_ context.Context) (*OSInfo, error) {
-			return &OSInfo{Ecosystem: "debian", DistroVersion: "12", Codename: "bookworm"}, nil
+			return &OSInfo{DistroVersion: "3.18"}, nil
 		},
 		ListPackagesFunc: func(_ context.Context) ([]InstalledPackage, error) {
 			return []InstalledPackage{
-				{Name: "curl", Version: "7.88.1-10+deb12u5"},
-				{Name: "openssl", Version: "3.0.11-1"},
+				{Name: "curl", Version: "8.5.0"},
+				{Name: "openssl", Version: "3.1.4"},
 			}, nil
 		},
 	}
 }
 
 func newTestApp(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun bool) *App {
-	executor := NewExecutor("test-api-key", "https://pkg.root.io", false, runner)
+	executor := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
+	executor.fs = mockFS{}
 	return NewAppWithServices(
 		"test-api-key", "https://pkg.root.io",
 		dryRun, false,
@@ -45,7 +45,7 @@ func newTestApp(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunn
 func TestApp_Run_OSDetectionFailure(t *testing.T) {
 	scanner := &MockScanner{
 		DetectOSFunc: func(_ context.Context) (*OSInfo, error) {
-			return nil, errors.New("not a debian system")
+			return nil, errors.New("not an alpine system")
 		},
 	}
 	app := newTestApp(scanner, &MockAPIClient{}, &MockRunner{}, true)
@@ -59,7 +59,7 @@ func TestApp_Run_OSDetectionFailure(t *testing.T) {
 func TestApp_Run_NoPackages(t *testing.T) {
 	scanner := &MockScanner{
 		DetectOSFunc: func(_ context.Context) (*OSInfo, error) {
-			return &OSInfo{Ecosystem: "debian", DistroVersion: "12", Codename: "bookworm"}, nil
+			return &OSInfo{DistroVersion: "3.18"}, nil
 		},
 		ListPackagesFunc: func(_ context.Context) ([]InstalledPackage, error) {
 			return []InstalledPackage{}, nil
@@ -75,16 +75,32 @@ func TestApp_Run_NoPackages(t *testing.T) {
 	require.NoError(t, app.Run(context.Background()))
 }
 
+// --- Package scan failure ---
+
+func TestApp_Run_PackageScanFailure(t *testing.T) {
+	scanner := &MockScanner{
+		DetectOSFunc: func(_ context.Context) (*OSInfo, error) {
+			return &OSInfo{DistroVersion: "3.19"}, nil
+		},
+		ListPackagesFunc: func(_ context.Context) ([]InstalledPackage, error) {
+			return nil, errors.New("apk info -v failed")
+		},
+	}
+	app := newTestApp(scanner, &MockAPIClient{}, &MockRunner{}, true)
+	err := app.Run(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "package scan failed")
+}
+
 // --- API failure ---
 
 func TestApp_Run_APIError(t *testing.T) {
-	apiErr := errors.New("connection refused")
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
-			return nil, apiErr
+			return nil, errors.New("connection refused")
 		},
 	}
-	app := newTestApp(debianScanner(), apiClient, &MockRunner{}, true)
+	app := newTestApp(alpineScanner(), apiClient, &MockRunner{}, true)
 	err := app.Run(context.Background())
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "API call failed")
@@ -99,34 +115,28 @@ func TestApp_Run_NoPatches(t *testing.T) {
 			return &rootio.OsAnalyzeResponse{}, nil
 		},
 	}
-	app := newTestApp(debianScanner(), apiClient, runner, true)
+	app := newTestApp(alpineScanner(), apiClient, runner, true)
 	require.NoError(t, app.Run(context.Background()))
 	assert.Empty(t, runner.Calls, "no commands should run when there is nothing to patch")
 }
 
 // --- API receives correct ecosystem + distro ---
 
-func TestApp_Run_APICalledWithCorrectEcosystem(t *testing.T) {
-	var gotEcosystem, gotDistro string
+func TestApp_Run_APICalledWithCorrectParams(t *testing.T) {
+	var gotEndpoint, gotEcosystem, gotDistro string
 	apiClient := &MockAPIClient{
-		AnalyzeOsPackagesFunc: func(_ context.Context, _, ecosystem, distroVersion string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+		AnalyzeOsPackagesFunc: func(_ context.Context, endpoint, ecosystem, distroVersion string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			gotEndpoint = endpoint
 			gotEcosystem = ecosystem
 			gotDistro = distroVersion
 			return &rootio.OsAnalyzeResponse{}, nil
 		},
 	}
-	scanner := &MockScanner{
-		DetectOSFunc: func(_ context.Context) (*OSInfo, error) {
-			return &OSInfo{Ecosystem: "ubuntu", DistroVersion: "22.04", Codename: "jammy"}, nil
-		},
-		ListPackagesFunc: func(_ context.Context) ([]InstalledPackage, error) {
-			return []InstalledPackage{{Name: "curl", Version: "7.81.0-1ubuntu1.16"}}, nil
-		},
-	}
-	app := newTestApp(scanner, apiClient, &MockRunner{}, true)
+	app := newTestApp(alpineScanner(), apiClient, &MockRunner{}, true)
 	require.NoError(t, app.Run(context.Background()))
-	assert.Equal(t, "ubuntu", gotEcosystem)
-	assert.Equal(t, "22.04", gotDistro)
+	assert.Equal(t, "apk", gotEndpoint)
+	assert.Equal(t, "alpine", gotEcosystem)
+	assert.Equal(t, "3.18", gotDistro)
 }
 
 // --- Dry-run: no commands executed ---
@@ -139,18 +149,18 @@ func TestApp_Run_DryRun_NoCommands(t *testing.T) {
 				Patches: []rootio.PackagePatch{
 					{
 						PackageName: "curl",
-						Version:     "7.88.1-10+deb12u5",
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
+						Version:     "8.5.0-r0",
+						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "8.5.0-r0.rootio.1"},
 						CVEIDs:      []string{"CVE-2024-1234"},
 					},
 				},
 				Upgradeable: []rootio.UpgradeableOsPackage{
-					{PackageName: "openssl", CurrentVersion: "3.0.11-1", UpgradeVersion: "3.0.15-1"},
+					{PackageName: "openssl", CurrentVersion: "3.1.4-r5", UpgradeVersion: "3.1.5-r0"},
 				},
 			}, nil
 		},
 	}
-	app := newTestApp(debianScanner(), apiClient, runner, true /* dry-run */)
+	app := newTestApp(alpineScanner(), apiClient, runner, true)
 	require.NoError(t, app.Run(context.Background()))
 	assert.Empty(t, runner.Calls, "dry-run must not execute any commands")
 }
@@ -159,24 +169,25 @@ func TestApp_Run_DryRun_NoCommands(t *testing.T) {
 
 func TestApp_Run_OnlyUpgrades(t *testing.T) {
 	runner := &MockRunner{}
+	spy := &spyFS{}
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
 			return &rootio.OsAnalyzeResponse{
 				Upgradeable: []rootio.UpgradeableOsPackage{
-					{PackageName: "openssl", CurrentVersion: "3.0.11-1", UpgradeVersion: "3.0.15-1"},
+					{PackageName: "openssl", CurrentVersion: "3.1.4-r5", UpgradeVersion: "3.1.5-r0"},
 				},
 			}, nil
 		},
 	}
-	app := newTestApp(debianScanner(), apiClient, runner, false)
+	executor := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
+	executor.fs = spy
+	app := NewAppWithServices("test-api-key", "https://pkg.root.io", false, false, logger(), alpineScanner(), apiClient, executor)
 	require.NoError(t, app.Run(context.Background()))
 
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "update"), "apt-get update must run")
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "--allow-downgrades", "openssl"), "must install upgrade")
-	// GPG key setup must NOT happen for upgrades-only
-	for _, c := range runner.Calls {
-		joined := c.Name + " " + strings.Join(c.Args, " ")
-		assert.NotContains(t, joined, "rootio.list", "Root.io repo files must not be written for upgrades-only")
+	assert.True(t, runner.calledWith("apk", "apk", "update"), "apk update must run")
+	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "openssl"), "must install upgrade")
+	for _, p := range spy.OpenedPaths {
+		assert.NotEqual(t, apkRepoFile, p, "Root.io repo must not be written for upgrades-only")
 	}
 }
 
@@ -190,78 +201,45 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 				Patches: []rootio.PackagePatch{
 					{
 						PackageName: "curl",
-						Version:     "7.88.1-10+deb12u5",
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
+						Version:     "8.5.0-r0",
+						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "8.5.0-r0.rootio.1"},
 					},
 				},
 			}, nil
 		},
 	}
-	app := newTestApp(debianScanner(), apiClient, runner, false)
+	app := newTestApp(alpineScanner(), apiClient, runner, false)
 	require.NoError(t, app.Run(context.Background()))
 
-	// GPG key must be installed
-	assert.True(t, runner.calledWith("sh"), "GPG key write via sh -c must run")
-	// apt-get update must run
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "update"), "apt-get update must run")
-	// alias must be installed
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "--allow-remove-essential", "--no-install-recommends", "-y", "rootio-curl"))
-	// original curl must be removed
-	assert.True(t, runner.calledWith("env"), "original package removal must run")
-	// cleanup: repo list must be removed
-	cleanupFiles := []string{
-		sourcesListDir + "/rootio.list",
-		prefsDir + "/rootio",
-		gpgKeyPath,
-		authConfDir + "/rootio.conf",
-	}
-	for _, f := range cleanupFiles {
-		found := false
-		for _, c := range runner.Calls {
-			if strings.Join(append([]string{c.Name}, c.Args...), " ") == "rm -f "+f {
-				found = true
-				break
-			}
-		}
-		assert.True(t, found, "cleanup must remove %s", f)
-	}
+	// apk update must run
+	assert.True(t, runner.calledWith("apk", "apk", "update"), "apk update must run")
+	// alias must be installed via apk add --upgrade
+	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "rootio-curl"), "alias must be installed")
 }
 
-// --- Apply: low-level package uses dpkg path ---
+// --- Blacklisted package is skipped during upgrades ---
 
-func TestApp_Run_LowLevelPackage_UsesDpkg(t *testing.T) {
+func TestApp_Run_BlacklistedPackageSkipped(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
 			return &rootio.OsAnalyzeResponse{
-				Patches: []rootio.PackagePatch{
-					{
-						PackageName: "util-linux",
-						Version:     "2.38.1-5",
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-util-linux", Version: "2.38.1-5.root.io.1"},
-					},
+				Upgradeable: []rootio.UpgradeableOsPackage{
+					{PackageName: "alpine-baselayout", CurrentVersion: "3.4.0-r0", UpgradeVersion: "3.5.0-r0"},
+					{PackageName: "openssl", CurrentVersion: "3.1.4-r5", UpgradeVersion: "3.1.5-r0"},
 				},
 			}, nil
 		},
 	}
-	app := newTestApp(debianScanner(), apiClient, runner, false)
+	app := newTestApp(alpineScanner(), apiClient, runner, false)
 	require.NoError(t, app.Run(context.Background()))
 
-	// Must call apt-get download (not apt-get install) for the low-level package
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "download", "rootio-util-linux"))
-	// Must use dpkg -i
-	dpkgFound := false
 	for _, c := range runner.Calls {
-		if c.Name == "sh" && len(c.Args) >= 2 && strings.Contains(strings.Join(c.Args, " "), "dpkg -i") {
-			dpkgFound = true
-			break
+		if c.Name == "apk" {
+			for _, a := range c.Args {
+				assert.NotEqual(t, "alpine-baselayout", a, "blacklisted package must not be passed to apk")
+			}
 		}
 	}
-	assert.True(t, dpkgFound, "dpkg -i must be used for low-level packages")
-	// Must NOT call normal apt-get install for this package
-	for _, c := range runner.Calls {
-		if c.Name == "apt-get" && len(c.Args) > 0 && c.Args[0] == "install" {
-			assert.NotContains(t, c.Args, "rootio-util-linux", "low-level package must not go through apt-get install")
-		}
-	}
+	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "openssl"), "non-blacklisted upgrade must still run")
 }
