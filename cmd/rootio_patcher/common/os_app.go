@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 
 	"rootio_patcher/pkg/rootio"
 )
@@ -48,6 +50,8 @@ type OsAppConfig[T any] struct {
 	GetRegistryURL func(pkgURL string, osInfo *T) string
 	// LogOsInfo emits OS-specific debug fields after OS detection
 	LogOsInfo func(ctx context.Context, logger *slog.Logger, osInfo *T)
+	// PackageBlacklist is a per-ecosystem set of package names never offered for upgrade
+	PackageBlacklist map[string]bool
 }
 
 // OsApp orchestrates the OS-level remediation workflow
@@ -182,4 +186,85 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 
 	fmt.Println("\n✓ " + cfg.Name + " remediation complete")
 	return nil
+}
+
+// ignoreNamesFromSet extracts the package-name portion from each ignoreSet key.
+// Keys are "name@version"; the name is the substring before the LAST "@".
+// If there is no "@", the whole key is treated as the package name.
+//
+// This DIVERGES from IgnoreListToPackages (ignore.go) intentionally: the OS
+// upgrade path ignores strictly by name, so a bare key with no version
+// (e.g. "nginx") means "never touch nginx" and is honored here.
+// IgnoreListToPackages, by contrast, skips bare keys because the API only
+// accepts name@version pairs.
+func ignoreNamesFromSet(ignoreSet map[string]struct{}) map[string]struct{} {
+	names := make(map[string]struct{}, len(ignoreSet))
+	for key := range ignoreSet {
+		at := strings.LastIndex(key, "@")
+		if at >= 0 {
+			names[key[:at]] = struct{}{}
+		} else {
+			names[key] = struct{}{}
+		}
+	}
+	return names
+}
+
+// computeUpgradeSet returns the names of installed packages that should be
+// offered for a broad OS upgrade: those NOT already covered by a Root.io patch,
+// NOT in the blacklist, and NOT ignored.
+// The result is de-duplicated and sorted ascending for deterministic output.
+func computeUpgradeSet(installed []InstalledPackage, patches []rootio.PackagePatch, blacklist map[string]bool, ignoreSet map[string]struct{}) []string {
+	patched := make(map[string]struct{}, len(patches))
+	for _, p := range patches {
+		patched[p.PackageName] = struct{}{}
+	}
+
+	ignored := ignoreNamesFromSet(ignoreSet)
+
+	seen := make(map[string]struct{})
+	for _, pkg := range installed {
+		name := pkg.Name
+		if _, isPatch := patched[name]; isPatch {
+			continue
+		}
+		if blacklist[name] {
+			continue
+		}
+		if _, isIgnored := ignored[name]; isIgnored {
+			continue
+		}
+		seen[name] = struct{}{}
+	}
+
+	result := make([]string, 0, len(seen))
+	for name := range seen {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// filterPatches drops any patch whose PackageName is in the ignored-names set
+// (derived from ignoreSet using the same "name@version" / bare-name rules).
+// The remaining patches are returned in input order.
+//
+// When nothing is filtered (empty patches or empty ignoreSet), the caller's
+// slice is returned unchanged rather than copied; callers must not mutate the
+// returned slice's elements expecting an independent copy.
+func filterPatches(patches []rootio.PackagePatch, ignoreSet map[string]struct{}) []rootio.PackagePatch {
+	if len(patches) == 0 || len(ignoreSet) == 0 {
+		return patches
+	}
+
+	ignored := ignoreNamesFromSet(ignoreSet)
+
+	result := make([]rootio.PackagePatch, 0, len(patches))
+	for _, p := range patches {
+		if _, isIgnored := ignored[p.PackageName]; isIgnored {
+			continue
+		}
+		result = append(result, p)
+	}
+	return result
 }
