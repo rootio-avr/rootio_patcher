@@ -35,11 +35,15 @@ func newTestApp(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunn
 }
 
 func newTestAppWithAlias(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, useAlias bool) *App {
+	return newTestAppFull(scanner, apiClient, runner, dryRun, useAlias, false, nil)
+}
+
+func newTestAppFull(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, useAlias, skipUpgrades bool, ignoreSet map[string]struct{}) *App {
 	executor := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
 	executor.fs = mockFS{}
 	return NewAppWithServices(
 		"test-api-key", "https://pkg.root.io",
-		dryRun, useAlias, false,
+		dryRun, useAlias, false, skipUpgrades, ignoreSet,
 		logger(),
 		scanner, apiClient, executor,
 	)
@@ -120,7 +124,8 @@ func TestApp_Run_NoPatches(t *testing.T) {
 			return &rootio.OsAnalyzeResponse{}, nil
 		},
 	}
-	app := newTestApp(alpineScanner(), apiClient, runner, true)
+	// SkipUpgrades=true so that with no patches there is genuinely nothing to do.
+	app := newTestAppFull(alpineScanner(), apiClient, runner, false, true, true, nil)
 	require.NoError(t, app.Run(context.Background()))
 	assert.Empty(t, runner.Calls, "no commands should run when there is nothing to patch")
 }
@@ -175,22 +180,19 @@ func TestApp_Run_DryRun_NoCommands(t *testing.T) {
 func TestApp_Run_OnlyUpgrades(t *testing.T) {
 	runner := &MockRunner{}
 	spy := &spyFS{}
+	// No patches: broad upgrade set is computed from installed packages (curl, openssl).
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
-			return &rootio.OsAnalyzeResponse{
-				Upgradeable: []rootio.UpgradeableOsPackage{
-					{PackageName: "openssl", CurrentVersion: "3.1.4-r5", UpgradeVersion: "3.1.5-r0"},
-				},
-			}, nil
+			return &rootio.OsAnalyzeResponse{}, nil
 		},
 	}
 	executor := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
 	executor.fs = spy
-	app := NewAppWithServices("test-api-key", "https://pkg.root.io", false, true, false, logger(), alpineScanner(), apiClient, executor)
+	app := NewAppWithServices("test-api-key", "https://pkg.root.io", false, true, false, false, nil, logger(), alpineScanner(), apiClient, executor)
 	require.NoError(t, app.Run(context.Background()))
 
 	assert.True(t, runner.calledWith("apk", "apk", "update"), "apk update must run")
-	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "openssl"), "must install upgrade")
+	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "curl", "openssl"), "must install upgrades")
 	for _, p := range spy.OpenedPaths {
 		assert.NotEqual(t, apkRepoFile, p, "Root.io repo must not be written for upgrades-only")
 	}
@@ -220,23 +222,33 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 	assert.True(t, runner.calledWith("apk", "apk", "update"), "apk update must run")
 	// alias must be installed via apk add --upgrade
 	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "rootio-curl"), "alias must be installed")
+	// broad upgrade runs by name (curl is patched, so only openssl remains)
+	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "openssl"), "non-patched package must be upgraded")
 }
 
 // --- Blacklisted package is skipped during upgrades ---
 
 func TestApp_Run_BlacklistedPackageSkipped(t *testing.T) {
 	runner := &MockRunner{}
-	apiClient := &MockAPIClient{
-		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
-			return &rootio.OsAnalyzeResponse{
-				Upgradeable: []rootio.UpgradeableOsPackage{
-					{PackageName: "alpine-baselayout", CurrentVersion: "3.4.0-r0", UpgradeVersion: "3.5.0-r0"},
-					{PackageName: "openssl", CurrentVersion: "3.1.4-r5", UpgradeVersion: "3.1.5-r0"},
-				},
+	// The blacklist is now applied client-side in computeUpgradeSet against the
+	// installed package list, so alpine-baselayout must be installed to exercise it.
+	scanner := &MockScanner{
+		DetectOSFunc: func(_ context.Context) (*OSInfo, error) {
+			return &OSInfo{DistroVersion: "3.18"}, nil
+		},
+		ListPackagesFunc: func(_ context.Context) ([]InstalledPackage, error) {
+			return []InstalledPackage{
+				{Name: "alpine-baselayout", Version: "3.4.0-r0"},
+				{Name: "openssl", Version: "3.1.4-r5"},
 			}, nil
 		},
 	}
-	app := newTestApp(alpineScanner(), apiClient, runner, false)
+	apiClient := &MockAPIClient{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{}, nil
+		},
+	}
+	app := newTestApp(scanner, apiClient, runner, false)
 	require.NoError(t, app.Run(context.Background()))
 
 	for _, c := range runner.Calls {
@@ -307,4 +319,82 @@ func TestApp_Run_NonAliased_DryRun_NoCommands(t *testing.T) {
 	app := newTestAppWithAlias(alpineScanner(), apiClient, runner, true /* dry-run */, false /* useAlias=false */)
 	require.NoError(t, app.Run(context.Background()))
 	assert.Empty(t, runner.Calls, "dry-run must not execute any commands")
+}
+
+// recordingFS records WriteFile and Remove calls and serves a repositories file
+// that contains both an official entry and a Root.io entry.
+type recordingFS struct {
+	mockFS
+	written      map[string]string
+	removed      []string
+	repoContents string
+}
+
+func newRecordingFS() *recordingFS {
+	return &recordingFS{
+		written:      map[string]string{},
+		repoContents: "https://dl-cdn.alpinelinux.org/alpine/v3.19/main\nhttps://root:key@pkg.root.io/alpine/3.19\n",
+	}
+}
+
+func (r *recordingFS) ReadFile(_ string) ([]byte, error) { return []byte(r.repoContents), nil }
+func (r *recordingFS) WriteFile(name string, data []byte, _ os.FileMode) error {
+	r.written[name] = string(data)
+	return nil
+}
+func (r *recordingFS) Remove(name string) error {
+	r.removed = append(r.removed, name)
+	return nil
+}
+
+// --- Executor: RemoveRootioRepo strips the Root.io line and refreshes the index ---
+
+func TestExecutor_RemoveRootioRepo(t *testing.T) {
+	runner := &MockRunner{}
+	fs := newRecordingFS()
+	e := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
+	e.fs = fs
+
+	require.NoError(t, e.RemoveRootioRepo(context.Background()))
+
+	written, ok := fs.written[apkRepoFile]
+	require.True(t, ok, "repositories file must be rewritten")
+	assert.NotContains(t, written, apkRepoMark, "Root.io repo line must be removed")
+	assert.Contains(t, written, "dl-cdn.alpinelinux.org", "official repo line must be preserved")
+	assert.True(t, runner.calledWith("apk", "apk", "update"), "index must be refreshed")
+	assert.NotContains(t, fs.removed, apkKeyPath, "RemoveRootioRepo must not remove the public key")
+}
+
+// --- Executor: Cleanup removes ONLY the public key, never the repo line ---
+
+func TestExecutor_Cleanup_OnlyRemovesKey(t *testing.T) {
+	runner := &MockRunner{}
+	fs := newRecordingFS()
+	e := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
+	e.fs = fs
+
+	require.NoError(t, e.Cleanup(context.Background()))
+
+	assert.Equal(t, []string{apkKeyPath}, fs.removed, "Cleanup must remove only the public key")
+	assert.Empty(t, fs.written, "Cleanup must not rewrite the repositories file")
+}
+
+// --- Executor: InstallUpgrades passes names straight through (no blacklist filtering) ---
+
+func TestExecutor_InstallUpgrades_NoInternalFiltering(t *testing.T) {
+	runner := &MockRunner{}
+	e := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
+	e.fs = mockFS{}
+	// alpine-baselayout would previously be filtered here; that now happens upstream,
+	// so whatever names are passed are installed verbatim.
+	require.NoError(t, e.InstallUpgrades(context.Background(), []string{"alpine-baselayout", "openssl"}))
+	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "alpine-baselayout", "openssl"))
+}
+
+func TestExecutor_InstallUpgrades_EmptyIsNoop(t *testing.T) {
+	runner := &MockRunner{}
+	e := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
+	e.fs = mockFS{}
+	require.NoError(t, e.InstallUpgrades(context.Background(), nil))
+	assert.Empty(t, runner.Calls, "empty upgrade set must run no commands")
 }

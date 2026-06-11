@@ -8,29 +8,27 @@ import (
 )
 
 // ReportOsDryRun prints the dry-run summary for OS-level remediations (apt, apk, …).
+// filteredPatches are the patches that will actually be applied (ignore list already applied),
+// and upgradeNames are the package names that will be offered for a broad upstream upgrade.
 // cmd is the full apply command shown to the user, e.g. "rootio_patcher apt remediate --dry-run=false".
 // useAlias controls whether the aliased (rootio-*) or original package name is shown.
-func ReportOsDryRun(response *rootio.OsAnalyzeResponse, cmd string, useAlias bool) {
+func ReportOsDryRun(response *rootio.OsAnalyzeResponse, filteredPatches []rootio.PackagePatch, upgradeNames []string, cmd string, useAlias bool) {
 	fmt.Println("\n=== DRY-RUN MODE ===")
 
-	if len(response.Upgradeable) > 0 {
-		fmt.Printf("\n%d package(s) upgradeable via official repo:\n", len(response.Upgradeable))
-		for _, u := range response.Upgradeable {
-			cves := ""
-			if len(u.CVEIDs) > 0 {
-				cves = " (fixes: " + strings.Join(u.CVEIDs, ", ") + ")"
-			}
-			fmt.Printf("  • %s %s → %s%s\n", u.PackageName, u.CurrentVersion, u.UpgradeVersion, cves)
+	if len(upgradeNames) > 0 {
+		fmt.Printf("\n%d package(s) will be offered for upgrade:\n", len(upgradeNames))
+		for _, name := range upgradeNames {
+			fmt.Printf("  • %s\n", name)
 		}
 	}
 
-	if len(response.Patches) > 0 {
+	if len(filteredPatches) > 0 {
 		label := "Root.io alias"
 		if !useAlias {
 			label = "Root.io non-aliased"
 		}
-		fmt.Printf("\n%d package(s) patchable via %s:\n", len(response.Patches), label)
-		for _, p := range response.Patches {
+		fmt.Printf("\n%d package(s) patchable via %s:\n", len(filteredPatches), label)
+		for _, p := range filteredPatches {
 			cves := ""
 			if len(p.CVEIDs) > 0 {
 				cves = " (fixes: " + strings.Join(p.CVEIDs, ", ") + ")"

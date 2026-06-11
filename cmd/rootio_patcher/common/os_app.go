@@ -17,13 +17,17 @@ type OsExecutor interface {
 	Setup(ctx context.Context, registryURL string) error
 	// IndexUpdate refreshes the package index (apt-get update / apk update)
 	IndexUpdate(ctx context.Context) error
-	// InstallUpgrades installs packages available from the official repository
-	InstallUpgrades(ctx context.Context, upgradeable []rootio.UpgradeableOsPackage) error
+	// InstallUpgrades installs the named packages from the official distro repository.
+	InstallUpgrades(ctx context.Context, names []string) error
 	// InstallPatches installs Root.io packages.
 	// registryURL is provided for executors that need it for pinning (e.g. apt); others ignore it.
 	// useAlias controls whether the aliased (rootio-*) or original package name is installed.
 	InstallPatches(ctx context.Context, registryURL string, patches []rootio.PackagePatch, useAlias bool) error
-	// Cleanup removes the Root.io repository and any related files
+	// RemoveRootioRepo removes the Root.io repository (and apt pin) and refreshes the index,
+	// so subsequent upgrades resolve only against the official distro repo. Called exactly
+	// once, after patches are installed.
+	RemoveRootioRepo(ctx context.Context) error
+	// Cleanup removes the remaining Root.io files (keys, auth, caches)
 	Cleanup(ctx context.Context) error
 	// PostUpgradesOnly is called after upgrades when no patches were applied.
 	// Executors that need post-upgrade cleanup (e.g. clearing apt caches) implement it here.
@@ -56,20 +60,24 @@ type OsAppConfig[T any] struct {
 
 // OsApp orchestrates the OS-level remediation workflow
 type OsApp[T any] struct {
-	pkgURL    string
-	dryRun    bool
-	useAlias  bool
-	logger    *slog.Logger
-	scanner   Scanner[T]
-	apiClient OsAPIClient
-	executor  OsExecutor
-	config    OsAppConfig[T]
+	pkgURL       string
+	dryRun       bool
+	useAlias     bool
+	skipUpgrades bool
+	ignoreSet    map[string]struct{}
+	logger       *slog.Logger
+	scanner      Scanner[T]
+	apiClient    OsAPIClient
+	executor     OsExecutor
+	config       OsAppConfig[T]
 }
 
 func NewOsApp[T any](
 	pkgURL string,
 	dryRun bool,
 	useAlias bool,
+	skipUpgrades bool,
+	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	scanner Scanner[T],
 	apiClient OsAPIClient,
@@ -77,14 +85,16 @@ func NewOsApp[T any](
 	config OsAppConfig[T],
 ) *OsApp[T] {
 	return &OsApp[T]{
-		pkgURL:    pkgURL,
-		dryRun:    dryRun,
-		useAlias:  useAlias,
-		logger:    logger,
-		scanner:   scanner,
-		apiClient: apiClient,
-		executor:  executor,
-		config:    config,
+		pkgURL:       pkgURL,
+		dryRun:       dryRun,
+		useAlias:     useAlias,
+		skipUpgrades: skipUpgrades,
+		ignoreSet:    ignoreSet,
+		logger:       logger,
+		scanner:      scanner,
+		apiClient:    apiClient,
+		executor:     executor,
+		config:       config,
 	}
 }
 
@@ -131,54 +141,72 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 		slog.Int("skipped", len(response.Skipped)),
 	)
 
-	// 4. Nothing to do?
-	if len(response.Patches) == 0 && len(response.Upgradeable) == 0 {
+	// 4. Compute the work set.
+	//    Patches are filtered by the ignore list; the broad upgrade set is
+	//    computed client-side as installed − patched − blacklist − ignored.
+	patches := filterPatches(response.Patches, a.ignoreSet)
+	var upgradeNames []string
+	if !a.skipUpgrades {
+		upgradeNames = computeUpgradeSet(installed, patches, a.config.PackageBlacklist, a.ignoreSet)
+	}
+	hasPatches := len(patches) > 0
+
+	// 5. Nothing to do?
+	if !hasPatches && len(upgradeNames) == 0 {
 		fmt.Println("\nNo patches needed — all packages are up to date!")
 		return nil
 	}
 
-	// 5. Dry-run: print what would be done
+	// 6. Dry-run: print what would be done
 	if a.dryRun {
-		ReportOsDryRun(response, "rootio_patcher "+cfg.Name+" remediate --dry-run=false", a.useAlias)
+		ReportOsDryRun(response, patches, upgradeNames, "rootio_patcher "+cfg.Name+" remediate --dry-run=false", a.useAlias)
 		return nil
 	}
 
-	// 6. Execute remediation
-	registryURL := cfg.GetRegistryURL(a.pkgURL, osInfo)
-	hasPatches := len(response.Patches) > 0
-
+	// 7. Execute remediation
 	if hasPatches {
+		registryURL := cfg.GetRegistryURL(a.pkgURL, osInfo)
+
 		fmt.Println(cfg.SetupMsg)
 		if err := a.executor.Setup(ctx, registryURL); err != nil {
 			return fmt.Errorf("repository setup failed: %w", err)
+		}
+
+		fmt.Printf("\nInstalling %d Root.io patch(es)...\n", len(patches))
+		if err := a.executor.InstallPatches(ctx, registryURL, patches, a.useAlias); err != nil {
+			return fmt.Errorf("patches failed: %w", err)
+		}
+
+		// Remove the Root.io repo+pin BEFORE upgrades so the broad upgrade
+		// resolves only against the official distro repo.
+		if err := a.executor.RemoveRootioRepo(ctx); err != nil {
+			return fmt.Errorf("remove Root.io repository failed: %w", err)
+		}
+
+		if len(upgradeNames) > 0 {
+			fmt.Printf("\nInstalling %d upgrade(s)...\n", len(upgradeNames))
+			if err := a.executor.InstallUpgrades(ctx, upgradeNames); err != nil {
+				return fmt.Errorf("upgrades failed: %w", err)
+			}
+		}
+
+		fmt.Println(cfg.CleanupMsg)
+		if err := a.executor.Cleanup(ctx); err != nil {
+			return fmt.Errorf("cleanup failed: %w", err)
 		}
 	} else {
 		fmt.Println(cfg.UpdateMsg)
 		if err := a.executor.IndexUpdate(ctx); err != nil {
 			return fmt.Errorf(cfg.UpdateErrMsg+": %w", err)
 		}
-	}
 
-	if len(response.Upgradeable) > 0 {
-		fmt.Printf("\nInstalling %d upgrade(s)...\n", len(response.Upgradeable))
-		if err := a.executor.InstallUpgrades(ctx, response.Upgradeable); err != nil {
-			return fmt.Errorf("upgrades failed: %w", err)
+		if len(upgradeNames) > 0 {
+			fmt.Printf("\nInstalling %d upgrade(s)...\n", len(upgradeNames))
+			if err := a.executor.InstallUpgrades(ctx, upgradeNames); err != nil {
+				return fmt.Errorf("upgrades failed: %w", err)
+			}
 		}
-	}
 
-	if len(response.Patches) > 0 {
-		fmt.Printf("\nInstalling %d Root.io patch(es)...\n", len(response.Patches))
-		if err := a.executor.InstallPatches(ctx, registryURL, response.Patches, a.useAlias); err != nil {
-			return fmt.Errorf("patches failed: %w", err)
-		}
-	}
-
-	if hasPatches {
-		fmt.Println(cfg.CleanupMsg)
-		if err := a.executor.Cleanup(ctx); err != nil {
-			return fmt.Errorf("cleanup failed: %w", err)
-		}
-	} else {
 		if err := a.executor.PostUpgradesOnly(ctx); err != nil {
 			return fmt.Errorf("post-upgrade cleanup failed: %w", err)
 		}

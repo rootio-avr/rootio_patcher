@@ -47,16 +47,19 @@ type AptCmd struct {
 
 // AptRemediateCmd remediates installed APT packages
 type AptRemediateCmd struct {
-	DryRun   bool `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool `default:"true" help:"Use Root.io aliased packages (rootio-*); set false to install under original names"`
-	Verbose  bool `default:"false" help:"Print each remediation step"`
+	DryRun       bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias     bool     `default:"true" help:"Use Root.io aliased packages (rootio-*); set false to install under original names"`
+	Verbose      bool     `default:"false" help:"Print each remediation step"`
+	SkipUpgrades bool     `default:"false" help:"Skip the broad upstream upgrade; apply Root patches only"`
+	Ignore       []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // Run executes the apt remediate command
 func (cmd *AptRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting apt remediation", slog.Bool("dry_run", cmd.DryRun), slog.Bool("use_alias", cmd.UseAlias))
 
-	app := apt.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.UseAlias, cmd.Verbose, logger)
+	ignoreSet := common.LoadIgnoreList(".rootioignore", cmd.Ignore)
+	app := apt.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.UseAlias, cmd.Verbose, cmd.SkipUpgrades, ignoreSet, logger)
 	return app.Run(ctx)
 }
 
@@ -67,16 +70,19 @@ type ApkCmd struct {
 
 // ApkRemediateCmd remediates installed APK packages
 type ApkRemediateCmd struct {
-	DryRun   bool `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool `default:"true" help:"Use Root.io aliased packages (rootio-*); set false to install under original names"`
-	Verbose  bool `default:"false" help:"Print each remediation step"`
+	DryRun       bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias     bool     `default:"true" help:"Use Root.io aliased packages (rootio-*); set false to install under original names"`
+	Verbose      bool     `default:"false" help:"Print each remediation step"`
+	SkipUpgrades bool     `default:"false" help:"Skip the broad upstream upgrade; apply Root patches only"`
+	Ignore       []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // Run executes the apk remediate command
 func (cmd *ApkRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting apk remediation", slog.Bool("dry_run", cmd.DryRun), slog.Bool("use_alias", cmd.UseAlias))
 
-	app := apk.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.UseAlias, cmd.Verbose, logger)
+	ignoreSet := common.LoadIgnoreList(".rootioignore", cmd.Ignore)
+	app := apk.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.UseAlias, cmd.Verbose, cmd.SkipUpgrades, ignoreSet, logger)
 	return app.Run(ctx)
 }
 

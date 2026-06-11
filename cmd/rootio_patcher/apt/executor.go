@@ -65,17 +65,13 @@ func (e *Executor) Setup(ctx context.Context, registryURL string) error {
 	return nil
 }
 
-// InstallUpgrades installs packages available via official repo upgrades
-func (e *Executor) InstallUpgrades(ctx context.Context, upgradeable []rootio.UpgradeableOsPackage) error {
-	if len(upgradeable) == 0 {
+// InstallUpgrades installs the named packages from the official distro repository.
+func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
+	if len(names) == 0 {
 		return nil
 	}
-	names := make([]string, len(upgradeable))
-	for i, u := range upgradeable {
-		names[i] = u.PackageName
-	}
 	e.logf("→ installing %d upgrade(s): %s", len(names), strings.Join(names, " "))
-	args := append([]string{"install", "-y", "--allow-downgrades"}, names...)
+	args := append([]string{"install", "-y"}, names...)
 	return e.runner.Run(ctx, "apt-get", args...)
 }
 
@@ -137,12 +133,27 @@ func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patch
 	return nil
 }
 
-// Cleanup removes the Root.io APT repo files and clears apt caches
-func (e *Executor) Cleanup(ctx context.Context) error {
-	e.logf("→ cleanup")
+// RemoveRootioRepo removes the Root.io APT source list and pin preferences, then
+// refreshes the package index so subsequent upgrades resolve only against the
+// official distro repo. `rm -f` is idempotent, but this is called exactly once.
+func (e *Executor) RemoveRootioRepo(ctx context.Context) error {
+	e.logf("→ removing Root.io repository")
 	for _, cmd := range [][]string{
 		{"rm", "-f", sourcesListDir + "/rootio.list"},
 		{"rm", "-f", prefsDir + "/rootio"},
+	} {
+		if err := e.runner.Run(ctx, cmd[0], cmd[1:]...); err != nil {
+			return fmt.Errorf("remove repo %v: %w", cmd, err)
+		}
+	}
+	return e.IndexUpdate(ctx)
+}
+
+// Cleanup removes the remaining Root.io files (GPG key, auth config) and clears
+// apt caches. The repo source list and pin are removed by RemoveRootioRepo.
+func (e *Executor) Cleanup(ctx context.Context) error {
+	e.logf("→ cleanup")
+	for _, cmd := range [][]string{
 		{"rm", "-f", gpgKeyPath},
 		{"rm", "-f", authConfDir + "/rootio.conf"},
 		{"rm", "-rf", "/var/lib/apt/lists/*"},

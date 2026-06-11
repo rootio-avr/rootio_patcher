@@ -19,12 +19,6 @@ const (
 	apkRepoMark = "pkg.root.io"
 )
 
-// packageBlacklist contains packages that must never be upgraded via apk.
-// Keep in sync with backend/.../os/alpine.go.
-var packageBlacklist = map[string]bool{
-	"alpine-baselayout": true,
-}
-
 // CommandRunner is an alias for common.CommandRunner
 type CommandRunner = common.CommandRunner
 
@@ -63,19 +57,9 @@ func (e *Executor) Setup(ctx context.Context, registryURL string) error {
 	return nil
 }
 
-// InstallUpgrades installs packages available via official repo upgrades
-func (e *Executor) InstallUpgrades(ctx context.Context, upgradeable []rootio.UpgradeableOsPackage) error {
-	if len(upgradeable) == 0 {
-		return nil
-	}
-	var names []string
-	for _, u := range upgradeable {
-		if packageBlacklist[u.PackageName] {
-			e.logf("skipping blacklisted package", "package", u.PackageName)
-			continue
-		}
-		names = append(names, u.PackageName)
-	}
+// InstallUpgrades installs the named packages from the official distro repository.
+// The blacklist is applied upstream in common.computeUpgradeSet, so no filtering here.
+func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 	if len(names) == 0 {
 		return nil
 	}
@@ -105,13 +89,24 @@ func (e *Executor) InstallPatches(ctx context.Context, _ string, patches []rooti
 	return e.runner.Run(ctx, "apk", args...)
 }
 
-// Cleanup removes the Root.io APK repo entry and public key
-func (e *Executor) Cleanup(_ context.Context) error {
-	e.logf("apk cleanup")
+// RemoveRootioRepo removes the Root.io APK repository entry and refreshes the
+// index so subsequent upgrades resolve only against the official distro repo.
+// removeRepoLine rewrites the file omitting Root.io lines, so it must run exactly
+// once (here) — never alongside Cleanup.
+func (e *Executor) RemoveRootioRepo(ctx context.Context) error {
+	e.logf("apk remove repo")
 
 	if err := e.removeRepoLine(apkRepoFile, apkRepoMark); err != nil {
 		return fmt.Errorf("remove repo entry: %w", err)
 	}
+
+	return e.IndexUpdate(ctx)
+}
+
+// Cleanup removes the Root.io public key. The repo entry is removed by
+// RemoveRootioRepo, guaranteeing the repo line is removed exactly once.
+func (e *Executor) Cleanup(_ context.Context) error {
+	e.logf("apk cleanup")
 
 	if err := e.fs.Remove(apkKeyPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove public key: %w", err)
