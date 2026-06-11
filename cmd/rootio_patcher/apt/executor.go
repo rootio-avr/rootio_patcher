@@ -49,6 +49,7 @@ func (e *Executor) Setup(ctx context.Context, registryURL string) error {
 		desc string
 		fn   func() error
 	}{
+		{"rewrite EOL sources", func() error { return e.rewriteSourcesForEOL(ctx, codename) }},
 		{"install GPG key", func() error { return e.installGPGKey(ctx) }},
 		{"write auth config", func() error { return e.writeAuthConf(ctx) }},
 		{"add APT source", func() error { return e.addSource(ctx, registryURL, codename) }},
