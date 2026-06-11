@@ -47,7 +47,15 @@ var eolCodenames = map[string]eolRule{
 		},
 		dropUpdatesIn: []string{"/etc/apt/sources.list"},
 	},
-	// Ubuntu EOL releases
+	// Ubuntu EOL releases.
+	//
+	// NOTE: the "<codename>-updates" line-drop (dropUpdatesIn) is applied only to the
+	// legacy /etc/apt/sources.list. For the deb822 /etc/apt/sources.list.d/ubuntu.sources,
+	// "-updates" appears as a token within a "Suites:" line (not its own line), so we do
+	// NOT drop it there; instead we rely on the archive mirror (old-releases.ubuntu.com)
+	// serving the rewritten suites for EOL Ubuntu. This matches backend .../os/debian.go,
+	// which likewise drops "-updates" only from sources.list. If the backend's approach
+	// changes, keep these in sync.
 	"mantic": {
 		rewrites: []fileRewrite{
 			{"/etc/apt/sources.list", "http://archive.ubuntu.com/ubuntu", "http://old-releases.ubuntu.com/ubuntu"},

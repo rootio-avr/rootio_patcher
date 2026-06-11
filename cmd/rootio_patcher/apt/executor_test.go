@@ -2,6 +2,7 @@ package apt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -9,6 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// errRunner always returns the configured error from Run.
+type errRunner struct{ err error }
+
+func (r *errRunner) Run(_ context.Context, _ string, _ ...string) error { return r.err }
 
 // recordingRunner captures every command passed to Run for later assertion.
 type recordingRunner struct {
@@ -164,4 +170,16 @@ func TestSetup_EOLRewriteRunsFirst(t *testing.T) {
 		strings.Contains(firstScript, "archive.debian.org"),
 		fmt.Sprintf("first sh -c script should be an EOL rewrite, got: %q", firstScript),
 	)
+}
+
+// TestRewriteSourcesForEOL_PropagatesRunnerError verifies that a runner failure
+// during an EOL rewrite is propagated rather than swallowed.
+func TestRewriteSourcesForEOL_PropagatesRunnerError(t *testing.T) {
+	sentinel := errors.New("boom")
+	exec := NewExecutor("", "", false, &errRunner{err: sentinel})
+
+	err := exec.rewriteSourcesForEOL(context.Background(), "buster")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sentinel)
 }
