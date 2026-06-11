@@ -137,7 +137,9 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 
 	a.logger.DebugContext(ctx, "Analysis complete",
 		slog.Int("patches", len(response.Patches)),
-		slog.Int("upgradeable", len(response.Upgradeable)),
+		// server_upgradeable is the server's now-ignored upgradeable count; the
+		// real upgrade set is computed client-side below (see "Computed upgrade plan").
+		slog.Int("server_upgradeable", len(response.Upgradeable)),
 		slog.Int("skipped", len(response.Skipped)),
 	)
 
@@ -150,6 +152,11 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 		upgradeNames = computeUpgradeSet(installed, patches, a.config.PackageBlacklist, a.ignoreSet)
 	}
 	hasPatches := len(patches) > 0
+
+	a.logger.DebugContext(ctx, "Computed upgrade plan",
+		slog.Int("patches", len(patches)),
+		slog.Int("upgrade_set", len(upgradeNames)),
+	)
 
 	// 5. Nothing to do?
 	if !hasPatches && len(upgradeNames) == 0 {
@@ -184,6 +191,10 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 		}
 
 		if len(upgradeNames) > 0 {
+			// Relies on RemoveRootioRepo having just refreshed the index
+			// (e.g. apt-get update) with the Root.io source removed, so this
+			// upgrade resolves against a fresh, rootio-free index. Do not make
+			// RemoveRootioRepo skip the index refresh.
 			fmt.Printf("\nInstalling %d upgrade(s)...\n", len(upgradeNames))
 			if err := a.executor.InstallUpgrades(ctx, upgradeNames); err != nil {
 				return fmt.Errorf("upgrades failed: %w", err)
