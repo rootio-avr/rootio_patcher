@@ -1,9 +1,9 @@
 package common
 
 import (
-	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	rootio "rootio_patcher/pkg/rootio"
 )
 
@@ -148,12 +148,7 @@ func TestComputeUpgradeSet(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := computeUpgradeSet(tc.installed, tc.patches, tc.blacklist, tc.ignore)
-			if got == nil {
-				got = []string{}
-			}
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("computeUpgradeSet() = %v, want %v", got, tc.want)
-			}
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -228,9 +223,7 @@ func TestFilterPatches(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := filterPatches(tc.patches, tc.ignore)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("filterPatches() = %v, want %v", got, tc.want)
-			}
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

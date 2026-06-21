@@ -1,0 +1,63 @@
+FROM alpine:3.19
+
+ARG ROOTIO_API_KEY
+ARG ROOTIO_API_URL=https://api.root.io
+ARG ROOTIO_PKG_URL=https://pkg.root.io
+
+# Install packages the API is likely to return as broad-upgrade candidates (not Root.io patches).
+# The patcher must compute the upgrade set client-side and run apk add --upgrade on them.
+# alpine-baselayout is present by default; it must be excluded by the blacklist.
+RUN apk add --no-cache \
+    ca-certificates \
+    curl \
+    openssl \
+    gzip \
+    busybox
+
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  BEFORE patching                            │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    apk info -v curl openssl gzip busybox 2>/dev/null || true
+
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run patcher with debug logging so we can inspect the upgrade plan in the log.
+RUN set -o pipefail && \
+    ROOTIO_API_KEY=${ROOTIO_API_KEY} \
+    ROOTIO_API_URL=${ROOTIO_API_URL} \
+    ROOTIO_PKG_URL=${ROOTIO_PKG_URL} \
+    LOG_LEVEL=debug \
+    rootio_patcher apk remediate --dry-run=false 2>&1 | tee /tmp/patcher.log
+
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  AFTER patching                             │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    apk info -v curl openssl gzip busybox 2>/dev/null || true && \
+    echo "" && \
+    echo "=== UPGRADE PLAN LOG ===" && \
+    grep -E "Computed upgrade plan|upgrade_count|upgrades=" /tmp/patcher.log || true && \
+    echo "" && \
+    echo "=== BLACKLIST CHECK ===" && \
+    grep -E "alpine-baselayout" /tmp/patcher.log || echo "  (alpine-baselayout not mentioned — expected if blacklisted before log)" && \
+    echo "" && \
+    \
+    FAIL=0 && \
+    \
+    curl --version  > /dev/null 2>&1 && echo "  PASS  curl binary works"    || { echo "  FAIL  curl binary broken";    FAIL=1; } && \
+    openssl version > /dev/null 2>&1 && echo "  PASS  openssl binary works" || { echo "  FAIL  openssl binary broken"; FAIL=1; } && \
+    gzip --version  > /dev/null 2>&1 && echo "  PASS  gzip binary works"   || { echo "  FAIL  gzip binary broken";   FAIL=1; } && \
+    \
+    grep -q "Computed upgrade plan" /tmp/patcher.log && \
+        echo "  PASS  client-side upgrade plan computed" || \
+        { echo "  FAIL  upgrade plan not found in log — computeUpgradeSet may not have run"; FAIL=1; } && \
+    \
+    # alpine-baselayout must never appear as an upgrade candidate
+    grep -E "upgrades=.*alpine-baselayout" /tmp/patcher.log && \
+        { echo "  FAIL  alpine-baselayout appeared in upgrade set (blacklist broken)"; FAIL=1; } || \
+        echo "  PASS  alpine-baselayout absent from upgrade set" && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }

@@ -31,11 +31,7 @@ func debianScanner() *MockScanner {
 }
 
 func newTestApp(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun bool) *App {
-	return newTestAppWithAlias(scanner, apiClient, runner, dryRun, true)
-}
-
-func newTestAppWithAlias(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, useAlias bool) *App {
-	return newTestAppFull(scanner, apiClient, runner, dryRun, useAlias, false, nil)
+	return newTestAppFull(scanner, apiClient, runner, dryRun, true, false, nil)
 }
 
 func newTestAppFull(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, useAlias, skipUpgrades bool, ignoreSet map[string]struct{}) *App {
@@ -334,7 +330,7 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 			}, nil
 		},
 	}
-	app := newTestAppWithAlias(debianScanner(), apiClient, runner, false, false /* useAlias=false */)
+	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 
 	// Must install under original names
@@ -365,7 +361,7 @@ func TestApp_Run_NonAliased_NoRemoveOriginals(t *testing.T) {
 			}, nil
 		},
 	}
-	app := newTestAppWithAlias(debianScanner(), apiClient, runner, false, false /* useAlias=false */)
+	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 
 	// Non-aliased path must not remove originals (they are the installed packages)
@@ -393,7 +389,7 @@ func TestApp_Run_NonAliased_DryRun_ShowsOriginalNames(t *testing.T) {
 			}, nil
 		},
 	}
-	app := newTestAppWithAlias(debianScanner(), apiClient, runner, true /* dry-run */, false /* useAlias=false */)
+	app := newTestAppFull(debianScanner(), apiClient, runner, true, false, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 	assert.Empty(t, runner.Calls, "dry-run must not execute any commands")
 }
