@@ -31,14 +31,14 @@ func debianScanner() *MockScanner {
 }
 
 func newTestApp(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun bool) *App {
-	return newTestAppWithAlias(scanner, apiClient, runner, dryRun, true)
+	return newTestAppFull(scanner, apiClient, runner, dryRun, true, false, nil)
 }
 
-func newTestAppWithAlias(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, useAlias bool) *App {
+func newTestAppFull(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, useAlias, skipUpgrades bool, ignoreSet map[string]struct{}) *App {
 	executor := NewExecutor("test-api-key", "https://pkg.root.io", false, runner)
 	return NewAppWithServices(
 		"test-api-key", "https://pkg.root.io",
-		dryRun, useAlias, false,
+		dryRun, useAlias, false, skipUpgrades, ignoreSet,
 		logger(),
 		scanner, apiClient, executor,
 	)
@@ -103,7 +103,8 @@ func TestApp_Run_NoPatches(t *testing.T) {
 			return &rootio.OsAnalyzeResponse{}, nil
 		},
 	}
-	app := newTestApp(debianScanner(), apiClient, runner, true)
+	// SkipUpgrades=true so that with no patches there is genuinely nothing to do.
+	app := newTestAppFull(debianScanner(), apiClient, runner, false, true, true, nil)
 	require.NoError(t, app.Run(context.Background()))
 	assert.Empty(t, runner.Calls, "no commands should run when there is nothing to patch")
 }
@@ -163,21 +164,20 @@ func TestApp_Run_DryRun_NoCommands(t *testing.T) {
 
 func TestApp_Run_OnlyUpgrades(t *testing.T) {
 	runner := &MockRunner{}
+	// No patches: the broad upgrade set is computed from the installed packages
+	// (curl, openssl) client-side.
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
-			return &rootio.OsAnalyzeResponse{
-				Upgradeable: []rootio.UpgradeableOsPackage{
-					{PackageName: "openssl", CurrentVersion: "3.0.11-1", UpgradeVersion: "3.0.15-1"},
-				},
-			}, nil
+			return &rootio.OsAnalyzeResponse{}, nil
 		},
 	}
 	app := newTestApp(debianScanner(), apiClient, runner, false)
 	require.NoError(t, app.Run(context.Background()))
 
 	assert.True(t, runner.calledWith("apt-get", "apt-get", "update"), "apt-get update must run")
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "--allow-downgrades", "openssl"), "must install upgrade")
-	// GPG key setup must NOT happen for upgrades-only
+	// Broad upgrade installs all non-patched installed packages by name (sorted), no --allow-downgrades.
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "curl", "openssl"), "must install upgrades")
+	// GPG key / repo setup must NOT happen for upgrades-only
 	for _, c := range runner.Calls {
 		joined := c.Name + " " + strings.Join(c.Args, " ")
 		assert.NotContains(t, joined, "rootio.list", "Root.io repo files must not be written for upgrades-only")
@@ -212,7 +212,9 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "--allow-remove-essential", "--no-install-recommends", "-y", "rootio-curl"))
 	// original curl must be removed
 	assert.True(t, runner.calledWith("env"), "original package removal must run")
-	// cleanup: repo list must be removed
+	// broad upgrade runs by name (curl is patched, so only openssl remains)
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "openssl"), "broad upgrade must install non-patched packages")
+	// repo source list + pin AND the remaining Root.io files must all be removed
 	cleanupFiles := []string{
 		sourcesListDir + "/rootio.list",
 		prefsDir + "/rootio",
@@ -229,6 +231,40 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 		}
 		assert.True(t, found, "cleanup must remove %s", f)
 	}
+
+	// Sequencing: RemoveRootioRepo (rm rootio.list) must come BEFORE the broad
+	// upgrade install, which must come BEFORE final cleanup (rm gpg key).
+	idxRepoRemoved := indexOfCall(runner.Calls, "rm", "-f", sourcesListDir+"/rootio.list")
+	idxUpgrade := indexOfCall(runner.Calls, "apt-get", "install", "-y", "openssl")
+	idxKeyRemoved := indexOfCall(runner.Calls, "rm", "-f", gpgKeyPath)
+	require.GreaterOrEqual(t, idxRepoRemoved, 0)
+	require.GreaterOrEqual(t, idxUpgrade, 0)
+	require.GreaterOrEqual(t, idxKeyRemoved, 0)
+	assert.Less(t, idxRepoRemoved, idxUpgrade, "repo must be removed before the broad upgrade")
+	assert.Less(t, idxUpgrade, idxKeyRemoved, "broad upgrade must run before final cleanup")
+}
+
+// indexOfCall returns the index of the first runner call whose name+args exactly
+// match, or -1 if none.
+func indexOfCall(calls []CommandCall, name string, args ...string) int {
+	want := append([]string{name}, args...)
+	for i, c := range calls {
+		got := append([]string{c.Name}, c.Args...)
+		if len(got) != len(want) {
+			continue
+		}
+		match := true
+		for j := range want {
+			if got[j] != want[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
+	}
+	return -1
 }
 
 // --- Apply: low-level package uses dpkg path ---
@@ -294,7 +330,7 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 			}, nil
 		},
 	}
-	app := newTestAppWithAlias(debianScanner(), apiClient, runner, false, false /* useAlias=false */)
+	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 
 	// Must install under original names
@@ -325,7 +361,7 @@ func TestApp_Run_NonAliased_NoRemoveOriginals(t *testing.T) {
 			}, nil
 		},
 	}
-	app := newTestAppWithAlias(debianScanner(), apiClient, runner, false, false /* useAlias=false */)
+	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 
 	// Non-aliased path must not remove originals (they are the installed packages)
@@ -353,7 +389,53 @@ func TestApp_Run_NonAliased_DryRun_ShowsOriginalNames(t *testing.T) {
 			}, nil
 		},
 	}
-	app := newTestAppWithAlias(debianScanner(), apiClient, runner, true /* dry-run */, false /* useAlias=false */)
+	app := newTestAppFull(debianScanner(), apiClient, runner, true, false, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 	assert.Empty(t, runner.Calls, "dry-run must not execute any commands")
+}
+
+// --- Executor: RemoveRootioRepo removes repo + pin and refreshes the index ---
+
+func TestExecutor_RemoveRootioRepo(t *testing.T) {
+	runner := &MockRunner{}
+	e := NewExecutor("test-api-key", "https://pkg.root.io", false, runner)
+	require.NoError(t, e.RemoveRootioRepo(context.Background()))
+
+	assert.True(t, runner.calledWith("rm", "rm", "-f", sourcesListDir+"/rootio.list"), "source list must be removed")
+	assert.True(t, runner.calledWith("rm", "rm", "-f", prefsDir+"/rootio"), "pin must be removed")
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "update"), "index must be refreshed")
+}
+
+// --- Executor: Cleanup no longer removes the source list or pin ---
+
+func TestExecutor_Cleanup_DoesNotRemoveRepoOrPin(t *testing.T) {
+	runner := &MockRunner{}
+	e := NewExecutor("test-api-key", "https://pkg.root.io", false, runner)
+	require.NoError(t, e.Cleanup(context.Background()))
+
+	assert.False(t, runner.calledWith("rm", "rm", "-f", sourcesListDir+"/rootio.list"), "Cleanup must not remove the source list")
+	assert.False(t, runner.calledWith("rm", "rm", "-f", prefsDir+"/rootio"), "Cleanup must not remove the pin")
+	assert.True(t, runner.calledWith("rm", "rm", "-f", gpgKeyPath), "Cleanup must remove the GPG key")
+	assert.True(t, runner.calledWith("rm", "rm", "-f", authConfDir+"/rootio.conf"), "Cleanup must remove the auth config")
+	assert.True(t, runner.calledWith("rm", "rm", "-rf", "/var/lib/apt/lists/*"), "Cleanup must clear apt lists")
+}
+
+// --- Executor: InstallUpgrades drops --allow-downgrades ---
+
+func TestExecutor_InstallUpgrades_NoAllowDowngrades(t *testing.T) {
+	runner := &MockRunner{}
+	e := NewExecutor("test-api-key", "https://pkg.root.io", false, runner)
+	require.NoError(t, e.InstallUpgrades(context.Background(), []string{"curl", "openssl"}))
+
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "curl", "openssl"))
+	for _, c := range runner.Calls {
+		assert.NotContains(t, c.Args, "--allow-downgrades", "InstallUpgrades must not use --allow-downgrades")
+	}
+}
+
+func TestExecutor_InstallUpgrades_EmptyIsNoop(t *testing.T) {
+	runner := &MockRunner{}
+	e := NewExecutor("test-api-key", "https://pkg.root.io", false, runner)
+	require.NoError(t, e.InstallUpgrades(context.Background(), nil))
+	assert.Empty(t, runner.Calls, "empty upgrade set must run no commands")
 }

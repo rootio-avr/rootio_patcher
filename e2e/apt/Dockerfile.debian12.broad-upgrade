@@ -1,0 +1,58 @@
+FROM debian:bookworm-slim
+
+ARG ROOTIO_API_KEY
+ARG ROOTIO_API_URL=https://api.root.io
+ARG ROOTIO_PKG_URL=https://pkg.root.io
+
+# Install packages the API is likely to return as broad-upgrade candidates (not Root.io patches).
+# The patcher must compute the upgrade set client-side and run apt-get install on them.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    openssl \
+    gzip \
+    bzip2 \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  BEFORE patching                            │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
+      curl openssl gzip bzip2
+
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run patcher with debug logging so we can inspect the upgrade plan in the log.
+RUN ROOTIO_API_KEY=${ROOTIO_API_KEY} \
+    ROOTIO_API_URL=${ROOTIO_API_URL} \
+    ROOTIO_PKG_URL=${ROOTIO_PKG_URL} \
+    LOG_LEVEL=debug \
+    rootio_patcher apt remediate --dry-run=false > /tmp/patcher.log 2>&1; \
+    RC=$?; cat /tmp/patcher.log; exit $RC
+
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  AFTER patching                             │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    dpkg-query --show --showformat='  ${Package}  ${Version}\n' \
+      curl openssl gzip bzip2 && \
+    echo "" && \
+    echo "=== UPGRADE PLAN LOG ===" && \
+    grep -E "Computed upgrade plan|upgrade_count|upgrades=" /tmp/patcher.log || true && \
+    echo "" && \
+    \
+    FAIL=0 && \
+    \
+    curl --version    > /dev/null 2>&1 && echo "  PASS  curl binary works"    || { echo "  FAIL  curl binary broken";    FAIL=1; } && \
+    openssl version   > /dev/null 2>&1 && echo "  PASS  openssl binary works" || { echo "  FAIL  openssl binary broken"; FAIL=1; } && \
+    gzip   --version  > /dev/null 2>&1 && echo "  PASS  gzip binary works"   || { echo "  FAIL  gzip binary broken";   FAIL=1; } && \
+    bzip2  --version  > /dev/null 2>&1 && echo "  PASS  bzip2 binary works"  || { echo "  FAIL  bzip2 binary broken";  FAIL=1; } && \
+    \
+    grep -q "Computed upgrade plan" /tmp/patcher.log && \
+        echo "  PASS  client-side upgrade plan computed" || \
+        { echo "  FAIL  upgrade plan not found in log — computeUpgradeSet may not have run"; FAIL=1; } && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }

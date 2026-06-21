@@ -17,22 +17,23 @@ type App struct {
 	inner *common.OsApp[OSInfo]
 }
 
-func NewApp(apiKey, apiURL, pkgURL string, dryRun, useAlias, verbose bool, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, pkgURL string, dryRun, useAlias, verbose, skipUpgrades bool, ignoreSet map[string]struct{}, logger *slog.Logger) *App {
 	client := rootio.NewClient(apiURL, apiKey)
 	executor := NewExecutor(apiKey, pkgURL, verbose, NewRealRunner())
-	return NewAppWithServices(apiKey, pkgURL, dryRun, useAlias, verbose, logger, NewScanner(), client, executor)
+	return NewAppWithServices(apiKey, pkgURL, dryRun, useAlias, verbose, skipUpgrades, ignoreSet, logger, NewScanner(), client, executor)
 }
 
 func NewAppWithServices(
 	apiKey, pkgURL string,
-	dryRun, useAlias, verbose bool,
+	dryRun, useAlias, verbose, skipUpgrades bool,
+	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	scanner Scanner,
 	apiClient APIClient,
 	executor *Executor,
 ) *App {
 	return &App{inner: common.NewOsApp(
-		pkgURL, dryRun, useAlias, logger,
+		pkgURL, dryRun, useAlias, skipUpgrades, ignoreSet, logger,
 		scanner, apiClient, executor,
 		aptConfig(),
 	)}
@@ -48,6 +49,9 @@ func aptConfig() common.OsAppConfig[OSInfo] {
 		UpdateErrMsg:  "apt-get update failed",
 		SetupMsg:      "\nSetting up Root.io APT repository...",
 		CleanupMsg:    "\nCleaning up Root.io APT repository...",
+		// PackageBlacklist: packages never offered for the broad upstream upgrade.
+		// Empty for apt for now.
+		PackageBlacklist: map[string]bool{},
 		GetAPIParams: func(o *OSInfo) (endpoint, ecosystem, distroVersion string) {
 			return "apt", o.Ecosystem, o.DistroVersion
 		},

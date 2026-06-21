@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 
 	"rootio_patcher/pkg/rootio"
 )
@@ -15,13 +17,17 @@ type OsExecutor interface {
 	Setup(ctx context.Context, registryURL string) error
 	// IndexUpdate refreshes the package index (apt-get update / apk update)
 	IndexUpdate(ctx context.Context) error
-	// InstallUpgrades installs packages available from the official repository
-	InstallUpgrades(ctx context.Context, upgradeable []rootio.UpgradeableOsPackage) error
+	// InstallUpgrades installs the named packages from the official distro repository.
+	InstallUpgrades(ctx context.Context, names []string) error
 	// InstallPatches installs Root.io packages.
 	// registryURL is provided for executors that need it for pinning (e.g. apt); others ignore it.
 	// useAlias controls whether the aliased (rootio-*) or original package name is installed.
 	InstallPatches(ctx context.Context, registryURL string, patches []rootio.PackagePatch, useAlias bool) error
-	// Cleanup removes the Root.io repository and any related files
+	// RemoveRootioRepo removes the Root.io repository (and apt pin) and refreshes the index,
+	// so subsequent upgrades resolve only against the official distro repo. Called exactly
+	// once, after patches are installed.
+	RemoveRootioRepo(ctx context.Context) error
+	// Cleanup removes the remaining Root.io files (keys, auth, caches)
 	Cleanup(ctx context.Context) error
 	// PostUpgradesOnly is called after upgrades when no patches were applied.
 	// Executors that need post-upgrade cleanup (e.g. clearing apt caches) implement it here.
@@ -48,24 +54,30 @@ type OsAppConfig[T any] struct {
 	GetRegistryURL func(pkgURL string, osInfo *T) string
 	// LogOsInfo emits OS-specific debug fields after OS detection
 	LogOsInfo func(ctx context.Context, logger *slog.Logger, osInfo *T)
+	// PackageBlacklist is a per-ecosystem set of package names never offered for upgrade
+	PackageBlacklist map[string]bool
 }
 
 // OsApp orchestrates the OS-level remediation workflow
 type OsApp[T any] struct {
-	pkgURL    string
-	dryRun    bool
-	useAlias  bool
-	logger    *slog.Logger
-	scanner   Scanner[T]
-	apiClient OsAPIClient
-	executor  OsExecutor
-	config    OsAppConfig[T]
+	pkgURL       string
+	dryRun       bool
+	useAlias     bool
+	skipUpgrades bool
+	ignoreSet    map[string]struct{}
+	logger       *slog.Logger
+	scanner      Scanner[T]
+	apiClient    OsAPIClient
+	executor     OsExecutor
+	config       OsAppConfig[T]
 }
 
 func NewOsApp[T any](
 	pkgURL string,
 	dryRun bool,
 	useAlias bool,
+	skipUpgrades bool,
+	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	scanner Scanner[T],
 	apiClient OsAPIClient,
@@ -73,14 +85,16 @@ func NewOsApp[T any](
 	config OsAppConfig[T],
 ) *OsApp[T] {
 	return &OsApp[T]{
-		pkgURL:    pkgURL,
-		dryRun:    dryRun,
-		useAlias:  useAlias,
-		logger:    logger,
-		scanner:   scanner,
-		apiClient: apiClient,
-		executor:  executor,
-		config:    config,
+		pkgURL:       pkgURL,
+		dryRun:       dryRun,
+		useAlias:     useAlias,
+		skipUpgrades: skipUpgrades,
+		ignoreSet:    ignoreSet,
+		logger:       logger,
+		scanner:      scanner,
+		apiClient:    apiClient,
+		executor:     executor,
+		config:       config,
 	}
 }
 
@@ -123,58 +137,87 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 
 	a.logger.DebugContext(ctx, "Analysis complete",
 		slog.Int("patches", len(response.Patches)),
-		slog.Int("upgradeable", len(response.Upgradeable)),
+		// server_upgradeable is the server's now-ignored upgradeable count; the
+		// real upgrade set is computed client-side below (see "Computed upgrade plan").
+		slog.Int("server_upgradeable", len(response.Upgradeable)),
 		slog.Int("skipped", len(response.Skipped)),
 	)
 
-	// 4. Nothing to do?
-	if len(response.Patches) == 0 && len(response.Upgradeable) == 0 {
+	// 4. Compute the work set.
+	//    Patches are filtered by the ignore list; the broad upgrade set is
+	//    computed client-side as installed − patched − blacklist − ignored.
+	patches := filterPatches(response.Patches, a.ignoreSet)
+	var upgradeNames []string
+	if !a.skipUpgrades {
+		upgradeNames = computeUpgradeSet(installed, patches, a.config.PackageBlacklist, a.ignoreSet)
+	}
+	hasPatches := len(patches) > 0
+
+	a.logger.DebugContext(ctx, "Computed upgrade plan",
+		slog.Int("patches", len(patches)),
+		slog.Int("upgrade_set", len(upgradeNames)),
+	)
+
+	// 5. Nothing to do?
+	if !hasPatches && len(upgradeNames) == 0 {
 		fmt.Println("\nNo patches needed — all packages are up to date!")
 		return nil
 	}
 
-	// 5. Dry-run: print what would be done
+	// 6. Dry-run: print what would be done
 	if a.dryRun {
-		ReportOsDryRun(response, "rootio_patcher "+cfg.Name+" remediate --dry-run=false", a.useAlias)
+		ReportOsDryRun(response, patches, upgradeNames, "rootio_patcher "+cfg.Name+" remediate --dry-run=false", a.useAlias)
 		return nil
 	}
 
-	// 6. Execute remediation
-	registryURL := cfg.GetRegistryURL(a.pkgURL, osInfo)
-	hasPatches := len(response.Patches) > 0
-
+	// 7. Execute remediation
 	if hasPatches {
+		registryURL := cfg.GetRegistryURL(a.pkgURL, osInfo)
+
 		fmt.Println(cfg.SetupMsg)
 		if err := a.executor.Setup(ctx, registryURL); err != nil {
 			return fmt.Errorf("repository setup failed: %w", err)
+		}
+
+		fmt.Printf("\nInstalling %d Root.io patch(es)...\n", len(patches))
+		if err := a.executor.InstallPatches(ctx, registryURL, patches, a.useAlias); err != nil {
+			return fmt.Errorf("patches failed: %w", err)
+		}
+
+		// Remove the Root.io repo+pin BEFORE upgrades so the broad upgrade
+		// resolves only against the official distro repo.
+		if err := a.executor.RemoveRootioRepo(ctx); err != nil {
+			return fmt.Errorf("remove Root.io repository failed: %w", err)
+		}
+
+		if len(upgradeNames) > 0 {
+			// Relies on RemoveRootioRepo having just refreshed the index
+			// (e.g. apt-get update) with the Root.io source removed, so this
+			// upgrade resolves against a fresh, rootio-free index. Do not make
+			// RemoveRootioRepo skip the index refresh.
+			fmt.Printf("\nInstalling %d upgrade(s)...\n", len(upgradeNames))
+			if err := a.executor.InstallUpgrades(ctx, upgradeNames); err != nil {
+				return fmt.Errorf("upgrades failed: %w", err)
+			}
+		}
+
+		fmt.Println(cfg.CleanupMsg)
+		if err := a.executor.Cleanup(ctx); err != nil {
+			return fmt.Errorf("cleanup failed: %w", err)
 		}
 	} else {
 		fmt.Println(cfg.UpdateMsg)
 		if err := a.executor.IndexUpdate(ctx); err != nil {
 			return fmt.Errorf(cfg.UpdateErrMsg+": %w", err)
 		}
-	}
 
-	if len(response.Upgradeable) > 0 {
-		fmt.Printf("\nInstalling %d upgrade(s)...\n", len(response.Upgradeable))
-		if err := a.executor.InstallUpgrades(ctx, response.Upgradeable); err != nil {
-			return fmt.Errorf("upgrades failed: %w", err)
+		if len(upgradeNames) > 0 {
+			fmt.Printf("\nInstalling %d upgrade(s)...\n", len(upgradeNames))
+			if err := a.executor.InstallUpgrades(ctx, upgradeNames); err != nil {
+				return fmt.Errorf("upgrades failed: %w", err)
+			}
 		}
-	}
 
-	if len(response.Patches) > 0 {
-		fmt.Printf("\nInstalling %d Root.io patch(es)...\n", len(response.Patches))
-		if err := a.executor.InstallPatches(ctx, registryURL, response.Patches, a.useAlias); err != nil {
-			return fmt.Errorf("patches failed: %w", err)
-		}
-	}
-
-	if hasPatches {
-		fmt.Println(cfg.CleanupMsg)
-		if err := a.executor.Cleanup(ctx); err != nil {
-			return fmt.Errorf("cleanup failed: %w", err)
-		}
-	} else {
 		if err := a.executor.PostUpgradesOnly(ctx); err != nil {
 			return fmt.Errorf("post-upgrade cleanup failed: %w", err)
 		}
@@ -182,4 +225,85 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 
 	fmt.Println("\n✓ " + cfg.Name + " remediation complete")
 	return nil
+}
+
+// ignoreNamesFromSet extracts the package-name portion from each ignoreSet key.
+// Keys are "name@version"; the name is the substring before the LAST "@".
+// If there is no "@", the whole key is treated as the package name.
+//
+// This DIVERGES from IgnoreListToPackages (ignore.go) intentionally: the OS
+// upgrade path ignores strictly by name, so a bare key with no version
+// (e.g. "nginx") means "never touch nginx" and is honored here.
+// IgnoreListToPackages, by contrast, skips bare keys because the API only
+// accepts name@version pairs.
+func ignoreNamesFromSet(ignoreSet map[string]struct{}) map[string]struct{} {
+	names := make(map[string]struct{}, len(ignoreSet))
+	for key := range ignoreSet {
+		at := strings.LastIndex(key, "@")
+		if at >= 0 {
+			names[key[:at]] = struct{}{}
+		} else {
+			names[key] = struct{}{}
+		}
+	}
+	return names
+}
+
+// computeUpgradeSet returns the names of installed packages that should be
+// offered for a broad OS upgrade: those NOT already covered by a Root.io patch,
+// NOT in the blacklist, and NOT ignored.
+// The result is de-duplicated and sorted ascending for deterministic output.
+func computeUpgradeSet(installed []InstalledPackage, patches []rootio.PackagePatch, blacklist map[string]bool, ignoreSet map[string]struct{}) []string {
+	patched := make(map[string]struct{}, len(patches))
+	for _, p := range patches {
+		patched[p.PackageName] = struct{}{}
+	}
+
+	ignored := ignoreNamesFromSet(ignoreSet)
+
+	seen := make(map[string]struct{})
+	for _, pkg := range installed {
+		name := pkg.Name
+		if _, isPatch := patched[name]; isPatch {
+			continue
+		}
+		if blacklist[name] {
+			continue
+		}
+		if _, isIgnored := ignored[name]; isIgnored {
+			continue
+		}
+		seen[name] = struct{}{}
+	}
+
+	result := make([]string, 0, len(seen))
+	for name := range seen {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// filterPatches drops any patch whose PackageName is in the ignored-names set
+// (derived from ignoreSet using the same "name@version" / bare-name rules).
+// The remaining patches are returned in input order.
+//
+// When nothing is filtered (empty patches or empty ignoreSet), the caller's
+// slice is returned unchanged rather than copied; callers must not mutate the
+// returned slice's elements expecting an independent copy.
+func filterPatches(patches []rootio.PackagePatch, ignoreSet map[string]struct{}) []rootio.PackagePatch {
+	if len(patches) == 0 || len(ignoreSet) == 0 {
+		return patches
+	}
+
+	ignored := ignoreNamesFromSet(ignoreSet)
+
+	result := make([]rootio.PackagePatch, 0, len(patches))
+	for _, p := range patches {
+		if _, isIgnored := ignored[p.PackageName]; isIgnored {
+			continue
+		}
+		result = append(result, p)
+	}
+	return result
 }
