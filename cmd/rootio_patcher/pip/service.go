@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
@@ -140,6 +143,39 @@ func (s *PipService) ApplyPatchForPip(ctx context.Context, patch rootio.PackageP
 		return fmt.Errorf("pip upgrade failed: %w (output: %s)", err, string(output))
 	}
 
+	// --upgrade can't uninstall pip mid-run, so the old pip-<ver>.dist-info stays on
+	// disk. Trivy reads dist-info to detect versions, causing a false CVE flag. Remove
+	// it now that rootio_pip's dist-info is safely written. Warn-and-continue: cleanup
+	// failure is a scanner annoyance, not a reason to roll back a successful patch.
+	if err := s.removeLegacyDistInfo(ctx, patch.PackageName); err != nil {
+		s.logger.WarnContext(ctx, "could not remove legacy dist-info (scanner may still flag pip CVEs)",
+			slog.String("package", patch.PackageName), slog.Any("err", err))
+	}
+
+	return nil
+}
+
+// removeLegacyDistInfo deletes <site-packages>/<pkg>-*.dist-info directories left on disk
+// after a pip --upgrade (uninstalling pip mid-run is not possible).
+func (s *PipService) removeLegacyDistInfo(ctx context.Context, packageName string) error {
+	//nolint:gosec // safe: fixed args, pythonPath from config
+	out, err := exec.CommandContext(ctx, s.pythonPath, "-c",
+		"import sysconfig; print(sysconfig.get_paths()['purelib'])").Output()
+	if err != nil {
+		return fmt.Errorf("locate site-packages: %w", err)
+	}
+	sitePackages := strings.TrimSpace(string(out))
+
+	// filepath.Base ensures a malformed package name can't escape sitePackages.
+	pattern := filepath.Join(sitePackages, filepath.Base(packageName)+"-*.dist-info")
+	matches, _ := filepath.Glob(pattern) // pattern is machine-constructed; ErrBadPattern is impossible
+
+	for _, dir := range matches {
+		s.logger.DebugContext(ctx, "removing legacy dist-info", slog.String("dir", dir))
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("remove %s: %w", dir, err)
+		}
+	}
 	return nil
 }
 
