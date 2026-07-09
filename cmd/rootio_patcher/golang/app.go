@@ -249,8 +249,8 @@ func (a *App) Run(ctx context.Context) error {
 
 		fmt.Printf("\nFetching %d patch(es) via Root.io proxy (non-aliased)...\n\n", len(response.Patches))
 		for _, patch := range response.Patches {
-			fmt.Printf("  - %s %s\n", patch.PackageName, patch.Version)
-			arg := patch.PackageName + "@" + patch.Version
+			fmt.Printf("  - %s %s\n", patch.PackageName, patch.Patch.Version)
+			arg := patch.PackageName + "@" + patch.Patch.Version
 			if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "get", arg); err != nil {
 				return fmt.Errorf("go get %s failed: %w", arg, err)
 			}
@@ -299,7 +299,7 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	} else {
 		fmt.Printf("The following packages would be fetched via the Root.io proxy (no replace directives added to %s):\n\n", a.goModPath)
 		for i, patch := range patches {
-			fmt.Printf("%d. %s %s (patched via proxy)\n", i+1, patch.PackageName, patch.Version)
+			fmt.Printf("%d. %s %s (patched via proxy)\n", i+1, patch.PackageName, patch.Patch.Version)
 			if len(patch.CVEIDs) > 0 {
 				fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
 			}
