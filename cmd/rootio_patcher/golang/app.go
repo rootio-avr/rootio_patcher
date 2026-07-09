@@ -97,39 +97,6 @@ func (a *App) buildGoEnv(noSumDB string) []string {
 	}
 }
 
-// goEnv returns env vars for aliased patching: GONOSUMDB covers the fixed aliased module host.
-func (a *App) goEnv() []string {
-	return a.buildGoEnv(aliasedModuleHost)
-}
-
-// goEnvNonAliased returns env vars for non-aliased patching's `go mod tidy`/`go mod vendor`
-// step: GONOSUMDB is scoped to only the patched module paths so all other modules still get
-// checksum-verified.
-func (a *App) goEnvNonAliased(patches []rootio.PackagePatch) []string {
-	moduleNames := make([]string, len(patches))
-	for i, patch := range patches {
-		moduleNames[i] = patch.PackageName
-	}
-	return a.buildGoEnv(strings.Join(moduleNames, ","))
-}
-
-// applyGoModUpdates patches go.mod with the given replace directives and writes the result
-// to disk, printing progress messages. Shared by both the aliased and non-aliased flows.
-func (a *App) applyGoModUpdates(ctx context.Context, updates []GoModUpdate) error {
-	fmt.Printf("\nAdding %d replace directive(s) to %s...\n\n", len(updates), a.goModPath)
-
-	updatedContent, err := a.parser.Patch(ctx, a.goModPath, updates)
-	if err != nil {
-		return fmt.Errorf("failed to patch %s: %w", a.goModPath, err)
-	}
-	if err := os.WriteFile(a.goModPath, []byte(updatedContent), 0644); err != nil {
-		return fmt.Errorf("failed to write %s: %w", a.goModPath, err)
-	}
-
-	fmt.Printf("\n✓ Successfully patched %s with %d replace directive(s)!\n", a.goModPath, len(updates))
-	return nil
-}
-
 // Run executes the Go module remediation workflow.
 func (a *App) Run(ctx context.Context) error {
 	a.logger.DebugContext(ctx, "Starting golang remediation",
@@ -194,41 +161,23 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	goModDir := filepath.Dir(a.goModPath)
-	goEnv := a.goEnv()
+	goEnv := a.goEnv(response.Patches)
 
-	if a.useAlias {
-		// 7a. Aliased: write replace directives pointing to pkg.root.io/...
-		updates := make([]GoModUpdate, len(response.Patches))
-		for i, patch := range response.Patches {
-			updates[i] = GoModUpdate{
-				Module:         patch.PackageName,
-				CurrentVersion: patch.Version,
-				AliasName:      patch.PatchAlias.Name,
-				AliasVersion:   patch.PatchAlias.Version,
-			}
+	// 7. Write replace directives: pointing to pkg.root.io/... in aliased mode, or to the
+	// same module path at the patched version in non-aliased mode.
+	updates := make([]GoModUpdate, len(response.Patches))
+	for i, patch := range response.Patches {
+		name, version := a.replaceTarget(patch)
+		updates[i] = GoModUpdate{
+			Module:         patch.PackageName,
+			CurrentVersion: patch.Version,
+			AliasName:      name,
+			AliasVersion:   version,
 		}
+	}
 
-		if err := a.applyGoModUpdates(ctx, updates); err != nil {
-			return err
-		}
-	} else {
-		// 7b. Non-aliased: write non-aliased same-module-path replace directives
-		updates := make([]GoModUpdate, len(response.Patches))
-		for i, patch := range response.Patches {
-			updates[i] = GoModUpdate{
-				Module:         patch.PackageName,
-				CurrentVersion: patch.Version,
-				AliasName:      patch.PackageName,
-				AliasVersion:   patch.Patch.Version,
-			}
-		}
-
-		// Use GONOSUMDB scoped to patched modules only so others still get verified.
-		goEnv = a.goEnvNonAliased(response.Patches)
-
-		if err := a.applyGoModUpdates(ctx, updates); err != nil {
-			return err
-		}
+	if err := a.applyGoModUpdates(ctx, updates); err != nil {
+		return err
 	}
 
 	// 8. Run go mod tidy (with Root.io GOPROXY so the proxy supplies patched modules)
@@ -258,33 +207,58 @@ func (a *App) Run(ctx context.Context) error {
 func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	fmt.Println("\n=== DRY-RUN MODE ===")
 
-	if a.useAlias {
-		fmt.Printf("The following replace directives would be added to %s:\n\n", a.goModPath)
-		for i, patch := range patches {
-			fmt.Printf("%d. replace %s %s => %s %s\n",
-				i+1,
-				patch.PackageName, patch.Version,
-				patch.PatchAlias.Name, patch.PatchAlias.Version)
-			if len(patch.CVEIDs) > 0 {
-				fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
-			}
-			fmt.Println()
+	fmt.Printf("The following replace directives would be added to %s:\n\n", a.goModPath)
+	for i, patch := range patches {
+		name, version := a.replaceTarget(patch)
+		fmt.Printf("%d. replace %s %s => %s %s\n", i+1, patch.PackageName, patch.Version, name, version)
+		if len(patch.CVEIDs) > 0 {
+			fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
 		}
-	} else {
-		fmt.Printf("The following replace directives would be added to %s:\n\n", a.goModPath)
-		for i, patch := range patches {
-			fmt.Printf("%d. replace %s %s => %s %s\n",
-				i+1,
-				patch.PackageName, patch.Version,
-				patch.PackageName, patch.Patch.Version)
-			if len(patch.CVEIDs) > 0 {
-				fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
-			}
-			fmt.Println()
-		}
+		fmt.Println()
 	}
 
 	fmt.Println("To apply these patches:")
 	fmt.Println("  1. Run: rootio_patcher go remediate --dry-run=false")
 	fmt.Println("  2. Then run: go build ./...")
+}
+
+// applyGoModUpdates patches go.mod with the given replace directives and writes the result
+// to disk, printing progress messages. Shared by both the aliased and non-aliased flows.
+func (a *App) applyGoModUpdates(ctx context.Context, updates []GoModUpdate) error {
+	fmt.Printf("\nAdding %d replace directive(s) to %s...\n\n", len(updates), a.goModPath)
+
+	updatedContent, err := a.parser.Patch(ctx, a.goModPath, updates)
+	if err != nil {
+		return fmt.Errorf("failed to patch %s: %w", a.goModPath, err)
+	}
+	if err := os.WriteFile(a.goModPath, []byte(updatedContent), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", a.goModPath, err)
+	}
+
+	fmt.Printf("\n✓ Successfully patched %s with %d replace directive(s)!\n", a.goModPath, len(updates))
+	return nil
+}
+
+// goEnv returns env vars for the `go mod tidy`/`go mod vendor` step. In aliased mode GONOSUMDB
+// covers the fixed aliased module host; in non-aliased mode it's scoped to just the patched
+// module paths so all other modules still get checksum-verified.
+func (a *App) goEnv(patches []rootio.PackagePatch) []string {
+	if a.useAlias {
+		return a.buildGoEnv(aliasedModuleHost)
+	}
+	moduleNames := make([]string, len(patches))
+	for i, patch := range patches {
+		moduleNames[i] = patch.PackageName
+	}
+	return a.buildGoEnv(strings.Join(moduleNames, ","))
+}
+
+// replaceTarget returns the module path and version a require should be redirected to for a
+// given patch: the aliased module under pkg.root.io/... in aliased mode, or the same module
+// path at the patched version in non-aliased mode.
+func (a *App) replaceTarget(patch rootio.PackagePatch) (name, version string) {
+	if a.useAlias {
+		return patch.PatchAlias.Name, patch.PatchAlias.Version
+	}
+	return patch.PackageName, patch.Patch.Version
 }
