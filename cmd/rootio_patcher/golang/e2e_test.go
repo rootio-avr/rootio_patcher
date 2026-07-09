@@ -287,6 +287,63 @@ require (
 	assert.Equal(t, dir, cmdRunner.Calls[1].Dir)
 }
 
+func TestGoLangApp_E2E_NonAliased_UsesPatchVersion(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	dir := t.TempDir()
+	goModPath := writeGoMod(t, dir, `module example.com/myapp
+
+go 1.21
+
+require github.com/google/uuid v1.3.0
+`)
+	goSumPath := filepath.Join(dir, "go.sum")
+	require.NoError(t, os.WriteFile(goSumPath, []byte(
+		"github.com/google/uuid v1.3.0 h1:t6JiXb...=\n"+
+			"github.com/google/uuid v1.3.0/go.mod h1:TIyP...=\n",
+	), 0644))
+
+	cmdRunner := &MockCommandRunner{}
+
+	app := NewApp(
+		"test-key",
+		"https://api.root.io",
+		"https://pkg.root.io",
+		goModPath,
+		false,
+		false, // useAlias=false
+		nil,
+		logger,
+		NewGoModParser(logger),
+		&MockAPIClient{
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+				return &rootio.AnalyzePackagesResponse{
+					Patches: []rootio.PackagePatch{
+						{
+							PackageName: "github.com/google/uuid",
+							Version:     "v1.3.0",
+							// Patch.Version is the real artifact pkg.root.io serves for
+							// non-aliased mode — distinct from the installed version.
+							Patch:      rootio.PatchInfo{Name: "github.com/google/uuid", Version: "v1.3.0-root.io.1"},
+							PatchAlias: rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.1"},
+							CVEIDs:     []string{"CVE-2023-12345"},
+						},
+					},
+				}, nil
+			},
+		},
+		cmdRunner,
+	)
+
+	require.NoError(t, app.Run(ctx))
+
+	require.NotEmpty(t, cmdRunner.Calls, "expected at least a go get call")
+	assert.Equal(t, "go", cmdRunner.Calls[0].Name)
+	assert.Equal(t, []string{"get", "github.com/google/uuid@v1.3.0-root.io.1"}, cmdRunner.Calls[0].Args,
+		"go get must target the patched artifact's version (patch.Patch.Version), not the currently-installed version")
+}
+
 // TestGoLangApp_E2E_NonAliased_MultiplePatches verifies that when multiple modules are patched,
 // all their go.sum entries are removed, go get is called for each, and GONOSUMDB covers all of them.
 func TestGoLangApp_E2E_NonAliased_MultiplePatches(t *testing.T) {
