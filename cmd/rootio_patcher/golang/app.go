@@ -102,8 +102,9 @@ func (a *App) goEnv() []string {
 	return a.buildGoEnv(aliasedModuleHost)
 }
 
-// goEnvNonAliased returns env vars for non-aliased patching: GONOSUMDB is scoped to only
-// the patched module paths so all other modules still get checksum-verified.
+// goEnvNonAliased returns env vars for non-aliased patching's `go mod tidy`/`go mod vendor`
+// step: GONOSUMDB is scoped to only the patched module paths so all other modules still get
+// checksum-verified.
 func (a *App) goEnvNonAliased(patches []rootio.PackagePatch) []string {
 	moduleNames := make([]string, len(patches))
 	for i, patch := range patches {
@@ -112,39 +113,21 @@ func (a *App) goEnvNonAliased(patches []rootio.PackagePatch) []string {
 	return a.buildGoEnv(strings.Join(moduleNames, ","))
 }
 
-// removeGoSumEntries removes all go.sum lines for the given patched modules so Go
-// will re-fetch and re-hash them from the Root.io proxy.
-func removeGoSumEntries(goSumPath string, patches []rootio.PackagePatch) error {
-	data, err := os.ReadFile(goSumPath)
-	if os.IsNotExist(err) {
-		return nil
-	}
+// applyGoModUpdates patches go.mod with the given replace directives and writes the result
+// to disk, printing progress messages. Shared by both the aliased and non-aliased flows.
+func (a *App) applyGoModUpdates(ctx context.Context, updates []GoModUpdate) error {
+	fmt.Printf("\nAdding %d replace directive(s) to %s...\n\n", len(updates), a.goModPath)
+
+	updatedContent, err := a.parser.Patch(ctx, a.goModPath, updates)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to patch %s: %w", a.goModPath, err)
+	}
+	if err := os.WriteFile(a.goModPath, []byte(updatedContent), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", a.goModPath, err)
 	}
 
-	toRemove := make(map[string]struct{}, len(patches))
-	for _, patch := range patches {
-		toRemove[patch.PackageName] = struct{}{}
-	}
-
-	var kept []string
-	for line := range strings.SplitSeq(string(data), "\n") {
-		if line == "" {
-			continue
-		}
-		// go.sum line: "<module> <version>[/go.mod] h1:<hash>="
-		parts := strings.SplitN(line, " ", 2)
-		if _, skip := toRemove[parts[0]]; !skip {
-			kept = append(kept, line)
-		}
-	}
-
-	content := strings.Join(kept, "\n")
-	if len(kept) > 0 {
-		content += "\n"
-	}
-	return os.WriteFile(goSumPath, []byte(content), 0644)
+	fmt.Printf("\n✓ Successfully patched %s with %d replace directive(s)!\n", a.goModPath, len(updates))
+	return nil
 }
 
 // Run executes the Go module remediation workflow.
@@ -225,35 +208,26 @@ func (a *App) Run(ctx context.Context) error {
 			}
 		}
 
-		fmt.Printf("\nApplying %d patch(es) to %s...\n\n", len(updates), a.goModPath)
-
-		updatedContent, err := a.parser.Patch(ctx, a.goModPath, updates)
-		if err != nil {
-			return fmt.Errorf("failed to patch %s: %w", a.goModPath, err)
+		if err := a.applyGoModUpdates(ctx, updates); err != nil {
+			return err
 		}
-		if err := os.WriteFile(a.goModPath, []byte(updatedContent), 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", a.goModPath, err)
-		}
-
-		fmt.Printf("\n✓ Successfully patched %s with %d replace directive(s)!\n", a.goModPath, len(updates))
 	} else {
-		// 7b. Non-aliased: remove go.sum entries for patched modules so Go re-fetches
-		// them from the Root.io proxy (which serves patched bytes under the original paths).
-		goSumPath := filepath.Join(goModDir, "go.sum")
-		if err := removeGoSumEntries(goSumPath, response.Patches); err != nil {
-			return fmt.Errorf("failed to update go.sum: %w", err)
+		// 7b. Non-aliased: write non-aliased same-module-path replace directives
+		updates := make([]GoModUpdate, len(response.Patches))
+		for i, patch := range response.Patches {
+			updates[i] = GoModUpdate{
+				Module:         patch.PackageName,
+				CurrentVersion: patch.Version,
+				AliasName:      patch.PackageName,
+				AliasVersion:   patch.Patch.Version,
+			}
 		}
 
 		// Use GONOSUMDB scoped to patched modules only so others still get verified.
 		goEnv = a.goEnvNonAliased(response.Patches)
 
-		fmt.Printf("\nFetching %d patch(es) via Root.io proxy (non-aliased)...\n\n", len(response.Patches))
-		for _, patch := range response.Patches {
-			fmt.Printf("  - %s %s\n", patch.PackageName, patch.Patch.Version)
-			arg := patch.PackageName + "@" + patch.Patch.Version
-			if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "get", arg); err != nil {
-				return fmt.Errorf("go get %s failed: %w", arg, err)
-			}
+		if err := a.applyGoModUpdates(ctx, updates); err != nil {
+			return err
 		}
 	}
 
@@ -297,9 +271,12 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 			fmt.Println()
 		}
 	} else {
-		fmt.Printf("The following packages would be fetched via the Root.io proxy (no replace directives added to %s):\n\n", a.goModPath)
+		fmt.Printf("The following replace directives would be added to %s:\n\n", a.goModPath)
 		for i, patch := range patches {
-			fmt.Printf("%d. %s %s (patched via proxy)\n", i+1, patch.PackageName, patch.Patch.Version)
+			fmt.Printf("%d. replace %s %s => %s %s\n",
+				i+1,
+				patch.PackageName, patch.Version,
+				patch.PackageName, patch.Patch.Version)
 			if len(patch.CVEIDs) > 0 {
 				fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
 			}

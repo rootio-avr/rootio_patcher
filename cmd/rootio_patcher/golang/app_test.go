@@ -320,7 +320,7 @@ require github.com/google/uuid v1.3.0
 	assert.Equal(t, "v1.3.0", capturedIgnore[0].Version)
 }
 
-func TestGoLangApp_Run_NonAliased_NoReplaceDirectives(t *testing.T) {
+func TestGoLangApp_Run_NonAliased_AddsSamePathReplaceDirective(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -328,7 +328,8 @@ func TestGoLangApp_Run_NonAliased_NoReplaceDirectives(t *testing.T) {
 	originalContent := "module example.com/app\n\ngo 1.21\n\nrequire github.com/google/uuid v1.3.0\n"
 	goModPath := writeGoMod(t, dir, originalContent)
 
-	// Pre-populate go.sum with entries for the patched module and an unrelated one.
+	// Pre-populate go.sum; the tool must not touch it — go.sum maintenance is left to the
+	// real `go mod tidy` invocation (mocked here), same as the aliased flow already does.
 	goSumPath := filepath.Join(dir, "go.sum")
 	goSumContent := "github.com/google/uuid v1.3.0 h1:t6JiXb...=\n" +
 		"github.com/google/uuid v1.3.0/go.mod h1:TIyP...=\n" +
@@ -347,7 +348,7 @@ func TestGoLangApp_Run_NonAliased_NoReplaceDirectives(t *testing.T) {
 						{
 							PackageName: "github.com/google/uuid",
 							Version:     "v1.3.0",
-							Patch:       rootio.PatchInfo{Name: "github.com/google/uuid", Version: "v1.3.0"},
+							Patch:       rootio.PatchInfo{Name: "github.com/google/uuid", Version: "v1.3.0-root.io.1"},
 							PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.1"},
 						},
 					},
@@ -359,23 +360,28 @@ func TestGoLangApp_Run_NonAliased_NoReplaceDirectives(t *testing.T) {
 
 	require.NoError(t, app.Run(ctx))
 
-	// go.mod must not be modified — no replace directives added
+	// go.mod: require line stays untouched; a same-path replace pinned at the original
+	// version is added, redirecting only the version to the patched artifact.
 	content, err := os.ReadFile(goModPath)
 	require.NoError(t, err)
-	assert.Equal(t, originalContent, string(content), "go.mod must not be modified in non-aliased mode")
+	got := string(content)
+	assert.True(t, strings.Contains(got, "github.com/google/uuid v1.3.0"), "original require must remain")
+	assert.True(t, containsLine(got, "replace github.com/google/uuid v1.3.0 => github.com/google/uuid v1.3.0-root.io.1"),
+		"expected a same-path replace directive pinned to the original version")
 
-	// go.sum entries for the patched module must be removed; unrelated entries preserved
+	// go.sum must be left untouched by our own code — pruning/updating it is the real
+	// `go mod tidy` invocation's job, not something we do ourselves anymore.
 	sumContent, err := os.ReadFile(goSumPath)
 	require.NoError(t, err)
-	assert.NotContains(t, string(sumContent), "github.com/google/uuid", "go.sum entries for patched module must be removed")
-	assert.Contains(t, string(sumContent), "github.com/pkg/errors", "unrelated go.sum entries must be preserved")
+	assert.Equal(t, goSumContent, string(sumContent), "go.sum must not be modified directly by the tool")
 
-	// Commands must be: go get uuid@v1.3.0, then go mod tidy
-	require.Len(t, cmdRunner.Calls, 2, "expected go get + go mod tidy")
-	assert.Equal(t, []string{"get", "github.com/google/uuid@v1.3.0"}, cmdRunner.Calls[0].Args)
-	assert.Equal(t, []string{"mod", "tidy"}, cmdRunner.Calls[1].Args)
+	// Only `go mod tidy` should run — no `go get`, since the replace directive alone
+	// causes `go mod tidy` to fetch and verify the patched artifact.
+	require.Len(t, cmdRunner.Calls, 1, "expected only go mod tidy")
+	assert.Equal(t, []string{"mod", "tidy"}, cmdRunner.Calls[0].Args)
 
-	// GONOSUMDB must be scoped to the patched module path only (not wildcard)
+	// GONOSUMDB must be scoped to the patched module path only (not wildcard) since the
+	// patched version's checksum isn't in the public sumdb.
 	assert.Contains(t, cmdRunner.Calls[0].Env, "GONOSUMDB=github.com/google/uuid")
 	assert.Contains(t, cmdRunner.Calls[0].Env, "GOPROXY=https://:test-key@pkg.root.io/gobinary,https://proxy.golang.org,direct")
 }
