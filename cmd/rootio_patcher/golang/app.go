@@ -8,10 +8,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
 )
+
+// aliasedModuleHost is the module path prefix used for all Root.io aliased packages,
+// regardless of which proxy environment (prod, dev, etc.) is configured.
+const aliasedModuleHost = "pkg.root.io"
 
 // CommandRunner runs external commands in a given directory with optional extra environment variables.
 type CommandRunner interface {
@@ -40,6 +45,7 @@ type App struct {
 	pkgURL    string
 	goModPath string
 	dryRun    bool
+	useAlias  bool
 	ignoreSet map[string]struct{}
 	logger    *slog.Logger
 	parser    GoModParser
@@ -50,7 +56,7 @@ type App struct {
 // NewApp creates a new App with injected services.
 func NewApp(
 	apiKey, apiURL, pkgURL, goModPath string,
-	dryRun bool,
+	dryRun, useAlias bool,
 	ignoreEntries []string,
 	logger *slog.Logger,
 	parser GoModParser,
@@ -64,6 +70,7 @@ func NewApp(
 		pkgURL:    pkgURL,
 		goModPath: goModPath,
 		dryRun:    dryRun,
+		useAlias:  useAlias,
 		ignoreSet: common.LoadIgnoreList(ignoreFilePath, ignoreEntries),
 		logger:    logger,
 		parser:    parser,
@@ -72,8 +79,8 @@ func NewApp(
 	}
 }
 
-// goEnv returns the environment variables needed for go commands to reach the Root.io module proxy.
-func (a *App) goEnv() []string {
+// buildGoEnv constructs the go command environment with the Root.io GOPROXY and the given GONOSUMDB value.
+func (a *App) buildGoEnv(noSumDB string) []string {
 	u, err := url.Parse(a.pkgURL)
 	if err != nil {
 		return nil
@@ -86,7 +93,7 @@ func (a *App) goEnv() []string {
 	}
 	return []string{
 		"GOPROXY=" + proxyURL.String() + ",https://proxy.golang.org,direct",
-		"GONOSUMDB=" + u.Hostname(),
+		"GONOSUMDB=" + noSumDB,
 	}
 }
 
@@ -94,7 +101,8 @@ func (a *App) goEnv() []string {
 func (a *App) Run(ctx context.Context) error {
 	a.logger.DebugContext(ctx, "Starting golang remediation",
 		slog.String("go_mod", a.goModPath),
-		slog.Bool("dry_run", a.dryRun))
+		slog.Bool("dry_run", a.dryRun),
+		slog.Bool("use_alias", a.useAlias))
 
 	// 1. Check go.mod exists
 	if _, err := os.Stat(a.goModPath); err != nil {
@@ -152,37 +160,33 @@ func (a *App) Run(ctx context.Context) error {
 		return nil
 	}
 
-	// 7. Build updates
+	goModDir := filepath.Dir(a.goModPath)
+	goEnv := a.goEnv(response.Patches)
+
+	// 7. Write replace directives: pointing to pkg.root.io/... in aliased mode, or to the
+	// same module path at the patched version in non-aliased mode.
 	updates := make([]GoModUpdate, len(response.Patches))
 	for i, patch := range response.Patches {
+		name, version := a.replaceTarget(patch)
 		updates[i] = GoModUpdate{
 			Module:         patch.PackageName,
 			CurrentVersion: patch.Version,
-			AliasName:      patch.PatchAlias.Name,
-			AliasVersion:   patch.PatchAlias.Version,
+			AliasName:      name,
+			AliasVersion:   version,
 		}
 	}
 
-	// 8. Apply patches to go.mod
-	fmt.Printf("\nApplying %d patch(es) to %s...\n\n", len(updates), a.goModPath)
-
-	updatedContent, err := a.parser.Patch(ctx, a.goModPath, updates)
-	if err != nil {
-		return fmt.Errorf("failed to patch %s: %w", a.goModPath, err)
-	}
-	if err := os.WriteFile(a.goModPath, []byte(updatedContent), 0644); err != nil {
-		return fmt.Errorf("failed to write %s: %w", a.goModPath, err)
+	if err := a.applyGoModUpdates(ctx, updates); err != nil {
+		return err
 	}
 
-	// 10. Run go mod tidy
-	goModDir := filepath.Dir(a.goModPath)
-	goEnv := a.goEnv()
+	// 8. Run go mod tidy (with Root.io GOPROXY so the proxy supplies patched modules)
 	a.logger.DebugContext(ctx, "Running go mod tidy", slog.String("dir", goModDir))
 	if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "mod", "tidy"); err != nil {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
-	// 11. If a vendor directory exists, run go mod vendor
+	// 9. If a vendor directory exists, run go mod vendor
 	vendorFile := filepath.Join(goModDir, "vendor", "modules.txt")
 	if _, err := os.Stat(vendorFile); err == nil {
 		a.logger.DebugContext(ctx, "Vendor directory detected, running go mod vendor", slog.String("dir", goModDir))
@@ -191,7 +195,6 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
-	fmt.Printf("\n✓ Successfully patched %s with %d replace directive(s)!\n", a.goModPath, len(updates))
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. Review the changes in your go.mod")
 	fmt.Println("  2. Run: go build ./...")
@@ -200,17 +203,14 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
-
-// reportDryRun prints the replace directives that would be added without modifying files.
+// reportDryRun prints what would happen without modifying files.
 func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	fmt.Println("\n=== DRY-RUN MODE ===")
-	fmt.Printf("The following replace directives would be added to %s:\n\n", a.goModPath)
 
+	fmt.Printf("The following replace directives would be added to %s:\n\n", a.goModPath)
 	for i, patch := range patches {
-		fmt.Printf("%d. replace %s %s => %s %s\n",
-			i+1,
-			patch.PackageName, patch.Version,
-			patch.PatchAlias.Name, patch.PatchAlias.Version)
+		name, version := a.replaceTarget(patch)
+		fmt.Printf("%d. replace %s %s => %s %s\n", i+1, patch.PackageName, patch.Version, name, version)
 		if len(patch.CVEIDs) > 0 {
 			fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
 		}
@@ -220,4 +220,45 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	fmt.Println("To apply these patches:")
 	fmt.Println("  1. Run: rootio_patcher go remediate --dry-run=false")
 	fmt.Println("  2. Then run: go build ./...")
+}
+
+// applyGoModUpdates patches go.mod with the given replace directives and writes the result
+// to disk, printing progress messages. Shared by both the aliased and non-aliased flows.
+func (a *App) applyGoModUpdates(ctx context.Context, updates []GoModUpdate) error {
+	fmt.Printf("\nAdding %d replace directive(s) to %s...\n\n", len(updates), a.goModPath)
+
+	updatedContent, err := a.parser.Patch(ctx, a.goModPath, updates)
+	if err != nil {
+		return fmt.Errorf("failed to patch %s: %w", a.goModPath, err)
+	}
+	if err := os.WriteFile(a.goModPath, []byte(updatedContent), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", a.goModPath, err)
+	}
+
+	fmt.Printf("\n✓ Successfully patched %s with %d replace directive(s)!\n", a.goModPath, len(updates))
+	return nil
+}
+
+// goEnv returns env vars for the `go mod tidy`/`go mod vendor` step. In aliased mode GONOSUMDB
+// covers the fixed aliased module host; in non-aliased mode it's scoped to just the patched
+// module paths so all other modules still get checksum-verified.
+func (a *App) goEnv(patches []rootio.PackagePatch) []string {
+	if a.useAlias {
+		return a.buildGoEnv(aliasedModuleHost)
+	}
+	moduleNames := make([]string, len(patches))
+	for i, patch := range patches {
+		moduleNames[i] = patch.PackageName
+	}
+	return a.buildGoEnv(strings.Join(moduleNames, ","))
+}
+
+// replaceTarget returns the module path and version a require should be redirected to for a
+// given patch: the aliased module under pkg.root.io/... in aliased mode, or the same module
+// path at the patched version in non-aliased mode.
+func (a *App) replaceTarget(patch rootio.PackagePatch) (name, version string) {
+	if a.useAlias {
+		return patch.PatchAlias.Name, patch.PatchAlias.Version
+	}
+	return patch.PackageName, patch.Patch.Version
 }
