@@ -183,8 +183,13 @@ rootio_patcher go remediate [FLAGS]
 **Flags:**
 - `--go-mod` - Path to go.mod (default: `go.mod`)
 - `--dry-run` - Preview changes without applying (default: `true`)
+- `--use-alias` - Use Root.io aliased modules (`pkg.root.io/*`); set `false` to use original module paths (default: `true`)
 
-**How it works:** Pre-build patching - adds `replace` directives to `go.mod` pointing to Root.io patched module aliases. The tool automatically runs `go mod tidy` after patching, and `go mod vendor` if a vendor directory is present. After running, execute `go build ./...` to build with patched modules.
+**How it works:** Pre-build patching, in one of two modes controlled by `--use-alias`:
+- `--use-alias=true` (default): adds `replace` directives to `go.mod` pointing to Root.io patched module aliases under `pkg.root.io/...`.
+- `--use-alias=false`: leaves `go.mod` module paths and versions untouched, but removes the affected modules' `go.sum` entries and re-fetches them via the Root.io Go proxy (which serves patched content under the original module path and version, so no `replace` directive is needed). `GONOSUMDB` is scoped to just the patched modules so the public checksum database still verifies everything else.
+
+In both modes, the tool automatically runs `go mod tidy` afterwards (using the Root.io `GOPROXY`), and `go mod vendor` if a vendor directory is present. After running, execute `go build ./...` to build with patched modules.
 
 > **Note:** Only modules with pinned semver versions (e.g. `v1.2.3`) are analyzed. Modules using pseudo-versions are skipped.
 
@@ -627,6 +632,27 @@ Next steps:
 rootio_patcher go remediate --go-mod=./submodule/go.mod --dry-run=false
 ```
 
+#### Non-Aliased Go Module Patching
+
+Preview and apply patches under the original module paths (no `replace` directives):
+
+```bash
+rootio_patcher go remediate --use-alias=false
+rootio_patcher go remediate --use-alias=false --dry-run=false
+```
+
+**Output (apply):**
+```
+Fetching 1 patch(es) via Root.io proxy (non-aliased)...
+
+  - github.com/google/uuid v1.3.0
+
+Next steps:
+  1. Review the changes in your go.mod
+  2. Run: go build ./...
+  3. Test your application
+```
+
 ### Composer (PHP) Examples
 
 #### Basic Usage (Dry Run)
@@ -864,6 +890,8 @@ jobs:
           ./rootio_patcher go remediate --dry-run=false
           go build ./...
 ```
+
+**Non-aliased mode:** add `--use-alias=false` to the `remediate` step in either option above. Module paths in `go.mod` stay unchanged — the patcher only refreshes `go.sum` for the affected modules, so `GOPROXY`/credentials must still be present when `go remediate` and the subsequent `go build`/`go mod tidy` run, since that's when the patched bytes are actually fetched.
 
 #### Maven Project
 
