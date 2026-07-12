@@ -230,8 +230,8 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 	)
 
 	err := app.Run(ctx)
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
+	if !errors.Is(err, common.ErrPatchesAvailable) {
+		t.Fatalf("Expected ErrPatchesAvailable, got: %v", err)
 	}
 
 	// Verify package.json was NOT modified in dry-run mode
@@ -328,17 +328,25 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	// Verify package.json was patched. lodash is direct + vulnerable with no
-	// transitive consumer, so the dependencies entry is rewritten to the
-	// alias and no overrides field is emitted (a flat overrides.lodash would
-	// trigger npm's EOVERRIDE check).
+	// Verify package.json was patched. lodash is direct + vulnerable, so the
+	// dependencies entry is rewritten to the new package name/version (old
+	// "lodash" key removed), and a version-scoped override is also added
+	// (this form works for all transitive dependencies regardless of nesting
+	// or aliasing; see TestNpmApp_UpdatePackageJSON_Npm for the same
+	// assertion via the full integration path).
 	updatedContent, err := os.ReadFile(packageJSON)
 	if err != nil {
 		t.Fatalf("Failed to read package.json: %v", err)
 	}
 	content := string(updatedContent)
-	if !strings.Contains(content, `"lodash": "npm:@rootio/lodash@4.17.21"`) {
-		t.Error("package.json should rewrite lodash direct dep to alias")
+	if strings.Contains(content, `"lodash":`) {
+		t.Error("package.json should not contain old lodash dependency entry")
+	}
+	if !strings.Contains(content, `"@rootio/lodash": "4.17.21"`) {
+		t.Error("package.json should rewrite lodash direct dep to @rootio/lodash@4.17.21")
+	}
+	if !strings.Contains(content, `"lodash@4.17.20": "npm:@rootio/lodash@4.17.21"`) {
+		t.Error("package.json should contain scoped override for lodash@4.17.20")
 	}
 }
 

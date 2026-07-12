@@ -17,6 +17,7 @@ type App struct {
 	apiURL    string
 	filePath  string
 	dryRun    bool
+	useAlias  bool // true=rewrite to io.root.io.* group ID, false=keep original groupId, patched version
 	ignoreSet map[string]struct{}
 	logger    *slog.Logger
 	parser    common.Parser
@@ -24,15 +25,15 @@ type App struct {
 }
 
 // NewApp creates a new Maven application instance
-func NewApp(apiKey, apiURL, filePath string, dryRun bool, ignoreEntries []string, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, filePath string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
 	ignoreFilePath := filepath.Join(filepath.Dir(filePath), ".rootioignore")
-	return NewAppWithServices(apiKey, apiURL, filePath, dryRun, common.LoadIgnoreList(ignoreFilePath, ignoreEntries), logger, NewParser(logger), rootio.NewClient(apiURL, apiKey))
+	return NewAppWithServices(apiKey, apiURL, filePath, dryRun, useAlias, common.LoadIgnoreList(ignoreFilePath, ignoreEntries), logger, NewParser(logger), rootio.NewClient(apiURL, apiKey))
 }
 
 // NewAppWithServices creates a new Maven app with injected services (for testing)
 func NewAppWithServices(
 	apiKey, apiURL, filePath string,
-	dryRun bool,
+	dryRun, useAlias bool,
 	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	parser common.Parser,
@@ -43,6 +44,7 @@ func NewAppWithServices(
 		apiURL:    apiURL,
 		filePath:  filePath,
 		dryRun:    dryRun,
+		useAlias:  useAlias,
 		ignoreSet: ignoreSet,
 		logger:    logger,
 		parser:    parser,
@@ -128,9 +130,17 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	fmt.Printf("The following packages in %s would be updated:\n\n", a.filePath)
 
 	for i, patch := range patches {
+		patchInfo := patch.Patch
+		if a.useAlias {
+			patchInfo = patch.PatchAlias
+		}
 		fmt.Printf("%d. Package: %s\n", i+1, patch.PackageName)
 		fmt.Printf("   Current version: %s\n", patch.Version)
-		fmt.Printf("   Patched version: %s\n", patch.Patch.Version)
+		if a.useAlias {
+			fmt.Printf("   Aliased package: %s @ %s\n", patchInfo.Name, patchInfo.Version)
+		} else {
+			fmt.Printf("   Patched version: %s\n", patchInfo.Version)
+		}
 		if len(patch.CVEIDs) > 0 {
 			fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
 		}
@@ -145,15 +155,18 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 // applyPatches updates the pom.xml file with patched versions
 func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) error {
 	// Build updates map: package name -> new groupId:artifactId:version
-	// This format supports changing the groupId for Root.io patched packages
-	// Use PatchAlias to get the io.root.* namespace
+	// This format supports changing the groupId for Root.io patched packages.
+	// useAlias=true rewrites the groupId to Root.io's io.root.* namespace;
+	// useAlias=false keeps the original groupId, only bumping the version.
 	updates := make(map[string]string)
 	for _, patch := range patches {
-		// Format: "newGroupId:artifactId:newVersion"
-		// Use PatchAlias for Maven to get io.root.{groupId} namespace
-		updateValue := patch.PatchAlias.Name + ":" + patch.PatchAlias.Version
+		patchInfo := patch.Patch
+		if a.useAlias {
+			patchInfo = patch.PatchAlias
+		}
+		updateValue := patchInfo.Name + ":" + patchInfo.Version
 		updates[patch.PackageName] = updateValue
-		fmt.Printf("  - %s: %s → %s:%s\n", patch.PackageName, patch.Version, patch.PatchAlias.Name, patch.PatchAlias.Version)
+		fmt.Printf("  - %s: %s → %s:%s\n", patch.PackageName, patch.Version, patchInfo.Name, patchInfo.Version)
 	}
 
 	// Update the file

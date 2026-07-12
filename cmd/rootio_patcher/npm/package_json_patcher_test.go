@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"rootio_patcher/pkg/rootio"
 )
 
 func TestPackageJSONPatcher_SetsValuesAtPaths(t *testing.T) {
@@ -231,6 +233,7 @@ func TestNpmParser_UpdatePackageJSON_DirectAndTransitive(t *testing.T) {
 			PackageName:   "uuid",
 			Version:       "11.0.3",
 			Value:         "npm:@rootio/uuid@11.0.3-root.io.1",
+			PatchInfo:     rootio.PatchInfo{Name: "@rootio/uuid", Version: "11.0.3-root.io.1"},
 			RewriteDirect: true,
 		},
 		{

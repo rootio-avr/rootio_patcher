@@ -143,7 +143,10 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 
 		effectivePom := p.tryGenerateEffectivePom(sourceDir, rootPom)
 		if effectivePom != "" {
-			deps, _ := p.parseDirectDependencies(effectivePom)
+			deps, err := p.parseDirectDependencies(effectivePom)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse root POM %s: %w", rootPom, err)
+			}
 			for _, dep := range deps {
 				key := dep.Name
 				dep.Direct = true
@@ -583,6 +586,23 @@ func (p *MavenParser) resolveProperty(value string, properties map[string]string
 	return value
 }
 
+// propertyRefName returns the property name and true if value is a Maven
+// property reference like ${log4j.version}.
+func propertyRefName(value string) (string, bool) {
+	if !strings.HasPrefix(value, "${") || !strings.HasSuffix(value, "}") {
+		return "", false
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}"), true
+}
+
+// replacePropertyValue replaces a <properties> entry's value, e.g.
+// <log4j.version>2.17.0</log4j.version> -> <log4j.version>2.17.1</log4j.version>
+func (p *MavenParser) replacePropertyValue(content, propName, newValue string) string {
+	pattern := fmt.Sprintf(`(<%s>)([^<]*)(</%s>)`, regexp.QuoteMeta(propName), regexp.QuoteMeta(propName))
+	re := regexp.MustCompile(pattern)
+	return re.ReplaceAllString(content, fmt.Sprintf("${1}%s${3}", newValue))
+}
+
 // Update updates dependency versions in pom.xml
 // The updates map format is: "groupId:artifactId" -> "newGroupId:artifactId:newVersion"
 // This supports changing both groupId and version for Root.io patched packages
@@ -657,10 +677,12 @@ func (p *MavenParser) Update(ctx context.Context, filePath string, updates map[s
 
 			oldVersion := dep.Version
 
-			// Always replace both groupId and version, even if version is a property reference
-			// This matches Python behavior: property references like ${netty.version} are
-			// replaced with hardcoded Root.io versions like 4.1.118.Final-root.io.3
-			if newGroupID != dep.GroupID {
+			if propName, isPropertyRef := propertyRefName(oldVersion); isPropertyRef && newGroupID == dep.GroupID {
+				// Version is a property reference (e.g. ${log4j.version}) and groupId is
+				// unchanged - update the property itself so all dependents stay in sync,
+				// rather than replacing the tag content with a hardcoded version.
+				updatedContent = p.replacePropertyValue(updatedContent, propName, newVersion)
+			} else if newGroupID != dep.GroupID {
 				updatedContent = p.replaceDependencyGroupIDAndVersion(updatedContent, dep.GroupID, dep.ArtifactID, oldVersion, newGroupID, newVersion)
 			} else {
 				updatedContent = p.replaceDependencyVersion(updatedContent, dep.GroupID, dep.ArtifactID, oldVersion, newVersion)
@@ -858,7 +880,7 @@ func (p *MavenParser) replaceDependencyVersion(content, groupID, artifactID, old
 	)
 
 	re := regexp.MustCompile(pattern)
-	return re.ReplaceAllString(content, fmt.Sprintf("${1}%s${2}", newVersion))
+	return re.ReplaceAllString(content, fmt.Sprintf("${1}%s${3}", newVersion))
 }
 
 // Validate validates XML syntax

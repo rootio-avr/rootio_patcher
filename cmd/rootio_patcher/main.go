@@ -120,9 +120,10 @@ type MavenCmd struct {
 
 // MavenRemediateCmd remediates Maven packages by patching pom.xml
 type MavenRemediateCmd struct {
-	File   string   `default:"pom.xml" help:"Path to pom.xml"`
-	DryRun bool     `default:"true" help:"Preview changes without applying them"`
-	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	File     string   `default:"pom.xml" help:"Path to pom.xml"`
+	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias bool     `default:"true" help:"Use Root.io aliased packages (io.root.io.*); set false to keep original groupId"`
+	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 func main() {
@@ -213,9 +214,9 @@ func (cmd *NpmRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 
 // Run executes the maven remediate command
 func (cmd *MavenRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
-	logger.InfoContext(ctx, "Starting Maven remediation", slog.String("file", cmd.File))
+	logger.InfoContext(ctx, "Starting Maven remediation", slog.String("file", cmd.File), slog.Bool("use_alias", cmd.UseAlias))
 
-	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cmd.File, cmd.DryRun, cmd.Ignore, logger)
+	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cmd.File, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
 
@@ -255,6 +256,7 @@ type NuGetRemediateCmd struct {
 	File      string   `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
 	Directory string   `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
 	DryRun    bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias  bool     `default:"true" help:"Use Root.io aliased packages; set false to keep original package names"`
 	Ignore    []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
@@ -286,7 +288,7 @@ func (cmd *ComposerRemediateCmd) Run(ctx context.Context, cfg *config.Config, lo
 
 // Run executes the nuget remediate command
 func (cmd *NuGetRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
-	logger.InfoContext(ctx, "Starting NuGet remediation")
+	logger.InfoContext(ctx, "Starting NuGet remediation", slog.Bool("use_alias", cmd.UseAlias))
 
 	var path string
 	var err error
@@ -302,6 +304,6 @@ func (cmd *NuGetRemediateCmd) Run(ctx context.Context, cfg *config.Config, logge
 		}
 	}
 
-	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, path, cmd.DryRun, cmd.Ignore, logger)
+	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, path, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
