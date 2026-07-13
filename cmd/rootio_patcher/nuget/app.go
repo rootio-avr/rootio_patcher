@@ -17,6 +17,7 @@ type App struct {
 	apiURL    string
 	path      string // file or directory path
 	dryRun    bool
+	useAlias  bool // true=rewrite to Root.io aliased package, false=keep original package name, patched version
 	ignoreSet map[string]struct{}
 	logger    *slog.Logger
 	parser    common.Parser
@@ -24,19 +25,19 @@ type App struct {
 }
 
 // NewApp creates a new NuGet application instance.
-func NewApp(apiKey, apiURL, path string, dryRun bool, ignoreEntries []string, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, path string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
 	ignoreDir := path
 	if info, err := os.Stat(path); err == nil && !info.IsDir() {
 		ignoreDir = filepath.Dir(path)
 	}
 	ignoreFilePath := filepath.Join(ignoreDir, ".rootioignore")
-	return NewAppWithServices(apiKey, apiURL, path, dryRun, common.LoadIgnoreList(ignoreFilePath, ignoreEntries), logger, NewParser(logger), rootio.NewClient(apiURL, apiKey))
+	return NewAppWithServices(apiKey, apiURL, path, dryRun, useAlias, common.LoadIgnoreList(ignoreFilePath, ignoreEntries), logger, NewParser(logger), rootio.NewClient(apiURL, apiKey))
 }
 
 // NewAppWithServices creates a new NuGet app with injected services (for testing).
 func NewAppWithServices(
 	apiKey, apiURL, path string,
-	dryRun bool,
+	dryRun, useAlias bool,
 	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	parser common.Parser,
@@ -47,6 +48,7 @@ func NewAppWithServices(
 		apiURL:    apiURL,
 		path:      path,
 		dryRun:    dryRun,
+		useAlias:  useAlias,
 		ignoreSet: ignoreSet,
 		logger:    logger,
 		parser:    parser,
@@ -122,23 +124,32 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
+// patchNameVersion returns the name/version to apply for a patch, based on
+// useAlias: true rewrites to Root.io's aliased package, false keeps the
+// original package name at the patched version.
+func (a *App) patchNameVersion(patch rootio.PackagePatch) (name, version string) {
+	if a.useAlias {
+		name, version = patch.PatchAlias.Name, patch.PatchAlias.Version
+	} else {
+		name, version = patch.Patch.Name, patch.Patch.Version
+	}
+	return name, version
+}
+
 // reportDryRun prints what would be changed without modifying files.
 func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	fmt.Println("\n=== DRY-RUN MODE ===")
 	fmt.Printf("The following packages would be updated:\n\n")
 
 	for i, patch := range patches {
-		aliasName := patch.PatchAlias.Name
-		aliasVersion := patch.PatchAlias.Version
-		if aliasName == "" {
-			aliasName = patch.Patch.Name
-		}
-		if aliasVersion == "" {
-			aliasVersion = patch.Patch.Version
-		}
+		name, version := a.patchNameVersion(patch)
 		fmt.Printf("%d. Package: %s\n", i+1, patch.PackageName)
 		fmt.Printf("   Current version: %s\n", patch.Version)
-		fmt.Printf("   Aliased package: %s @ %s\n", aliasName, aliasVersion)
+		if a.useAlias {
+			fmt.Printf("   Aliased package: %s @ %s\n", name, version)
+		} else {
+			fmt.Printf("   Patched version: %s\n", version)
+		}
 		if len(patch.CVEIDs) > 0 {
 			fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
 		}
@@ -149,7 +160,6 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	fmt.Println("  Run: rootio_patcher nuget remediate --dry-run=false")
 	fmt.Println("  Then run: dotnet restore")
 }
-
 
 // applyPatches updates the manifest file(s) with patched versions.
 // Packages are grouped by their source file (Location) so each file is updated independently.
@@ -169,13 +179,10 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 	// Build a per-file updates map: file path → (original package name → "aliasName:aliasVersion").
 	fileUpdates := make(map[string]map[string]string)
 	for _, patch := range patches {
-		aliasName := patch.PatchAlias.Name
-		aliasVersion := patch.PatchAlias.Version
-		if aliasName == "" {
-			aliasName = patch.Patch.Name
-		}
-		if aliasVersion == "" {
-			aliasVersion = patch.Patch.Version
+		name, version := a.patchNameVersion(patch)
+
+		if name == "" || version == "" {
+			continue
 		}
 
 		loc := pkgLocation[patch.PackageName]
@@ -186,8 +193,8 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 		if fileUpdates[loc] == nil {
 			fileUpdates[loc] = make(map[string]string)
 		}
-		fileUpdates[loc][patch.PackageName] = aliasName + ":" + aliasVersion
-		fmt.Printf("  - %s: %s → %s@%s\n", patch.PackageName, patch.Version, aliasName, aliasVersion)
+		fileUpdates[loc][patch.PackageName] = name + ":" + version
+		fmt.Printf("  - %s: %s → %s@%s\n", patch.PackageName, patch.Version, name, version)
 	}
 
 	// Apply updates file by file.

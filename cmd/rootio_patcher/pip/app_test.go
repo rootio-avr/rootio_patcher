@@ -157,7 +157,9 @@ func TestPipApp_Run_DryRunWithPatches(t *testing.T) {
 
 	err := app.Run(ctx)
 	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
+		if !errors.Is(err, common.ErrPatchesAvailable) {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
 	}
 }
 

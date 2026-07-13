@@ -22,6 +22,7 @@ func TestMavenApp_Run_FileNotFound(t *testing.T) {
 		"https://api.root.io",
 		"/nonexistent/pom.xml",
 		true,
+		true,
 		nil,
 		logger,
 		&MockParser{},
@@ -57,6 +58,7 @@ func TestMavenApp_Run_NoPackages(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		pomFile,
+		true,
 		true,
 		nil,
 		logger,
@@ -110,6 +112,7 @@ func TestMavenApp_Run_APIError(t *testing.T) {
 		"https://api.root.io",
 		pomFile,
 		true,
+		true,
 		nil,
 		logger,
 		mockParser,
@@ -157,6 +160,7 @@ func TestMavenApp_Run_NoPatches(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		pomFile,
+		true,
 		true,
 		nil,
 		logger,
@@ -210,6 +214,7 @@ func TestMavenApp_Run_DryRun(t *testing.T) {
 		"https://api.root.io",
 		pomFile,
 		true, // dry-run
+		true,
 		nil,
 		logger,
 		&MockParser{},
@@ -282,6 +287,7 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 		"https://api.root.io",
 		pomFile,
 		false, // NOT dry-run
+		true,
 		nil,
 		logger,
 		mockParser,
@@ -303,6 +309,85 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 	}
 	if strings.Contains(string(updatedContent), "<version>4.12</version>") {
 		t.Error("File should not contain old version 4.12")
+	}
+}
+
+func TestMavenApp_Run_ApplyPatches_UseAliasFalse(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	tmpDir := t.TempDir()
+	pomFile := filepath.Join(tmpDir, "pom.xml")
+	content := `<?xml version="1.0"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.12</version>
+    </dependency>
+  </dependencies>
+</project>`
+	if err := os.WriteFile(pomFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+
+	mockAPIClient := &MockAPIClient{
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			return &rootio.AnalyzePackagesResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "junit:junit",
+						Version:     "4.12",
+						Patch:       rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
+						PatchAlias:  rootio.PatchInfo{Name: "io.root.io.junit:junit", Version: "4.13.2"},
+						CVEIDs:      []string{"CVE-2020-15250"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	// Use MockMavenParser that uses real Update but mocks Parse
+	mockParser := &MockMavenParser{
+		MavenParser: NewParser(logger),
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "junit:junit", Version: "4.12"},
+			}, nil
+		},
+	}
+
+	app := NewAppWithServices(
+		"test-key",
+		"https://api.root.io",
+		pomFile,
+		false, // NOT dry-run
+		false, // useAlias=false: keep original groupId
+		nil,
+		logger,
+		mockParser,
+		mockAPIClient,
+	)
+
+	err := app.Run(ctx)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Verify file was modified with the original groupId, not the alias
+	updatedContent, err := os.ReadFile(pomFile)
+	if err != nil {
+		t.Fatalf("Failed to read file: %v", err)
+	}
+	if !strings.Contains(string(updatedContent), "<groupId>junit</groupId>") {
+		t.Error("File should keep original groupId 'junit' when useAlias=false")
+	}
+	if strings.Contains(string(updatedContent), "io.root.io.junit") {
+		t.Error("File should not contain aliased groupId when useAlias=false")
+	}
+	if !strings.Contains(string(updatedContent), "4.13.2") {
+		t.Error("File should contain patched version 4.13.2")
 	}
 }
 
@@ -360,6 +445,7 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 		"https://api.root.io",
 		pomFile,
 		false, // NOT dry-run
+		true,
 		nil,
 		logger,
 		mockParser,
