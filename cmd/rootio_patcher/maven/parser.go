@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"rootio_patcher/cmd/rootio_patcher/common"
@@ -246,6 +247,10 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 	if filteredCount > 0 {
 		p.logger.InfoContext(ctx, "Filtered out inter-module dependencies", slog.Int("count", filteredCount))
 	}
+
+	sort.Slice(packages, func(i, j int) bool {
+		return packages[i].Name < packages[j].Name
+	})
 
 	return packages, nil
 }

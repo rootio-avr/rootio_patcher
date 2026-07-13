@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
@@ -131,6 +132,10 @@ func (p *NpmParser) Parse(ctx context.Context, filePath string) ([]common.Packag
 			Dev:               isDev,
 		})
 	}
+
+	sort.Slice(packages, func(i, j int) bool {
+		return packages[i].Name < packages[j].Name
+	})
 
 	return packages, nil
 }

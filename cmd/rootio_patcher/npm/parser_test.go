@@ -100,10 +100,15 @@ func TestNpmParser_Parse(t *testing.T) {
 		t.Fatalf("Expected 2 packages, got %d", len(packages))
 	}
 
+	byName := make(map[string]common.PackageInfo, len(packages))
+	for _, pkg := range packages {
+		byName[pkg.Name] = pkg
+	}
+
 	// Check lodash package
-	lodash := packages[0]
-	if lodash.Name != "lodash" {
-		t.Errorf("Expected package name 'lodash', got '%s'", lodash.Name)
+	lodash, ok := byName["lodash"]
+	if !ok {
+		t.Fatalf("Expected package 'lodash' in results, got %v", packages)
 	}
 	if lodash.Version != "4.17.21" {
 		t.Errorf("Expected version '4.17.21', got '%s'", lodash.Version)
@@ -119,9 +124,9 @@ func TestNpmParser_Parse(t *testing.T) {
 	}
 
 	// Check jest package
-	jest := packages[1]
-	if jest.Name != "jest" {
-		t.Errorf("Expected package name 'jest', got '%s'", jest.Name)
+	jest, ok := byName["jest"]
+	if !ok {
+		t.Fatalf("Expected package 'jest' in results, got %v", packages)
 	}
 	if jest.Version != "29.0.0" {
 		t.Errorf("Expected version '29.0.0', got '%s'", jest.Version)

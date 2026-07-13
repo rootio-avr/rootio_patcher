@@ -106,10 +106,15 @@ func TestMavenParser_Parse(t *testing.T) {
 		t.Fatalf("Expected 2 packages, got %d", len(packages))
 	}
 
+	byName := make(map[string]common.PackageInfo, len(packages))
+	for _, pkg := range packages {
+		byName[pkg.Name] = pkg
+	}
+
 	// Check log4j package
-	log4j := packages[0]
-	if log4j.Name != "org.apache.logging.log4j:log4j-core" {
-		t.Errorf("Expected package name 'org.apache.logging.log4j:log4j-core', got '%s'", log4j.Name)
+	log4j, ok := byName["org.apache.logging.log4j:log4j-core"]
+	if !ok {
+		t.Fatalf("Expected package 'org.apache.logging.log4j:log4j-core' in results, got %v", packages)
 	}
 	if log4j.Version != "2.17.0" {
 		t.Errorf("Expected version '2.17.0', got '%s'", log4j.Version)
@@ -125,9 +130,9 @@ func TestMavenParser_Parse(t *testing.T) {
 	}
 
 	// Check junit package
-	junit := packages[1]
-	if junit.Name != "junit:junit" {
-		t.Errorf("Expected package name 'junit:junit', got '%s'", junit.Name)
+	junit, ok := byName["junit:junit"]
+	if !ok {
+		t.Fatalf("Expected package 'junit:junit' in results, got %v", packages)
 	}
 	if junit.Version != "4.13.2" {
 		t.Errorf("Expected version '4.13.2', got '%s'", junit.Version)
