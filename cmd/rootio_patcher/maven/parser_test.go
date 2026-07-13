@@ -102,8 +102,13 @@ func TestMavenParser_Parse(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	if len(packages) != 2 {
-		t.Fatalf("Expected 2 packages, got %d", len(packages))
+	// Only assert on the 2 direct dependencies declared in the POM. Parse
+	// also shells out to `mvn dependency:tree` to discover transitive
+	// dependencies (e.g. junit:junit pulls in hamcrest-core), which succeeds
+	// or fails depending on network access to Maven Central — so the total
+	// package count varies by environment and isn't asserted here.
+	if len(packages) < 2 {
+		t.Fatalf("Expected at least 2 packages (direct deps), got %d: %v", len(packages), packages)
 	}
 
 	byName := make(map[string]common.PackageInfo, len(packages))
@@ -178,12 +183,22 @@ func TestMavenParser_Parse_WithoutNamespace(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	if len(packages) != 1 {
-		t.Fatalf("Expected 1 package, got %d", len(packages))
+	// Only assert the declared direct dependency is present; Parse also
+	// shells out to `mvn dependency:tree` for transitive dependencies, whose
+	// success depends on network access to Maven Central.
+	if len(packages) < 1 {
+		t.Fatalf("Expected at least 1 package, got %d", len(packages))
 	}
 
-	if packages[0].Name != "commons-lang:commons-lang" {
-		t.Errorf("Expected package name 'commons-lang:commons-lang', got '%s'", packages[0].Name)
+	found := false
+	for _, pkg := range packages {
+		if pkg.Name == "commons-lang:commons-lang" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected package 'commons-lang:commons-lang' in results, got %v", packages)
 	}
 }
 
