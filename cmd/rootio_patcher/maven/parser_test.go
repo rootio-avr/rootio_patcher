@@ -102,14 +102,24 @@ func TestMavenParser_Parse(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	if len(packages) != 2 {
-		t.Fatalf("Expected 2 packages, got %d", len(packages))
+	// Only assert on the 2 direct dependencies declared in the POM. Parse
+	// also shells out to `mvn dependency:tree` to discover transitive
+	// dependencies (e.g. junit:junit pulls in hamcrest-core), which succeeds
+	// or fails depending on network access to Maven Central — so the total
+	// package count varies by environment and isn't asserted here.
+	if len(packages) < 2 {
+		t.Fatalf("Expected at least 2 packages (direct deps), got %d: %v", len(packages), packages)
+	}
+
+	byName := make(map[string]common.PackageInfo, len(packages))
+	for _, pkg := range packages {
+		byName[pkg.Name] = pkg
 	}
 
 	// Check log4j package
-	log4j := packages[0]
-	if log4j.Name != "org.apache.logging.log4j:log4j-core" {
-		t.Errorf("Expected package name 'org.apache.logging.log4j:log4j-core', got '%s'", log4j.Name)
+	log4j, ok := byName["org.apache.logging.log4j:log4j-core"]
+	if !ok {
+		t.Fatalf("Expected package 'org.apache.logging.log4j:log4j-core' in results, got %v", packages)
 	}
 	if log4j.Version != "2.17.0" {
 		t.Errorf("Expected version '2.17.0', got '%s'", log4j.Version)
@@ -125,9 +135,9 @@ func TestMavenParser_Parse(t *testing.T) {
 	}
 
 	// Check junit package
-	junit := packages[1]
-	if junit.Name != "junit:junit" {
-		t.Errorf("Expected package name 'junit:junit', got '%s'", junit.Name)
+	junit, ok := byName["junit:junit"]
+	if !ok {
+		t.Fatalf("Expected package 'junit:junit' in results, got %v", packages)
 	}
 	if junit.Version != "4.13.2" {
 		t.Errorf("Expected version '4.13.2', got '%s'", junit.Version)
@@ -173,12 +183,22 @@ func TestMavenParser_Parse_WithoutNamespace(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	if len(packages) != 1 {
-		t.Fatalf("Expected 1 package, got %d", len(packages))
+	// Only assert the declared direct dependency is present; Parse also
+	// shells out to `mvn dependency:tree` for transitive dependencies, whose
+	// success depends on network access to Maven Central.
+	if len(packages) < 1 {
+		t.Fatalf("Expected at least 1 package, got %d", len(packages))
 	}
 
-	if packages[0].Name != "commons-lang:commons-lang" {
-		t.Errorf("Expected package name 'commons-lang:commons-lang', got '%s'", packages[0].Name)
+	found := false
+	for _, pkg := range packages {
+		if pkg.Name == "commons-lang:commons-lang" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected package 'commons-lang:commons-lang' in results, got %v", packages)
 	}
 }
 
