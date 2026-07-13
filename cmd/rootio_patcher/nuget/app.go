@@ -134,12 +134,6 @@ func (a *App) patchNameVersion(patch rootio.PackagePatch) (name, version string)
 	} else {
 		name, version = patch.Patch.Name, patch.Patch.Version
 	}
-	if name == "" {
-		name = patch.Patch.Name
-	}
-	if version == "" {
-		version = patch.Patch.Version
-	}
 	return name, version
 }
 
@@ -168,7 +162,6 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	fmt.Println("  Then run: dotnet restore")
 }
 
-
 // applyPatches updates the manifest file(s) with patched versions.
 // Packages are grouped by their source file (Location) so each file is updated independently.
 func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) error {
@@ -188,6 +181,10 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 	fileUpdates := make(map[string]map[string]string)
 	for _, patch := range patches {
 		name, version := a.patchNameVersion(patch)
+
+		if name == "" || version == "" {
+			continue
+		}
 
 		loc := pkgLocation[patch.PackageName]
 		if loc == "" {
