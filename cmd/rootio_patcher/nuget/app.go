@@ -126,8 +126,7 @@ func (a *App) Run(ctx context.Context) error {
 
 // patchNameVersion returns the name/version to apply for a patch, based on
 // useAlias: true rewrites to Root.io's aliased package, false keeps the
-// original package name at the patched version. Falls back to Patch fields
-// if PatchAlias is unset.
+// original package name at the patched version.
 func (a *App) patchNameVersion(patch rootio.PackagePatch) (name, version string) {
 	if a.useAlias {
 		name, version = patch.PatchAlias.Name, patch.PatchAlias.Version
