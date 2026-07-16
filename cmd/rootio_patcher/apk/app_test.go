@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -413,13 +414,11 @@ func TestExecutor_AddRepo_PreservesScheme(t *testing.T) {
 		"http://artrepo-service.artrepo.svc.cluster.local/alpine/3.19": "http://root:test-api-key@artrepo-service.artrepo.svc.cluster.local/alpine/3.19",
 	}
 	for registryURL, want := range cases {
-		f, err := os.CreateTemp(t.TempDir(), "apkrepo")
-		require.NoError(t, err)
-		f.Close()
+		repoPath := filepath.Join(t.TempDir(), "apkrepo")
 		e := NewExecutor("test-api-key", "https://pkg.root.io", logger(), &MockRunner{})
-		e.fs = &tmpFS{path: f.Name()}
+		e.fs = &tmpFS{path: repoPath}
 		require.NoError(t, e.addRepo(registryURL))
-		got, err := os.ReadFile(f.Name())
+		got, err := os.ReadFile(repoPath)
 		require.NoError(t, err)
 		if strings.TrimSpace(string(got)) != want {
 			t.Errorf("addRepo(%q) wrote %q, want %q", registryURL, strings.TrimSpace(string(got)), want)
