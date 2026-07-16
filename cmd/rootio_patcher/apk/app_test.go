@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -393,4 +394,34 @@ func TestExecutor_InstallUpgrades_EmptyIsNoop(t *testing.T) {
 	e.fs = mockFS{}
 	require.NoError(t, e.InstallUpgrades(context.Background(), nil))
 	assert.Empty(t, runner.Calls, "empty upgrade set must run no commands")
+}
+
+// tmpFS opens a real temp file for OpenFile so addRepo's written line is readable.
+type tmpFS struct {
+	mockFS
+	path string
+}
+
+func (t *tmpFS) OpenFile(_ string, _ int, _ os.FileMode) (*os.File, error) {
+	return os.OpenFile(t.path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+}
+
+// addRepo must embed credentials while PRESERVING the URL scheme: https stays
+// https, http (local env) stays http — never force-upgraded or mis-parsed.
+func TestExecutor_AddRepo_PreservesScheme(t *testing.T) {
+	cases := map[string]string{
+		"https://pkg.root.io/alpine/3.19":                             "https://root:test-api-key@pkg.root.io/alpine/3.19",
+		"http://artrepo-service.artrepo.svc.cluster.local/alpine/3.19": "http://root:test-api-key@artrepo-service.artrepo.svc.cluster.local/alpine/3.19",
+	}
+	for registryURL, want := range cases {
+		repoPath := filepath.Join(t.TempDir(), "apkrepo")
+		e := NewExecutor("test-api-key", "https://pkg.root.io", logger(), &MockRunner{})
+		e.fs = &tmpFS{path: repoPath}
+		require.NoError(t, e.addRepo(registryURL))
+		got, err := os.ReadFile(repoPath)
+		require.NoError(t, err)
+		if strings.TrimSpace(string(got)) != want {
+			t.Errorf("addRepo(%q) wrote %q, want %q", registryURL, strings.TrimSpace(string(got)), want)
+		}
+	}
 }

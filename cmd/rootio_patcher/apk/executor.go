@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 
@@ -162,8 +163,17 @@ func (e *Executor) installPublicKey() error {
 func (e *Executor) addRepo(registryURL string) error {
 	authedURL := registryURL
 	if e.apiKey != "" {
-		host := strings.TrimPrefix(registryURL, "https://")
-		authedURL = fmt.Sprintf("https://root:%s@%s", e.apiKey, host)
+		// Embed credentials as URL userinfo while PRESERVING the original scheme,
+		// like the pip/golang remediators. The old code stripped only "https://"
+		// and hardcoded https://, so an http:// registry (local env) both
+		// mis-parsed the host and was force-upgraded to https → cert failure.
+		if u, err := url.Parse(registryURL); err == nil && u.Host != "" {
+			u.User = url.UserPassword("root", e.apiKey)
+			authedURL = u.String()
+		} else {
+			host := strings.TrimPrefix(strings.TrimPrefix(registryURL, "https://"), "http://")
+			authedURL = fmt.Sprintf("https://root:%s@%s", e.apiKey, host)
+		}
 	}
 	f, err := e.fs.OpenFile(apkRepoFile, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
