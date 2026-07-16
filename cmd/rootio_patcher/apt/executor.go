@@ -3,12 +3,41 @@ package apt
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"path"
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
 )
+
+// hostFromURL extracts the bare host[:port] from a package/registry URL,
+// independent of scheme. Matches the url.Parse convention used by the golang/
+// composer/pip remediators; a plain TrimPrefix("https://") mis-parses an
+// http:// URL (leaving "http://host" as the host), which breaks the apt
+// auth.conf machine match and pin origin. Falls back to the raw string on
+// parse failure so behavior degrades to the old path rather than emptying.
+func hostFromURL(raw string) string {
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		return u.Host
+	}
+	h := strings.TrimPrefix(strings.TrimPrefix(raw, "https://"), "http://")
+	return strings.SplitN(h, "/", 2)[0]
+}
+
+// authMachine returns the value for the apt auth.conf `machine` field.
+// For https, apt matches on the bare host (machine pkg.root.io). For an
+// unencrypted http repo, apt REFUSES to send credentials unless the machine
+// line is annotated with the scheme (machine http://host) — otherwise it warns
+// "Credentials ... match, but the protocol is not encrypted" and sends none,
+// yielding a 401. So keep the scheme for http and strip it for https.
+func authMachine(rawURL string) string {
+	host := hostFromURL(rawURL)
+	if strings.HasPrefix(rawURL, "http://") {
+		return "http://" + host
+	}
+	return host
+}
 
 const (
 	gpgKeyPath     = "/etc/apt/keyrings/rootio.gpg"
@@ -183,11 +212,10 @@ func (e *Executor) writeAuthConf(ctx context.Context) error {
 	if err := e.runner.Run(ctx, "mkdir", "-p", authConfDir); err != nil {
 		return err
 	}
-	host := strings.TrimPrefix(e.pkgURL, "https://")
-	host = strings.SplitN(host, "/", 2)[0]
+	machine := authMachine(e.pkgURL)
 	script := fmt.Sprintf(
 		`printf 'machine %s\nlogin root\npassword %s\n' > %s/rootio.conf && chmod 600 %s/rootio.conf`,
-		host, e.apiKey, authConfDir, authConfDir,
+		machine, e.apiKey, authConfDir, authConfDir,
 	)
 	return e.runner.Run(ctx, "sh", "-c", script)
 }
@@ -206,8 +234,7 @@ func (e *Executor) setPinPriority(ctx context.Context, registryURL string) error
 	if err := e.runner.Run(ctx, "mkdir", "-p", prefsDir); err != nil {
 		return err
 	}
-	host := strings.TrimPrefix(registryURL, "https://")
-	host = strings.SplitN(host, "/", 2)[0]
+	host := hostFromURL(registryURL)
 	script := fmt.Sprintf(
 		`echo 'Package: *\nPin: origin %s\nPin-Priority: 1001' > %s/rootio`,
 		host, prefsDir,
@@ -217,8 +244,7 @@ func (e *Executor) setPinPriority(ctx context.Context, registryURL string) error
 
 // blockOriginalFromRegistry adds a -1 pin so the original package is never pulled from the Root.io registry
 func (e *Executor) blockOriginalFromRegistry(ctx context.Context, pkgName, registryURL string) error {
-	host := strings.TrimPrefix(registryURL, "https://")
-	host = strings.SplitN(host, "/", 2)[0]
+	host := hostFromURL(registryURL)
 	script := fmt.Sprintf(
 		`echo 'Package: %s\nPin: origin %s\nPin-Priority: -1' >> %s/rootio`,
 		pkgName, host, prefsDir,

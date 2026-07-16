@@ -183,3 +183,32 @@ func TestRewriteSourcesForEOL_PropagatesRunnerError(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
 }
+
+func TestHostFromURL(t *testing.T) {
+	cases := map[string]string{
+		"https://pkg.root.io":                                  "pkg.root.io",
+		"https://pkg.root.local/debian":                        "pkg.root.local",
+		"http://artrepo-service.artrepo.svc.cluster.local":     "artrepo-service.artrepo.svc.cluster.local",
+		"http://artrepo-service.artrepo.svc.cluster.local/deb": "artrepo-service.artrepo.svc.cluster.local",
+		"http://localhost:8080/debian":                         "localhost:8080",
+	}
+	for in, want := range cases {
+		if got := hostFromURL(in); got != want {
+			t.Errorf("hostFromURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestAuthMachine(t *testing.T) {
+	cases := map[string]string{
+		"https://pkg.root.io":                              "pkg.root.io",
+		"https://pkg.root.local/debian":                    "pkg.root.local",
+		"http://artrepo-service.artrepo.svc.cluster.local": "http://artrepo-service.artrepo.svc.cluster.local",
+		"http://localhost:8080/debian":                     "http://localhost:8080",
+	}
+	for in, want := range cases {
+		if got := authMachine(in); got != want {
+			t.Errorf("authMachine(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
