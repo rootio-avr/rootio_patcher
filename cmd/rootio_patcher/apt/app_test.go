@@ -333,8 +333,10 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 
-	// Must install under original names
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "--allow-downgrades", "curl", "openssl"),
+	// Must install under original names, with --force-overwrite (two Root.io
+	// patched packages can ship the same file, e.g. ROOT-SECURITY-RELEASE.md;
+	// without this flag dpkg aborts with a file-conflict error).
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "curl", "openssl"),
 		"non-aliased must install original package names")
 
 	// Must NOT install any rootio-* aliased name
@@ -343,6 +345,42 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 			assert.False(t, strings.HasPrefix(a, "rootio-"), "non-aliased mode must not use rootio-* package names, got %q", a)
 		}
 	}
+}
+
+// TestApp_Run_NonAliased_ForceOverwriteMatchesAliasedPath is a regression test:
+// the original (non-aliased) install path must set the same
+// Dpkg::Options::=--force-overwrite flag as the aliased path, since Root.io
+// patched packages can collide on a shared file (e.g. ROOT-SECURITY-RELEASE.md)
+// regardless of which naming flavor is installed.
+func TestApp_Run_NonAliased_ForceOverwriteMatchesAliasedPath(t *testing.T) {
+	runner := &MockRunner{}
+	apiClient := &MockAPIClient{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "curl",
+						Version:     "7.88.1-10+deb12u5",
+						Patch:       rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u5+root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
+					},
+				},
+			}, nil
+		},
+	}
+	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, false, nil)
+	require.NoError(t, app.Run(context.Background()))
+
+	found := false
+	for _, c := range runner.Calls {
+		if c.Name == "apt-get" && len(c.Args) > 0 && c.Args[0] == "-o" {
+			require.GreaterOrEqual(t, len(c.Args), 2)
+			assert.Equal(t, "Dpkg::Options::=--force-overwrite", c.Args[1],
+				"original install path must set the same --force-overwrite dpkg option as the aliased path")
+			found = true
+		}
+	}
+	assert.True(t, found, "expected an apt-get install call with -o Dpkg::Options::=--force-overwrite on the non-aliased path")
 }
 
 func TestApp_Run_NonAliased_NoRemoveOriginals(t *testing.T) {

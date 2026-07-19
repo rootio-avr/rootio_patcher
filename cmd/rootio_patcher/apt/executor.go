@@ -120,7 +120,7 @@ func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patch
 			names = append(names, p.Patch.Name)
 			e.logf("→ installing non-aliased %s", p.Patch.Name)
 		}
-		args := append([]string{"install", "-y", "--allow-downgrades"}, names...)
+		args := append([]string{"-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades"}, names...)
 		return e.runner.Run(ctx, "apt-get", args...)
 	}
 
