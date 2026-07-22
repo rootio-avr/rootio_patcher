@@ -147,7 +147,7 @@ func (a *App) Run(ctx context.Context) error {
 	// Degrade gracefully: if mvn isn't on PATH (manifest patched in a stage that
 	// resolves later), warn and skip rather than fail the build.
 	if _, lookErr := a.lookPath("mvn"); lookErr != nil {
-		a.logger.WarnContext(ctx, "mvn not found on PATH, skipping dependency resolution; lockfile left unresolved (downstream build may reject the out-of-sync manifest)", slog.String("resolver", "mvn"))
+		a.logger.WarnContext(ctx, "mvn not found on PATH, skipping dependency resolution; patched pom left unresolved (downstream build may fail to fetch the patched dependencies)", slog.String("resolver", "mvn"))
 	} else {
 		dir := filepath.Dir(a.filePath)
 		a.logger.DebugContext(ctx, "Running mvn dependency:resolve", slog.String("dir", dir))
