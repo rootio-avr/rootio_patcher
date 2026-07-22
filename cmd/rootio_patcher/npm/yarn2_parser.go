@@ -235,7 +235,7 @@ func (p *Yarn2Parser) FindParents(ctx context.Context, lockFilePath, packageName
 		}
 		versionVal, _ := valueMap["version"]
 		entryVersion := fmt.Sprintf("%v", versionVal)
-		resolutionVal, _ := valueMap["resolution"]
+		resolutionVal := valueMap["resolution"]
 
 		e := entry{
 			Version:      entryVersion,
