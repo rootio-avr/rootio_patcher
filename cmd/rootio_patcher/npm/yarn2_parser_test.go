@@ -514,3 +514,50 @@ func TestYarn2Parser_Parse_MetadataVersion(t *testing.T) {
 		})
 	}
 }
+
+// TestYarn2Parser_FindParents_AliasedParent is the regression test for the
+// invalid-resolutions-key bug: once a parent (express) has already been
+// aliased to npm:@rootio/... in an earlier remediation round, its lock file
+// spec key embeds the alias descriptor (e.g.
+// "express@npm:@rootio/express@4.18.2-root.io.3"). FindParents must still
+// return the parent's bare identity ("express"), not the full descriptor —
+// otherwise UpdatePackageJSON writes an unparseable resolutions key like
+// "express@npm:@rootio/express/body-parser".
+func TestYarn2Parser_FindParents_AliasedParent(t *testing.T) {
+	ctx := context.Background()
+	parser := NewYarn2Parser()
+	tmpDir := t.TempDir()
+	lockFile := filepath.Join(tmpDir, "yarn.lock")
+
+	content := `__metadata:
+  version: 8
+  cacheKey: 10c0
+
+"express@npm:@rootio/express@4.18.2-root.io.3":
+  version: 4.18.2-root.io.3
+  resolution: "express@npm:@rootio/express@4.18.2-root.io.3"
+  dependencies:
+    body-parser: "npm:@rootio/body-parser@1.20.1-root.io.1"
+  checksum: 10c0/abcd1234
+  languageName: node
+  linkType: hard
+
+"body-parser@npm:@rootio/body-parser@1.20.1-root.io.1":
+  version: 1.20.1-root.io.1
+  resolution: "body-parser@npm:@rootio/body-parser@1.20.1-root.io.1"
+  checksum: 10c0/deadbeef
+  languageName: node
+  linkType: hard
+`
+	if err := os.WriteFile(lockFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create lock file: %v", err)
+	}
+
+	got, err := parser.FindParents(ctx, lockFile, "body-parser", "1.20.1-root.io.1")
+	if err != nil {
+		t.Fatalf("FindParents failed: %v", err)
+	}
+	if len(got) != 1 || got[0] != "express" {
+		t.Errorf("expected parent [express] (bare identity), got %v", got)
+	}
+}
