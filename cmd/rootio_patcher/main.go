@@ -286,7 +286,7 @@ func (cmd *NpmRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 func (cmd *MavenRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting Maven remediation", slog.String("file", cmd.File), slog.Bool("use_alias", cmd.UseAlias))
 
-	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cmd.File, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
+	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.File, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
 

@@ -5,16 +5,38 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
 )
 
+// CommandRunner runs external commands in a given directory with optional extra environment variables.
+type CommandRunner interface {
+	Run(ctx context.Context, dir string, env []string, name string, args ...string) error
+}
+
+// RealCommandRunner runs commands via os/exec.
+type RealCommandRunner struct{}
+
+// NewRealCommandRunner returns a CommandRunner backed by os/exec.
+func NewRealCommandRunner() *RealCommandRunner { return &RealCommandRunner{} }
+
+func (r *RealCommandRunner) Run(ctx context.Context, dir string, env []string, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // App handles Maven package remediation (pre-install file patching)
 type App struct {
 	apiKey    string
 	apiURL    string
+	pkgURL    string
 	filePath  string
 	dryRun    bool
 	useAlias  bool // true=rewrite to io.root.io.* group ID, false=keep original groupId, patched version
@@ -22,26 +44,30 @@ type App struct {
 	logger    *slog.Logger
 	parser    common.Parser
 	apiClient common.APIClient
+	cmdRunner CommandRunner
+	lookPath  func(string) (string, error) // Injectable PATH lookup for testing
 }
 
 // NewApp creates a new Maven application instance
-func NewApp(apiKey, apiURL, filePath string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, pkgURL, filePath string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
 	ignoreFilePath := filepath.Join(filepath.Dir(filePath), ".rootioignore")
-	return NewAppWithServices(apiKey, apiURL, filePath, dryRun, useAlias, common.LoadIgnoreList(ignoreFilePath, ignoreEntries), logger, NewParser(logger), rootio.NewClient(apiURL, apiKey))
+	return NewAppWithServices(apiKey, apiURL, pkgURL, filePath, dryRun, useAlias, common.LoadIgnoreList(ignoreFilePath, ignoreEntries), logger, NewParser(logger), rootio.NewClient(apiURL, apiKey), NewRealCommandRunner())
 }
 
 // NewAppWithServices creates a new Maven app with injected services (for testing)
 func NewAppWithServices(
-	apiKey, apiURL, filePath string,
+	apiKey, apiURL, pkgURL, filePath string,
 	dryRun, useAlias bool,
 	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	parser common.Parser,
 	apiClient common.APIClient,
+	cmdRunner CommandRunner,
 ) *App {
 	return &App{
 		apiKey:    apiKey,
 		apiURL:    apiURL,
+		pkgURL:    pkgURL,
 		filePath:  filePath,
 		dryRun:    dryRun,
 		useAlias:  useAlias,
@@ -49,6 +75,8 @@ func NewAppWithServices(
 		logger:    logger,
 		parser:    parser,
 		apiClient: apiClient,
+		cmdRunner: cmdRunner,
+		lookPath:  exec.LookPath, // Default to real exec.LookPath
 	}
 }
 
@@ -113,6 +141,19 @@ func (a *App) Run(ctx context.Context) error {
 	fmt.Printf("\nApplying %d patches to %s...\n\n", len(response.Patches), a.filePath)
 	if err := a.applyPatches(ctx, response.Patches); err != nil {
 		return err
+	}
+
+	// 8. Resolve the patched manifest so dependencies are downloaded and the pom is validated (self-contained inline).
+	// Degrade gracefully: if mvn isn't on PATH (manifest patched in a stage that
+	// resolves later), warn and skip rather than fail the build.
+	if _, lookErr := a.lookPath("mvn"); lookErr != nil {
+		a.logger.WarnContext(ctx, "mvn not found on PATH, skipping dependency resolution; lockfile left unresolved (downstream build may reject the out-of-sync manifest)", slog.String("resolver", "mvn"))
+	} else {
+		dir := filepath.Dir(a.filePath)
+		a.logger.DebugContext(ctx, "Running mvn dependency:resolve", slog.String("dir", dir))
+		if err := a.cmdRunner.Run(ctx, dir, a.mavenEnv(), "mvn", "dependency:resolve"); err != nil {
+			return fmt.Errorf("mvn dependency:resolve failed: %w", err)
+		}
 	}
 
 	fmt.Printf("\n✓ Successfully updated %s with %d patches!\n", a.filePath, len(response.Patches))
@@ -186,5 +227,11 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 		return fmt.Errorf("failed to write updated file: %w", err)
 	}
 
+	return nil
+}
+
+// mavenEnv returns extra environment for the resolver.
+// Root.io repo auth (settings.xml) is a deferred follow-up. Returns nil for now.
+func (a *App) mavenEnv() []string {
 	return nil
 }
