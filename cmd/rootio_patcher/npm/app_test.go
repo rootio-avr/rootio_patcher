@@ -295,9 +295,7 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 	}
 
 	// Change to tmpDir so UpdatePackageJSON can find package.json
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	mockAPIClient := &MockAPIClient{
 		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
@@ -436,9 +434,7 @@ func TestNpmApp_Run_InvokesInstallAfterPatch(t *testing.T) {
 	}
 
 	// Change to tmpDir so UpdatePackageJSON can find package.json
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	mockAPIClient := &MockAPIClient{
 		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
@@ -543,9 +539,7 @@ func TestNpmApp_Run_SkipsInstallWhenPMAbsent(t *testing.T) {
 	}
 
 	// Change to tmpDir so UpdatePackageJSON can find package.json
-	oldWd, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(oldWd)
+	t.Chdir(tmpDir)
 
 	mockAPIClient := &MockAPIClient{
 		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
