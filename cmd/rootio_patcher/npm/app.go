@@ -367,7 +367,10 @@ func (a *App) getOverrideField() string {
 	}
 }
 
-// npmEnv returns extra environment for the resolver. Root.io registry auth is added in a follow-up.
+// npmEnv returns extra environment for the resolver.
+// npm overrides pin @rootio-scoped packages published to the public npm registry
+// (registry.npmjs.org); the resolver needs no pkg.root.io authentication.
+// Returns nil intentionally.
 func (a *App) npmEnv() []string {
 	return nil
 }
