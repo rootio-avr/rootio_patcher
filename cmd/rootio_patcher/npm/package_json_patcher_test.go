@@ -411,3 +411,115 @@ func TestNpmParser_UpdatePackageJSON_ParentScoped(t *testing.T) {
 		t.Errorf("expected version-scoped override for uuid@10.0.0; got:\n%s", content)
 	}
 }
+
+// TestNpmParser_UpdatePackageJSON_UpdatesShadowingNestedOverride is the
+// regression test for the infinite-loop bug: a pre-existing nested/path-scoped
+// override (e.g. "@apollo/query-planner": {"@apollo/federation-internals": "...root.io.1"})
+// takes npm resolution precedence over any flat version-scoped key for the
+// same package. If remediate only ever adds a new flat key
+// ("@apollo/federation-internals@2.13.0-root.io.1": "...root.io.3") without
+// touching the stale nested entry, the nested entry keeps winning forever and
+// --dry-run reports the same finding on every run. UpdatePackageJSON must
+// update the pre-existing nested entry's value in place.
+func TestNpmParser_UpdatePackageJSON_UpdatesShadowingNestedOverride(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	pkgPath := tmpDir + "/package.json"
+
+	pkg := `{
+  "name": "test-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "@apollo/gateway": "npm:@rootio/apollo__gateway@2.13.0-root.io.1"
+  },
+  "overrides": {
+    "@apollo/query-planner": {
+      "@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-root.io.1"
+    },
+    "cacache": { "tar": "npm:@rootio/tar@6.2.1-root.io.7" }
+  }
+}`
+	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
+	}
+
+	overrides := []ScopedOverride{
+		{
+			PackageName: "@apollo/federation-internals",
+			Version:     "2.13.0-root.io.1",
+			Value:       "npm:@rootio/apollo__federation-internals@2.13.0-root.io.3",
+		},
+		{
+			PackageName: "tar",
+			Version:     "6.2.1-root.io.7",
+			Value:       "npm:@rootio/tar@6.2.1-root.io.9",
+		},
+	}
+
+	if err := NewNpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+		t.Fatalf("UpdatePackageJSON failed: %v", err)
+	}
+
+	got, _ := os.ReadFile(pkgPath)
+	content := string(got)
+
+	if strings.Contains(content, `"@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-root.io.1"`) {
+		t.Errorf("stale nested override for @apollo/federation-internals must be updated, not left shadowing the new flat key; got:\n%s", content)
+	}
+	if !strings.Contains(content, `"@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-root.io.3"`) {
+		t.Errorf("expected nested override under @apollo/query-planner to be bumped to root.io.3; got:\n%s", content)
+	}
+	if strings.Contains(content, `"tar": "npm:@rootio/tar@6.2.1-root.io.7"`) {
+		t.Errorf("stale nested override for tar under cacache must be updated, not left shadowing the new flat key; got:\n%s", content)
+	}
+	if !strings.Contains(content, `"tar": "npm:@rootio/tar@6.2.1-root.io.9"`) {
+		t.Errorf("expected nested override under cacache to be bumped to root.io.9; got:\n%s", content)
+	}
+}
+
+// TestNpmParser_UpdatePackageJSON_LeavesUnrelatedVersionScopedNestedOverride
+// guards against a regression where findNestedOverrideParents matched a
+// nested override by package name alone, ignoring the version embedded in a
+// version-scoped nested key (e.g. "uuid@9.0.1"). That caused patching one
+// version of a package to overwrite an unrelated nested override pinned to a
+// different version of the same package.
+func TestNpmParser_UpdatePackageJSON_LeavesUnrelatedVersionScopedNestedOverride(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	pkgPath := tmpDir + "/package.json"
+
+	pkg := `{
+  "name": "test-app",
+  "version": "1.0.0",
+  "overrides": {
+    "parentA": {
+      "uuid@9.0.1": "npm:@rootio/uuid@9.0.1-root.io.1"
+    }
+  }
+}`
+	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
+	}
+
+	overrides := []ScopedOverride{
+		{
+			PackageName: "uuid",
+			Version:     "11.1.1",
+			Value:       "npm:@rootio/uuid@11.1.0-root.io.1",
+		},
+	}
+
+	if err := NewNpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+		t.Fatalf("UpdatePackageJSON failed: %v", err)
+	}
+
+	got, _ := os.ReadFile(pkgPath)
+	content := string(got)
+
+	if !strings.Contains(content, `"uuid@9.0.1": "npm:@rootio/uuid@9.0.1-root.io.1"`) {
+		t.Errorf("unrelated uuid@9.0.1 nested override must not be touched by a uuid@11.1.1 patch; got:\n%s", content)
+	}
+	if !strings.Contains(content, `"uuid@11.1.1": "npm:@rootio/uuid@11.1.0-root.io.1"`) {
+		t.Errorf("expected flat override for uuid@11.1.1; got:\n%s", content)
+	}
+}

@@ -342,7 +342,11 @@ func (p *NpmParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOve
 func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (map[string]string, []string, error) {
 	sets := make(map[string]string)
 	var deletes []string
-	var pkgContent []byte
+
+	pkgJsonContent, err := os.ReadFile(packageJSONPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read %s: %w", packageJSONPath, err)
+	}
 
 	for _, ov := range overrides {
 		// Use version-scoped flat override (e.g., "uuid@9.0.1": "npm:@rootio/uuid@...")
@@ -350,22 +354,23 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 		key := ov.PackageName + "@" + ov.Version
 		sets[npmOverridesPath+"."+escapeSjsonKey(key)] = ov.Value
 
-		if ov.RewriteDirect {
-			if pkgContent == nil {
-				c, err := os.ReadFile(packageJSONPath)
-				if err != nil {
-					return nil, nil, fmt.Errorf("failed to read %s: %w", packageJSONPath, err)
-				}
-				pkgContent = c
-			}
+		// npm gives a nested/path-scoped override ({"<parent>": {"<pkg>": "..."}})
+		// precedence over a flat key for the same package, for any parent it
+		// names. If a pre-existing nested entry already targets this package,
+		// it must be updated in place or it will shadow the flat key forever.
+		for parent, nestedKey := range findNestedOverrideParents(pkgJsonContent, ov.PackageName, ov.Version) {
+			path := npmOverridesPath + "." + escapeSjsonKey(parent) + "." + escapeSjsonKey(nestedKey)
+			sets[path] = ov.Value
+		}
 
+		if ov.RewriteDirect {
 			// Use PatchInfo from API response (either patch or patch_alias based on useAlias)
 			newPkgName := ov.PatchInfo.Name
 			newVersion := ov.PatchInfo.Version
 
 			for _, field := range []string{"dependencies", "devDependencies"} {
 				oldPath := field + "." + escapeSjsonKey(ov.PackageName)
-				if gjsonGet(pkgContent, oldPath).Exists() {
+				if gjsonGet(pkgJsonContent, oldPath).Exists() {
 					// Remove old package and add new package
 					deletes = append(deletes, oldPath)
 					newPath := field + "." + escapeSjsonKey(newPkgName)
@@ -375,4 +380,37 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 		}
 	}
 	return sets, deletes, nil
+}
+
+// findNestedOverrideParents scans the existing "overrides" object in
+// package.json for nested/path-scoped entries that target packageName under
+// some parent, e.g. "overrides": {"@apollo/query-planner": {"@apollo/federation-internals": "..."}}.
+// It returns a map of parent key -> the exact nested key used (which may be
+// version-scoped, e.g. "uuid@9.0.1"), so callers can overwrite that nested
+// value in place instead of leaving it to shadow a new flat key.
+func findNestedOverrideParents(pkgContent []byte, packageName, packageVersion string) map[string]string {
+	result := make(map[string]string)
+	gjsonGet(pkgContent, npmOverridesPath).ForEach(func(parent, value gjson.Result) bool {
+		if !value.IsObject() {
+			return true
+		}
+		value.ForEach(func(nestedKey, nestedValue gjson.Result) bool {
+			if nestedValue.Type != gjson.String {
+				return true
+			}
+			key := nestedKey.String()
+			name := key
+			version := ""
+			if idx := strings.LastIndex(key, "@"); idx > 0 {
+				name = key[:idx]
+				version = key[idx+1:]
+			}
+			if name == packageName && (version == "" || version == packageVersion) {
+				result[parent.String()] = nestedKey.String()
+			}
+			return true
+		})
+		return true
+	})
+	return result
 }
