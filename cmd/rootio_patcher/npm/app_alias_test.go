@@ -90,6 +90,7 @@ func TestNpmApp_RealAPIResponse(t *testing.T) {
 		logger,
 		NewParser(),
 		mockAPIClient,
+		&MockCommandRunner{},
 	)
 
 	// Run the app

@@ -83,6 +83,7 @@ func TestNpmApp_UpdatePackageJSON_Npm(t *testing.T) {
 		logger,
 		NewParser(),
 		mockAPIClient,
+		&MockCommandRunner{},
 	)
 
 	// Run the app
@@ -192,6 +193,7 @@ express@4.18.0:
 		logger,
 		yarnParser,
 		mockAPIClient,
+		&MockCommandRunner{},
 	)
 
 	// Run the app
@@ -291,6 +293,7 @@ func TestNpmApp_UpdatePackageJSON_Pnpm(t *testing.T) {
 		logger,
 		mockPnpmParser,
 		mockAPIClient,
+		&MockCommandRunner{},
 	)
 
 	// Run the app
@@ -409,6 +412,7 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 		logger,
 		NewParser(),
 		mockAPIClient,
+		&MockCommandRunner{},
 	)
 
 	// Run the app
@@ -561,6 +565,7 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 		logger,
 		NewParser(),
 		mockAPIClient,
+		&MockCommandRunner{},
 	)
 
 	// Run the app

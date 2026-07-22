@@ -5,12 +5,33 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
 )
+
+// CommandRunner runs external commands in a given directory with optional extra environment variables.
+type CommandRunner interface {
+	Run(ctx context.Context, dir string, env []string, name string, args ...string) error
+}
+
+// RealCommandRunner runs commands via os/exec.
+type RealCommandRunner struct{}
+
+// NewRealCommandRunner returns a CommandRunner backed by os/exec.
+func NewRealCommandRunner() *RealCommandRunner { return &RealCommandRunner{} }
+
+func (r *RealCommandRunner) Run(ctx context.Context, dir string, env []string, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
 
 // App handles npm package remediation (pre-install file patching)
 type App struct {
@@ -25,6 +46,7 @@ type App struct {
 	logger          *slog.Logger
 	parser          npmParser
 	apiClient       common.APIClient
+	cmdRunner       CommandRunner
 }
 
 // NewApp creates a new npm application instance.
@@ -51,6 +73,7 @@ func NewApp(apiKey, apiURL, packageManager, directory string, dryRun, useAlias b
 		logger,
 		parser,
 		rootio.NewClient(apiURL, apiKey),
+		NewRealCommandRunner(),
 	)
 }
 
@@ -76,6 +99,7 @@ func NewAppWithServices(
 	logger *slog.Logger,
 	parser npmParser,
 	apiClient common.APIClient,
+	cmdRunner CommandRunner,
 ) *App {
 	var packageManager string
 	var lockFilePath string
@@ -114,6 +138,7 @@ func NewAppWithServices(
 		logger:          logger,
 		parser:          parser,
 		apiClient:       apiClient,
+		cmdRunner:       cmdRunner,
 	}
 }
 
@@ -184,6 +209,23 @@ func (a *App) Run(ctx context.Context) error {
 	fmt.Printf("\nApplying %d patches to package.json...\n\n", len(response.Patches))
 	if err := a.applyPatches(ctx, response.Patches); err != nil {
 		return err
+	}
+
+	// 8. Resolve the patched manifest so the lockfile reflects the overrides (self-contained inline).
+	// Degrade gracefully: if the package manager isn't on PATH (manifest patched in a stage that
+	// resolves later), warn and skip rather than fail the build.
+	pm := a.packageManager
+	if pm == "" {
+		pm = "npm"
+	}
+	if _, lookErr := exec.LookPath(pm); lookErr != nil {
+		a.logger.WarnContext(ctx, "package manager not found on PATH, skipping dependency resolution", slog.String("resolver", pm))
+	} else {
+		dir := filepath.Dir(a.lockFilePath)
+		a.logger.DebugContext(ctx, "Running install to resolve patched manifest", slog.String("dir", dir), slog.String("pm", pm))
+		if err := a.cmdRunner.Run(ctx, dir, a.npmEnv(), pm, "install"); err != nil {
+			return fmt.Errorf("%s install failed: %w", pm, err)
+		}
 	}
 
 	fmt.Printf("\n✓ Successfully updated package.json with %d overrides!\n", len(response.Patches))
@@ -321,4 +363,9 @@ func (a *App) getOverrideField() string {
 	default:
 		return "overrides"
 	}
+}
+
+// npmEnv returns extra environment for the resolver. Root.io registry auth is added in a follow-up.
+func (a *App) npmEnv() []string {
+	return nil
 }

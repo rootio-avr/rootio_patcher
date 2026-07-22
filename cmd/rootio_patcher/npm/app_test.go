@@ -27,6 +27,7 @@ func TestNpmApp_Run_FileNotFound(t *testing.T) {
 		logger,
 		&MockParser{},
 		&MockAPIClient{},
+		&MockCommandRunner{},
 	)
 
 	err := app.Run(ctx)
@@ -57,6 +58,7 @@ func TestNpmApp_Run_NoPackages(t *testing.T) {
 		logger,
 		&MockParser{},
 		&MockAPIClient{},
+		&MockCommandRunner{},
 	)
 
 	err := app.Run(ctx)
@@ -108,6 +110,7 @@ func TestNpmApp_Run_APIError(t *testing.T) {
 		logger,
 		mockParser,
 		mockAPIClient,
+		&MockCommandRunner{},
 	)
 
 	err := app.Run(ctx)
@@ -155,6 +158,7 @@ func TestNpmApp_Run_NoPatches(t *testing.T) {
 		logger,
 		&MockParser{},
 		mockAPIClient,
+		&MockCommandRunner{},
 	)
 
 	err := app.Run(ctx)
@@ -217,6 +221,8 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 		},
 	}
 
+	mockCmd := &MockCommandRunner{}
+
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
@@ -227,11 +233,17 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 		logger,
 		mockParser,
 		mockAPIClient,
+		mockCmd,
 	)
 
 	err := app.Run(ctx)
 	if !errors.Is(err, common.ErrPatchesAvailable) {
 		t.Fatalf("Expected ErrPatchesAvailable, got: %v", err)
+	}
+
+	// Verify that install was NOT invoked in dry-run mode
+	if len(mockCmd.Calls) != 0 {
+		t.Errorf("Expected no command calls in dry-run, got %d", len(mockCmd.Calls))
 	}
 
 	// Verify package.json was NOT modified in dry-run mode
@@ -311,6 +323,8 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 		},
 	}
 
+	mockCmd := &MockCommandRunner{}
+
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
@@ -321,6 +335,7 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 		logger,
 		mockParser,
 		mockAPIClient,
+		mockCmd,
 	)
 
 	err := app.Run(ctx)
@@ -382,5 +397,192 @@ func TestApp_isYarnClassic(t *testing.T) {
 				t.Errorf("isYarnClassic() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNpmApp_Run_InvokesInstallAfterPatch(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	tmpDir := t.TempDir()
+	lockFile := filepath.Join(tmpDir, "package-lock.json")
+	lockContent := `{
+  "name": "test",
+  "lockfileVersion": 3,
+  "packages": {
+    "": {"dependencies": {"lodash": "^4.17.20"}},
+    "node_modules/lodash": {
+      "version": "4.17.20",
+      "resolved": "https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz"
+    }
+  }
+}`
+	if err := os.WriteFile(lockFile, []byte(lockContent), 0644); err != nil {
+		t.Fatalf("Failed to create lock file: %v", err)
+	}
+
+	// Create package.json
+	packageJSON := filepath.Join(tmpDir, "package.json")
+	packageContent := `{
+  "name": "test",
+  "version": "1.0.0",
+  "dependencies": {
+    "lodash": "^4.17.20"
+  }
+}`
+	if err := os.WriteFile(packageJSON, []byte(packageContent), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
+	}
+
+	// Change to tmpDir so UpdatePackageJSON can find package.json
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	mockAPIClient := &MockAPIClient{
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			return &rootio.AnalyzePackagesResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "lodash",
+						Version:     "4.17.20",
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
+						CVEIDs:      []string{"CVE-2021-23337"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	// Use MockNpmParser that uses real UpdatePackageJSON but mocks Parse
+	mockParser := &MockNpmParser{
+		NpmParser: NewNpmParser(),
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "lodash", Version: "4.17.20"},
+			}, nil
+		},
+	}
+
+	mockCmd := &MockCommandRunner{}
+
+	app := NewAppWithServices(
+		"test-key",
+		"https://api.root.io",
+		lockFile,
+		false, // NOT dry-run
+		true,  // useAlias
+		nil,
+		logger,
+		mockParser,
+		mockAPIClient,
+		mockCmd,
+	)
+
+	err := app.Run(ctx)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Verify that npm install was invoked
+	if len(mockCmd.Calls) != 1 {
+		t.Fatalf("Expected 1 command call, got %d", len(mockCmd.Calls))
+	}
+	if mockCmd.Calls[0].Name != "npm" {
+		t.Errorf("Expected command 'npm', got '%s'", mockCmd.Calls[0].Name)
+	}
+	found := false
+	for _, arg := range mockCmd.Calls[0].Args {
+		if arg == "install" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected 'install' in args, got %v", mockCmd.Calls[0].Args)
+	}
+}
+
+func TestNpmApp_Run_DryRunDoesNotInvokeInstall(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	tmpDir := t.TempDir()
+	lockFile := filepath.Join(tmpDir, "package-lock.json")
+	lockContent := `{
+  "name": "test",
+  "lockfileVersion": 3,
+  "packages": {
+    "": {"dependencies": {"lodash": "^4.17.20"}},
+    "node_modules/lodash": {
+      "version": "4.17.20",
+      "resolved": "https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz"
+    }
+  }
+}`
+	if err := os.WriteFile(lockFile, []byte(lockContent), 0644); err != nil {
+		t.Fatalf("Failed to create lock file: %v", err)
+	}
+
+	// Create package.json
+	packageJSON := filepath.Join(tmpDir, "package.json")
+	packageContent := `{
+  "name": "test",
+  "version": "1.0.0",
+  "dependencies": {
+    "lodash": "^4.17.20"
+  }
+}`
+	if err := os.WriteFile(packageJSON, []byte(packageContent), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
+	}
+
+	mockAPIClient := &MockAPIClient{
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			return &rootio.AnalyzePackagesResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "lodash",
+						Version:     "4.17.20",
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
+						CVEIDs:      []string{"CVE-2021-23337"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	mockParser := &MockNpmParser{
+		NpmParser: NewNpmParser(),
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "lodash", Version: "4.17.20"},
+			}, nil
+		},
+	}
+
+	mockCmd := &MockCommandRunner{}
+
+	app := NewAppWithServices(
+		"test-key",
+		"https://api.root.io",
+		lockFile,
+		true, // DRY-RUN
+		true, // useAlias
+		nil,
+		logger,
+		mockParser,
+		mockAPIClient,
+		mockCmd,
+	)
+
+	err := app.Run(ctx)
+	if !errors.Is(err, common.ErrPatchesAvailable) {
+		t.Fatalf("Expected ErrPatchesAvailable in dry-run, got: %v", err)
+	}
+
+	// Verify that install was NOT invoked in dry-run mode
+	if len(mockCmd.Calls) != 0 {
+		t.Errorf("Expected no command calls in dry-run, got %d calls", len(mockCmd.Calls))
 	}
 }

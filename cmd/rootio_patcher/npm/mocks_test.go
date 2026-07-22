@@ -92,3 +92,25 @@ func (m *MockNpmParser) Parse(ctx context.Context, filePath string) ([]common.Pa
 	}
 	return []common.PackageInfo{}, nil
 }
+
+// CommandCall records a single invocation of MockCommandRunner.
+type CommandCall struct {
+	Dir  string
+	Env  []string
+	Name string
+	Args []string
+}
+
+// MockCommandRunner is a mock implementation of CommandRunner that records calls.
+type MockCommandRunner struct {
+	RunFunc func(ctx context.Context, dir string, env []string, name string, args ...string) error
+	Calls   []CommandCall
+}
+
+func (m *MockCommandRunner) Run(ctx context.Context, dir string, env []string, name string, args ...string) error {
+	m.Calls = append(m.Calls, CommandCall{Dir: dir, Env: env, Name: name, Args: args})
+	if m.RunFunc != nil {
+		return m.RunFunc(ctx, dir, env, name, args...)
+	}
+	return nil
+}
