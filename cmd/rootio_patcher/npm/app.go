@@ -47,6 +47,7 @@ type App struct {
 	parser          npmParser
 	apiClient       common.APIClient
 	cmdRunner       CommandRunner
+	lookPath        func(string) (string, error) // Injectable PATH lookup for testing
 }
 
 // NewApp creates a new npm application instance.
@@ -139,6 +140,7 @@ func NewAppWithServices(
 		parser:          parser,
 		apiClient:       apiClient,
 		cmdRunner:       cmdRunner,
+		lookPath:        exec.LookPath, // Default to real exec.LookPath
 	}
 }
 
@@ -218,8 +220,8 @@ func (a *App) Run(ctx context.Context) error {
 	if pm == "" {
 		pm = "npm"
 	}
-	if _, lookErr := exec.LookPath(pm); lookErr != nil {
-		a.logger.WarnContext(ctx, "package manager not found on PATH, skipping dependency resolution", slog.String("resolver", pm))
+	if _, lookErr := a.lookPath(pm); lookErr != nil {
+		a.logger.WarnContext(ctx, "package manager not found on PATH, skipping dependency resolution; lockfile left unresolved (downstream install/ci may reject the out-of-sync lock)", slog.String("resolver", pm))
 	} else {
 		dir := filepath.Dir(a.lockFilePath)
 		a.logger.DebugContext(ctx, "Running install to resolve patched manifest", slog.String("dir", dir), slog.String("pm", pm))

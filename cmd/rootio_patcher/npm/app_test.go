@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -478,6 +479,10 @@ func TestNpmApp_Run_InvokesInstallAfterPatch(t *testing.T) {
 		mockAPIClient,
 		mockCmd,
 	)
+	// Inject stub lookPath so test doesn't depend on real npm binary
+	app.lookPath = func(name string) (string, error) {
+		return "/usr/bin/" + name, nil
+	}
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -500,6 +505,110 @@ func TestNpmApp_Run_InvokesInstallAfterPatch(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("Expected 'install' in args, got %v", mockCmd.Calls[0].Args)
+	}
+}
+
+func TestNpmApp_Run_SkipsInstallWhenPMAbsent(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	tmpDir := t.TempDir()
+	lockFile := filepath.Join(tmpDir, "package-lock.json")
+	lockContent := `{
+  "name": "test",
+  "lockfileVersion": 3,
+  "packages": {
+    "": {"dependencies": {"lodash": "^4.17.20"}},
+    "node_modules/lodash": {
+      "version": "4.17.20",
+      "resolved": "https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz"
+    }
+  }
+}`
+	if err := os.WriteFile(lockFile, []byte(lockContent), 0644); err != nil {
+		t.Fatalf("Failed to create lock file: %v", err)
+	}
+
+	// Create package.json
+	packageJSON := filepath.Join(tmpDir, "package.json")
+	packageContent := `{
+  "name": "test",
+  "version": "1.0.0",
+  "dependencies": {
+    "lodash": "^4.17.20"
+  }
+}`
+	if err := os.WriteFile(packageJSON, []byte(packageContent), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
+	}
+
+	// Change to tmpDir so UpdatePackageJSON can find package.json
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	mockAPIClient := &MockAPIClient{
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			return &rootio.AnalyzePackagesResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "lodash",
+						Version:     "4.17.20",
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
+						CVEIDs:      []string{"CVE-2021-23337"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	// Use MockNpmParser that uses real UpdatePackageJSON but mocks Parse
+	mockParser := &MockNpmParser{
+		NpmParser: NewNpmParser(),
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "lodash", Version: "4.17.20"},
+			}, nil
+		},
+	}
+
+	mockCmd := &MockCommandRunner{}
+
+	app := NewAppWithServices(
+		"test-key",
+		"https://api.root.io",
+		lockFile,
+		false, // NOT dry-run
+		true,  // useAlias
+		nil,
+		logger,
+		mockParser,
+		mockAPIClient,
+		mockCmd,
+	)
+	// Inject stub lookPath that simulates missing package manager
+	app.lookPath = func(name string) (string, error) {
+		return "", exec.ErrNotFound
+	}
+
+	err := app.Run(ctx)
+	if err != nil {
+		t.Fatalf("Expected no error (graceful degrade), got: %v", err)
+	}
+
+	// Verify that install was NOT invoked when PM is absent
+	if len(mockCmd.Calls) != 0 {
+		t.Errorf("Expected no command calls when package manager not found, got %d calls", len(mockCmd.Calls))
+	}
+
+	// Verify package.json was still patched (manifest update happens before resolver)
+	updatedContent, err := os.ReadFile(packageJSON)
+	if err != nil {
+		t.Fatalf("Failed to read package.json: %v", err)
+	}
+	content := string(updatedContent)
+	if !strings.Contains(content, `"@rootio/lodash": "4.17.21"`) {
+		t.Error("package.json should still be patched even when PM not found")
 	}
 }
 
