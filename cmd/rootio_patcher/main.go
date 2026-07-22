@@ -374,6 +374,6 @@ func (cmd *NuGetRemediateCmd) Run(ctx context.Context, cfg *config.Config, logge
 		}
 	}
 
-	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, path, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
+	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, path, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
 	return app.Run(ctx)
 }

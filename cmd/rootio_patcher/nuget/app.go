@@ -5,16 +5,38 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
 )
 
+// CommandRunner runs external commands in a given directory with optional extra environment variables.
+type CommandRunner interface {
+	Run(ctx context.Context, dir string, env []string, name string, args ...string) error
+}
+
+// RealCommandRunner runs commands via os/exec.
+type RealCommandRunner struct{}
+
+// NewRealCommandRunner returns a CommandRunner backed by os/exec.
+func NewRealCommandRunner() *RealCommandRunner { return &RealCommandRunner{} }
+
+func (r *RealCommandRunner) Run(ctx context.Context, dir string, env []string, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // App handles NuGet package remediation.
 type App struct {
 	apiKey    string
 	apiURL    string
+	pkgURL    string
 	path      string // file or directory path
 	dryRun    bool
 	useAlias  bool // true=rewrite to Root.io aliased package, false=keep original package name, patched version
@@ -22,30 +44,34 @@ type App struct {
 	logger    *slog.Logger
 	parser    common.Parser
 	apiClient common.APIClient
+	cmdRunner CommandRunner
+	lookPath  func(string) (string, error) // Injectable PATH lookup for testing
 }
 
 // NewApp creates a new NuGet application instance.
-func NewApp(apiKey, apiURL, path string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, pkgURL, path string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
 	ignoreDir := path
 	if info, err := os.Stat(path); err == nil && !info.IsDir() {
 		ignoreDir = filepath.Dir(path)
 	}
 	ignoreFilePath := filepath.Join(ignoreDir, ".rootioignore")
-	return NewAppWithServices(apiKey, apiURL, path, dryRun, useAlias, common.LoadIgnoreList(ignoreFilePath, ignoreEntries), logger, NewParser(logger), rootio.NewClient(apiURL, apiKey))
+	return NewAppWithServices(apiKey, apiURL, pkgURL, path, dryRun, useAlias, common.LoadIgnoreList(ignoreFilePath, ignoreEntries), logger, NewParser(logger), rootio.NewClient(apiURL, apiKey), NewRealCommandRunner())
 }
 
 // NewAppWithServices creates a new NuGet app with injected services (for testing).
 func NewAppWithServices(
-	apiKey, apiURL, path string,
+	apiKey, apiURL, pkgURL, path string,
 	dryRun, useAlias bool,
 	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	parser common.Parser,
 	apiClient common.APIClient,
+	cmdRunner CommandRunner,
 ) *App {
 	return &App{
 		apiKey:    apiKey,
 		apiURL:    apiURL,
+		pkgURL:    pkgURL,
 		path:      path,
 		dryRun:    dryRun,
 		useAlias:  useAlias,
@@ -53,6 +79,8 @@ func NewAppWithServices(
 		logger:    logger,
 		parser:    parser,
 		apiClient: apiClient,
+		cmdRunner: cmdRunner,
+		lookPath:  exec.LookPath, // Default to real exec.LookPath
 	}
 }
 
@@ -116,6 +144,23 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.applyPatches(ctx, response.Patches); err != nil {
 		return err
 	}
+
+	// 8. Resolve the patched manifest so dependencies are downloaded and the manifest is validated (self-contained inline).
+	// Degrade gracefully: if dotnet isn't on PATH (manifest patched in a stage that
+	// resolves later), warn and skip rather than fail the build.
+	if _, lookErr := a.lookPath("dotnet"); lookErr != nil {
+		a.logger.WarnContext(ctx, "dotnet not found on PATH, skipping dependency resolution; patched manifest left unresolved (downstream build may fail to fetch the patched dependencies)", slog.String("resolver", "dotnet"))
+	} else {
+		dir := a.path
+		if fi, statErr := os.Stat(a.path); statErr == nil && !fi.IsDir() {
+			dir = filepath.Dir(a.path)
+		}
+		a.logger.DebugContext(ctx, "Running dotnet restore", slog.String("dir", dir))
+		if err := a.cmdRunner.Run(ctx, dir, a.nugetEnv(), "dotnet", "restore"); err != nil {
+			return fmt.Errorf("dotnet restore failed: %w", err)
+		}
+	}
+
 	fmt.Printf("\n✓ Successfully patched %d packages!\n", len(response.Patches))
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. Review the changes in your manifest file(s)")
@@ -213,5 +258,11 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 		}
 	}
 
+	return nil
+}
+
+// nugetEnv returns extra environment for the resolver.
+// Root.io NuGet source auth (NuGet.Config) is a deferred follow-up. Returns nil for now.
+func (a *App) nugetEnv() []string {
 	return nil
 }
