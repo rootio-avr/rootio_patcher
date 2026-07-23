@@ -493,13 +493,62 @@ func TestNuGetApp_Run_InvokesRestoreAfterPatch(t *testing.T) {
 	require(len(mockCmd.Calls) == 1, fmt.Sprintf("Expected 1 command call, got %d", len(mockCmd.Calls)))
 	assert(mockCmd.Calls[0].Name == "dotnet", fmt.Sprintf("Expected command name 'dotnet', got '%s'", mockCmd.Calls[0].Name))
 	found := false
-	for _, arg := range mockCmd.Calls[0].Args {
+	sawConfig := false
+	for i, arg := range mockCmd.Calls[0].Args {
 		if arg == "restore" {
 			found = true
-			break
+		}
+		// The resolver must be pointed at the Root.io feed via `--configfile <NuGet.Config>`
+		// so it can fetch -root.io.N packages (which exist only in the Root.io NuGet feed).
+		if arg == "--configfile" && i+1 < len(mockCmd.Calls[0].Args) {
+			sawConfig = true
 		}
 	}
 	assert(found, fmt.Sprintf("Expected 'restore' in args, got: %v", mockCmd.Calls[0].Args))
+	assert(sawConfig, fmt.Sprintf("Expected '--configfile <NuGet.Config>' (Root.io feed auth) in args, got: %v", mockCmd.Calls[0].Args))
+}
+
+func TestWriteNuGetConfig(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	// With pkgURL + apiKey → a NuGet.Config with the Root.io feed + basic-auth credentials.
+	app := &App{apiKey: "sk_nugetkey", pkgURL: "https://pkg.root.io", logger: logger}
+	path, cleanup, err := app.writeNuGetConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("writeNuGetConfig error: %v", err)
+	}
+	if path == "" {
+		t.Fatal("expected a NuGet.Config path")
+	}
+	defer cleanup()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read NuGet.Config: %v", err)
+	}
+	content := string(data)
+	for _, want := range []string{
+		`<add key="rootio" value="https://pkg.root.io/nuget/v3/index.json" />`,
+		`<add key="Username" value="root" />`,
+		`<add key="ClearTextPassword" value="sk_nugetkey" />`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("NuGet.Config missing %q; got:\n%s", want, content)
+		}
+	}
+
+	// cleanup() must remove the file.
+	cleanup()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("expected NuGet.Config removed after cleanup, stat err=%v", err)
+	}
+
+	// Missing pkgURL or apiKey → no config (restore without it).
+	if p, _, _ := (&App{apiKey: "k", logger: logger}).writeNuGetConfig(t.TempDir()); p != "" {
+		t.Errorf("expected no NuGet.Config when pkgURL empty, got %q", p)
+	}
+	if p, _, _ := (&App{pkgURL: "https://pkg.root.io", logger: logger}).writeNuGetConfig(t.TempDir()); p != "" {
+		t.Errorf("expected no NuGet.Config when apiKey empty, got %q", p)
+	}
 }
 
 func TestNuGetApp_Run_DryRunDoesNotInvokeRestore(t *testing.T) {

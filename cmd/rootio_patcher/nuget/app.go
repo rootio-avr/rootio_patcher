@@ -2,11 +2,14 @@ package nuget
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
@@ -155,8 +158,20 @@ func (a *App) Run(ctx context.Context) error {
 		if fi, statErr := os.Stat(a.path); statErr == nil && !fi.IsDir() {
 			dir = filepath.Dir(a.path)
 		}
+		// The patched manifest references `-root.io.N` package versions that live only in the
+		// Root.io NuGet feed — nuget.org has no such versions. dotnet has no env-var form for
+		// adding an authenticated source, so we write a temporary NuGet.Config (feed at
+		// <pkgURL>/nuget/v3/index.json + basic auth root:<apiKey>) and pass it via --configfile.
+		restoreArgs := []string{"restore"}
+		configPath, cleanup, cerr := a.writeNuGetConfig(dir)
+		if cerr != nil {
+			a.logger.WarnContext(ctx, "could not write NuGet.Config for Root.io feed auth; restoring without it (patched versions may be unresolvable)", slog.String("error", cerr.Error()))
+		} else if configPath != "" {
+			defer cleanup()
+			restoreArgs = append(restoreArgs, "--configfile", configPath)
+		}
 		a.logger.DebugContext(ctx, "Running dotnet restore", slog.String("dir", dir))
-		if err := a.cmdRunner.Run(ctx, dir, a.nugetEnv(), "dotnet", "restore"); err != nil {
+		if err := a.cmdRunner.Run(ctx, dir, a.nugetEnv(), "dotnet", restoreArgs...); err != nil {
 			return fmt.Errorf("dotnet restore failed: %w", err)
 		}
 	}
@@ -261,8 +276,69 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 	return nil
 }
 
-// nugetEnv returns extra environment for the resolver.
-// Root.io NuGet source auth (NuGet.Config) is a deferred follow-up. Returns nil for now.
+// nugetEnv returns extra environment for the resolver. NuGet source auth cannot be
+// expressed via environment variables (it requires a NuGet.Config), so this stays nil —
+// see writeNuGetConfig, which supplies the Root.io feed + credentials via --configfile.
 func (a *App) nugetEnv() []string {
 	return nil
+}
+
+// writeNuGetConfig writes a temporary NuGet.Config that points `dotnet restore` at the
+// Root.io NuGet feed (<pkgURL>/nuget/v3/index.json) with Root.io basic auth (user "root",
+// password = apiKey), so it can fetch the `-root.io.N` patched packages that exist only
+// there (never on nuget.org). Credentials use ClearTextPassword (dotnet expects an
+// encrypted value otherwise, which isn't portable across machines/CI).
+//
+// Returns the config path and a cleanup func. If pkgURL or apiKey is unset it returns
+// ("", noop, nil) so the caller restores without it (using whatever sources already apply).
+func (a *App) writeNuGetConfig(dir string) (string, func(), error) {
+	noop := func() {}
+	if a.pkgURL == "" || a.apiKey == "" {
+		return "", noop, nil
+	}
+	u, err := url.Parse(a.pkgURL)
+	if err != nil || u.Host == "" {
+		return "", noop, fmt.Errorf("invalid pkgURL %q: %w", a.pkgURL, err)
+	}
+	feedURL := fmt.Sprintf("%s://%s/nuget/v3/index.json", u.Scheme, u.Host)
+
+	config := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <add key="rootio" value="%s" />
+  </packageSources>
+  <packageSourceCredentials>
+    <rootio>
+      <add key="Username" value="root" />
+      <add key="ClearTextPassword" value="%s" />
+    </rootio>
+  </packageSourceCredentials>
+</configuration>
+`, xmlEscape(feedURL), xmlEscape(a.apiKey))
+
+	f, err := os.CreateTemp(dir, "rootio-nuget-*.config")
+	if err != nil {
+		f, err = os.CreateTemp("", "rootio-nuget-*.config")
+		if err != nil {
+			return "", noop, fmt.Errorf("create NuGet.Config: %w", err)
+		}
+	}
+	path := f.Name()
+	if _, err := f.WriteString(config); err != nil {
+		f.Close()
+		os.Remove(path)
+		return "", noop, fmt.Errorf("write NuGet.Config: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		return "", noop, fmt.Errorf("close NuGet.Config: %w", err)
+	}
+	return path, func() { os.Remove(path) }, nil
+}
+
+// xmlEscape escapes a string for safe inclusion in XML text/attribute content.
+func xmlEscape(s string) string {
+	var b strings.Builder
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
 }
