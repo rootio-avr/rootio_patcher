@@ -32,6 +32,12 @@ func (r *realScanner) ListPackages(ctx context.Context) ([]InstalledPackage, err
 	return parseRpmQaOutput(out)
 }
 
+// gpgPubkeyPseudoPackage is the name rpm gives each imported GPG key in its
+// database. These show up in `rpm -qa` alongside real packages but are not
+// installable/upgradeable through any front-end (yum/dnf/microdnf all reject
+// or silently skip them), so they must never be offered for upgrade.
+const gpgPubkeyPseudoPackage = "gpg-pubkey"
+
 // parseRpmQaOutput parses `rpm -qa --queryformat '%{NAME}\t%{VERSION}-%{RELEASE}\n'`
 // output into installed packages. rpm is used for listing regardless of which
 // front-end (yum/dnf/microdnf) manages installs, since all three store
@@ -46,6 +52,9 @@ func parseRpmQaOutput(out []byte) ([]InstalledPackage, error) {
 		}
 		parts := strings.SplitN(line, "\t", 2)
 		if len(parts) != 2 {
+			continue
+		}
+		if parts[0] == gpgPubkeyPseudoPackage {
 			continue
 		}
 		packages = append(packages, InstalledPackage{Name: parts[0], Version: parts[1]})
