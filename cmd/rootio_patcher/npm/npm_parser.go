@@ -50,6 +50,7 @@ type PackageLockJSON struct {
 
 // PackageLockEntry represents a package entry in the "packages" section
 type PackageLockEntry struct {
+	Name            string            `json:"name,omitempty"`
 	Version         string            `json:"version,omitempty"`
 	Resolved        string            `json:"resolved,omitempty"`
 	Integrity       string            `json:"integrity,omitempty"`
@@ -241,7 +242,17 @@ func (p *NpmParser) FindParents(ctx context.Context, lockFilePath, packageName, 
 			continue
 		}
 
-		parentName := extractPackageName(pkgPath)
+		// Prefer the entry's resolved identity ("name" field) over the path
+		// segment. When a parent was aliased in a prior round, its lock path
+		// keeps the pre-alias name (e.g. "node_modules/@apollo/federation-internals")
+		// while "name" holds the alias it actually resolves to
+		// (e.g. "@rootio/apollo__federation-internals"). npm matches a nested
+		// override against the resolved identity, so keying under the path
+		// name would silently never apply.
+		parentName := pkgData.Name
+		if parentName == "" {
+			parentName = extractPackageName(pkgPath)
+		}
 		if parentName == "" || parentName == packageName || seen[parentName] {
 			continue
 		}
@@ -350,9 +361,32 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 
 	for _, ov := range overrides {
 		// Use version-scoped flat override (e.g., "uuid@9.0.1": "npm:@rootio/uuid@...")
-		// This works for all transitive dependencies regardless of nesting or aliasing
-		key := ov.PackageName + "@" + ov.Version
-		sets[npmOverridesPath+"."+escapeSjsonKey(key)] = ov.Value
+		// This works for all transitive dependencies regardless of nesting or aliasing.
+		//
+		// Pattern A guard: when a prior round already aliased this package, the
+		// package now resolves at the alias's OWN output version (e.g.
+		// 9.0.1-root.io.1), which is what the API re-flags. Adding a naive
+		// "<name>@<that-output-version>" key is dead — that version string is
+		// never a range any real dependent declares, so it can never match and
+		// the package stays pinned forever. Instead, bump the pre-existing flat
+		// key that actually produced this resolved version, in place.
+		if existing := findControllingFlatKey(pkgJsonContent, ov.PackageName, ov.Version); existing != "" {
+			sets[npmOverridesPath+"."+escapeSjsonKey(existing)] = ov.Value
+		} else {
+			key := ov.PackageName + "@" + ov.Version
+			sets[npmOverridesPath+"."+escapeSjsonKey(key)] = ov.Value
+		}
+
+		// Pattern B: when the parent is itself aliased, its resolved node name
+		// differs from the pre-alias dependency name. FindParents returns the
+		// RESOLVED parent identity (e.g. "@rootio/apollo__gateway"), which is
+		// what npm matches a nested/path-scoped override against — keying under
+		// the pre-alias name ("@apollo/gateway") silently never applies. Write
+		// the nested override under each resolved parent.
+		for _, parent := range ov.Parents {
+			path := npmOverridesPath + "." + escapeSjsonKey(parent) + "." + escapeSjsonKey(ov.PackageName)
+			sets[path] = ov.Value
+		}
 
 		// npm gives a nested/path-scoped override ({"<parent>": {"<pkg>": "..."}})
 		// precedence over a flat key for the same package, for any parent it
@@ -380,6 +414,42 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 		}
 	}
 	return sets, deletes, nil
+}
+
+// findControllingFlatKey finds the existing flat override key whose VALUE
+// currently resolves packageName to resolvedVersion, i.e. the key that
+// produced the alias output now being re-flagged. Override values look like
+// "npm:@rootio/uuid@9.0.1-root.io.1"; the version after the alias's last "@"
+// is what gets installed. When a package was aliased in a prior round,
+// resolvedVersion (e.g. "9.0.1-root.io.1") equals that installed version, so
+// the returned key (e.g. "uuid@9.0.1") is the one to bump in place instead of
+// adding a dead "<name>@<resolvedVersion>" key that matches no real range.
+// Only flat string entries are considered (nested objects are handled
+// separately by findNestedOverrideParents). Returns "" if none matches.
+func findControllingFlatKey(pkgContent []byte, packageName, resolvedVersion string) string {
+	found := ""
+	gjsonGet(pkgContent, npmOverridesPath).ForEach(func(key, value gjson.Result) bool {
+		if value.Type != gjson.String {
+			return true
+		}
+		// Key must target packageName (e.g. "uuid@9.0.1" or bare "uuid").
+		k := key.String()
+		name := k
+		if idx := strings.LastIndex(k, "@"); idx > 0 {
+			name = k[:idx]
+		}
+		if name != packageName {
+			return true
+		}
+		// Value's installed version (after the alias's last "@") must match.
+		v := value.String()
+		if idx := strings.LastIndex(v, "@"); idx > 0 && v[idx+1:] == resolvedVersion {
+			found = k
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 // findNestedOverrideParents scans the existing "overrides" object in
