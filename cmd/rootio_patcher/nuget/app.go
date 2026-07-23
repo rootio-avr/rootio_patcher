@@ -325,15 +325,15 @@ func (a *App) writeNuGetConfig(dir string) (string, func(), error) {
 	}
 	path := f.Name()
 	if _, err := f.WriteString(config); err != nil {
-		f.Close()
-		os.Remove(path)
+		_ = f.Close()
+		_ = os.Remove(path)
 		return "", noop, fmt.Errorf("write NuGet.Config: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(path)
+		_ = os.Remove(path)
 		return "", noop, fmt.Errorf("close NuGet.Config: %w", err)
 	}
-	return path, func() { os.Remove(path) }, nil
+	return path, func() { _ = os.Remove(path) }, nil
 }
 
 // xmlEscape escapes a string for safe inclusion in XML text/attribute content.

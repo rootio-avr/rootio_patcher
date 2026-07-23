@@ -317,15 +317,15 @@ func (a *App) writeMavenSettings(dir string) (string, func(), error) {
 	}
 	path := f.Name()
 	if _, err := f.WriteString(settings); err != nil {
-		f.Close()
-		os.Remove(path)
+		_ = f.Close()
+		_ = os.Remove(path)
 		return "", noop, fmt.Errorf("write settings.xml: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(path)
+		_ = os.Remove(path)
 		return "", noop, fmt.Errorf("close settings.xml: %w", err)
 	}
-	return path, func() { os.Remove(path) }, nil
+	return path, func() { _ = os.Remove(path) }, nil
 }
 
 // xmlEscape escapes a string for safe inclusion in XML text/attribute content.
