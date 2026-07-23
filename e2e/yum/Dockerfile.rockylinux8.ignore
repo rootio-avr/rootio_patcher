@@ -1,0 +1,23 @@
+FROM rockylinux:8
+
+# Verifies the --ignore flag: curl must be excluded from the upgrade plan,
+# tar must still be offered. Runs in dry-run (the default) so no network
+# access to the yum repos is needed beyond the initial package install.
+RUN yum install -y curl tar gzip && yum clean all
+
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+RUN rootio_patcher yum remediate --ignore=curl > /tmp/patcher.log 2>&1; \
+    RC=$?; cat /tmp/patcher.log; exit $RC
+
+RUN echo "" && \
+    echo "=== DRY-RUN PLAN CHECK ===" && \
+    FAIL=0 && \
+    \
+    if grep -q "• curl" /tmp/patcher.log; then echo "  FAIL  ignored package curl appears in upgrade plan"; FAIL=1; else echo "  PASS  ignored package curl excluded from upgrade plan"; fi && \
+    if grep -q "• tar" /tmp/patcher.log; then echo "  PASS  non-ignored package tar present in upgrade plan"; else echo "  FAIL  non-ignored package tar missing from upgrade plan"; FAIL=1; fi && \
+    if grep -q "• gzip" /tmp/patcher.log; then echo "  PASS  non-ignored package gzip present in upgrade plan"; else echo "  FAIL  non-ignored package gzip missing from upgrade plan"; FAIL=1; fi && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }

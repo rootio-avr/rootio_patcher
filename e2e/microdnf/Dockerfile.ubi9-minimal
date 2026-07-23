@@ -1,0 +1,37 @@
+FROM registry.access.redhat.com/ubi9/ubi-minimal
+
+# Install packages for the patcher to upgrade. Root.io has no targeted patches
+# for microdnf, so the patcher only performs a broad "upgrade everything
+# installed" via `microdnf upgrade -y --refresh <names>` — no analyze API
+# call, no patch installation. microdnf has no separate makecache step
+# (unlike yum/dnf), so --refresh is passed directly on the upgrade command.
+RUN microdnf install -y tar gzip && microdnf clean all
+
+# Record baseline versions before patching
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  BEFORE upgrade                             │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    rpm -q tar gzip
+
+# Copy the pre-built patcher binary
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run the patcher (no ROOTIO_* env vars needed — yum/dnf/microdnf never call the API)
+RUN rootio_patcher microdnf remediate --dry-run=false
+
+# Verify outcomes and print explicit PASS/FAIL for each check
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  AFTER upgrade                              │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    rpm -q tar gzip && \
+    \
+    FAIL=0 && \
+    \
+    tar --version  > /dev/null 2>&1 && echo "  PASS  tar binary works"  || { echo "  FAIL  tar binary broken";  FAIL=1; } && \
+    gzip --version > /dev/null 2>&1 && echo "  PASS  gzip binary works" || { echo "  FAIL  gzip binary broken"; FAIL=1; } && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }

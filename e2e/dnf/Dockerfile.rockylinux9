@@ -1,0 +1,36 @@
+FROM rockylinux:9
+
+# Install packages for the patcher to upgrade. Root.io has no targeted patches
+# for dnf, so the patcher only performs a broad "upgrade everything installed"
+# via `dnf upgrade -y <names>` — no analyze API call, no patch installation.
+RUN dnf install -y wget tar gzip && dnf clean all
+
+# Record baseline versions before patching
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  BEFORE upgrade                             │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    rpm -q wget tar gzip
+
+# Copy the pre-built patcher binary
+COPY rootio_patcher /usr/local/bin/rootio_patcher
+RUN chmod +x /usr/local/bin/rootio_patcher
+
+# Run the patcher (no ROOTIO_* env vars needed — yum/dnf/microdnf never call the API)
+RUN rootio_patcher dnf remediate --dry-run=false
+
+# Verify outcomes and print explicit PASS/FAIL for each check
+RUN echo "" && \
+    echo "┌─────────────────────────────────────────────┐" && \
+    echo "│  AFTER upgrade                              │" && \
+    echo "└─────────────────────────────────────────────┘" && \
+    rpm -q wget tar gzip && \
+    \
+    FAIL=0 && \
+    \
+    wget --version > /dev/null 2>&1 && echo "  PASS  wget binary works" || { echo "  FAIL  wget binary broken"; FAIL=1; } && \
+    tar --version  > /dev/null 2>&1 && echo "  PASS  tar binary works"  || { echo "  FAIL  tar binary broken";  FAIL=1; } && \
+    gzip --version > /dev/null 2>&1 && echo "  PASS  gzip binary works" || { echo "  FAIL  gzip binary broken"; FAIL=1; } && \
+    \
+    echo "" && \
+    [ "$FAIL" -eq 0 ] && echo "✓ All checks passed" || { echo "✗ One or more checks failed"; exit 1; }
