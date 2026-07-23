@@ -219,6 +219,7 @@ func (p *Yarn2Parser) FindParents(ctx context.Context, lockFilePath, packageName
 
 	type entry struct {
 		Specs        []string
+		Resolution   string
 		Version      string
 		Dependencies map[string]string
 	}
@@ -234,8 +235,13 @@ func (p *Yarn2Parser) FindParents(ctx context.Context, lockFilePath, packageName
 		}
 		versionVal, _ := valueMap["version"]
 		entryVersion := fmt.Sprintf("%v", versionVal)
+		resolutionVal := valueMap["resolution"]
 
-		e := entry{Version: entryVersion, Dependencies: map[string]string{}}
+		e := entry{
+			Version:      entryVersion,
+			Resolution:   fmt.Sprintf("%v", resolutionVal),
+			Dependencies: map[string]string{},
+		}
 
 		// Parse the entry key (may be comma-separated, may have npm: prefix).
 		for _, spec := range strings.Split(key, ",") {
@@ -286,7 +292,17 @@ func (p *Yarn2Parser) FindParents(ctx context.Context, lockFilePath, packageName
 		if len(e.Specs) == 0 {
 			continue
 		}
-		parentName, _ := splitYarnSpec(e.Specs[0])
+		// Use the entry's resolved identity (the "resolution:" field), not its
+		// spec key. When the parent is itself aliased, Yarn Berry matches a
+		// path-scoped resolution's parent segment against the resolved
+		// identity (e.g. "@rootio/express"), not the original pre-alias
+		// dependency name ("express") — using the latter silently fails to
+		// match, so the override is never applied.
+		parentSpec := e.Resolution
+		if parentSpec == "" {
+			parentSpec = e.Specs[0]
+		}
+		parentName, _ := splitYarnSpec(parentSpec)
 		if parentName == "" || parentName == packageName || seen[parentName] {
 			continue
 		}

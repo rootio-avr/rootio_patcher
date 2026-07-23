@@ -317,12 +317,21 @@ func parseYarnLockEntries(content []byte) []yarnLockEntry {
 }
 
 // splitYarnSpec splits a yarn spec like "uuid@^10.0.0" or "@scope/name@npm:1.0"
-// into (name, range). Returns the spec as name and "" if no version separator
-// is found.
+// into (name, range). Splits on the first "@" after an optional leading "@"
+// (scoped package name), not the last one — a range can itself embed "@"
+// when it's an alias descriptor, e.g. "express@npm:@rootio/express@4.18.2".
+// Using LastIndex there would misparse the identity as
+// "express@npm:@rootio/express" instead of "express".
+// Returns the spec as name and "" if no version separator is found.
 func splitYarnSpec(spec string) (name, rng string) {
-	lastAt := strings.LastIndex(spec, "@")
-	if lastAt <= 0 {
+	start := 0
+	if strings.HasPrefix(spec, "@") {
+		start = 1
+	}
+	idx := strings.Index(spec[start:], "@")
+	if idx < 0 {
 		return spec, ""
 	}
-	return spec[:lastAt], spec[lastAt+1:]
+	at := start + idx
+	return spec[:at], spec[at+1:]
 }

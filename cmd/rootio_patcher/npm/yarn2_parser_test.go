@@ -514,3 +514,61 @@ func TestYarn2Parser_Parse_MetadataVersion(t *testing.T) {
 		})
 	}
 }
+
+// TestYarn2Parser_FindParents_AliasedParent is the regression test for the
+// invalid/inert-resolutions-key bug: once a parent (express) has already been
+// aliased to npm:@rootio/... in an earlier remediation round, its lock file
+// spec key embeds the alias descriptor (e.g.
+// "express@npm:@rootio/express@4.18.2-root.io.3") while its "resolution:"
+// field carries the true resolved identity, alias-name-first (e.g.
+// "@rootio/express@npm:4.18.2-root.io.3" — this is the real shape Yarn Berry
+// writes, verified against a live `yarn install`).
+//
+// FindParents must return the parent's RESOLVED identity ("@rootio/express"),
+// not its pre-alias spec-key name ("express") and not the raw spec-key
+// descriptor. Two distinct failures if it doesn't:
+//   - Using the spec-key descriptor verbatim produces unparseable syntax
+//     ("express@npm:@rootio/express/body-parser", Yarn error YN0057).
+//   - Using the pre-alias bare name ("express/body-parser") is syntactically
+//     valid but Yarn Berry silently fails to match it against the tree (it
+//     matches path-scoped resolutions against the resolved identity), so the
+//     override is silently never applied — confirmed via a live repro
+//     against the real registry.
+func TestYarn2Parser_FindParents_AliasedParent(t *testing.T) {
+	ctx := context.Background()
+	parser := NewYarn2Parser()
+	tmpDir := t.TempDir()
+	lockFile := filepath.Join(tmpDir, "yarn.lock")
+
+	content := `__metadata:
+  version: 8
+  cacheKey: 10c0
+
+"express@npm:@rootio/express@4.18.2-root.io.3":
+  version: 4.18.2-root.io.3
+  resolution: "@rootio/express@npm:4.18.2-root.io.3"
+  dependencies:
+    body-parser: "npm:@rootio/body-parser@1.20.1-root.io.1"
+  checksum: 10c0/abcd1234
+  languageName: node
+  linkType: hard
+
+"body-parser@npm:@rootio/body-parser@1.20.1-root.io.1":
+  version: 1.20.1-root.io.1
+  resolution: "@rootio/body-parser@npm:1.20.1-root.io.1"
+  checksum: 10c0/deadbeef
+  languageName: node
+  linkType: hard
+`
+	if err := os.WriteFile(lockFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create lock file: %v", err)
+	}
+
+	got, err := parser.FindParents(ctx, lockFile, "body-parser", "1.20.1-root.io.1")
+	if err != nil {
+		t.Fatalf("FindParents failed: %v", err)
+	}
+	if len(got) != 1 || got[0] != "@rootio/express" {
+		t.Errorf("expected parent [@rootio/express] (resolved identity), got %v", got)
+	}
+}
