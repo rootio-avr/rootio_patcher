@@ -20,6 +20,7 @@ func TestMavenApp_Run_FileNotFound(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		"/nonexistent/pom.xml",
 		true,
 		true,
@@ -27,6 +28,7 @@ func TestMavenApp_Run_FileNotFound(t *testing.T) {
 		logger,
 		&MockParser{},
 		&MockAPIClient{},
+		&MockCommandRunner{},
 	)
 
 	err := app.Run(ctx)
@@ -57,6 +59,7 @@ func TestMavenApp_Run_NoPackages(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		pomFile,
 		true,
 		true,
@@ -64,6 +67,7 @@ func TestMavenApp_Run_NoPackages(t *testing.T) {
 		logger,
 		&MockParser{},
 		&MockAPIClient{},
+		&MockCommandRunner{},
 	)
 
 	err := app.Run(ctx)
@@ -110,6 +114,7 @@ func TestMavenApp_Run_APIError(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		pomFile,
 		true,
 		true,
@@ -117,6 +122,7 @@ func TestMavenApp_Run_APIError(t *testing.T) {
 		logger,
 		mockParser,
 		mockAPIClient,
+		&MockCommandRunner{},
 	)
 
 	err := app.Run(ctx)
@@ -159,6 +165,7 @@ func TestMavenApp_Run_NoPatches(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		pomFile,
 		true,
 		true,
@@ -166,6 +173,7 @@ func TestMavenApp_Run_NoPatches(t *testing.T) {
 		logger,
 		&MockParser{},
 		mockAPIClient,
+		&MockCommandRunner{},
 	)
 
 	err := app.Run(ctx)
@@ -212,6 +220,7 @@ func TestMavenApp_Run_DryRun(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		pomFile,
 		true, // dry-run
 		true,
@@ -219,6 +228,7 @@ func TestMavenApp_Run_DryRun(t *testing.T) {
 		logger,
 		&MockParser{},
 		mockAPIClient,
+		&MockCommandRunner{},
 	)
 
 	err := app.Run(ctx)
@@ -282,9 +292,12 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 		},
 	}
 
+	mockCmd := &MockCommandRunner{}
+
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		pomFile,
 		false, // NOT dry-run
 		true,
@@ -292,7 +305,11 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 		logger,
 		mockParser,
 		mockAPIClient,
+		mockCmd,
 	)
+
+	// Make mvn appear absent to skip resolver (we're testing file patching, not mvn invocation)
+	app.lookPath = func(name string) (string, error) { return "", os.ErrNotExist }
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -358,9 +375,12 @@ func TestMavenApp_Run_ApplyPatches_UseAliasFalse(t *testing.T) {
 		},
 	}
 
+	mockCmd := &MockCommandRunner{}
+
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		pomFile,
 		false, // NOT dry-run
 		false, // useAlias=false: keep original groupId
@@ -368,7 +388,11 @@ func TestMavenApp_Run_ApplyPatches_UseAliasFalse(t *testing.T) {
 		logger,
 		mockParser,
 		mockAPIClient,
+		mockCmd,
 	)
+
+	// Make mvn appear absent to skip resolver
+	app.lookPath = func(name string) (string, error) { return "", os.ErrNotExist }
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -440,9 +464,12 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 		},
 	}
 
+	mockCmd := &MockCommandRunner{}
+
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		pomFile,
 		false, // NOT dry-run
 		true,
@@ -450,7 +477,11 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 		logger,
 		mockParser,
 		mockAPIClient,
+		mockCmd,
 	)
+
+	// Make mvn appear absent to skip resolver
+	app.lookPath = func(name string) (string, error) { return "", os.ErrNotExist }
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -464,5 +495,307 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 	}
 	if !strings.Contains(string(updatedContent), "<log4j.version>2.17.1</log4j.version>") {
 		t.Error("Property should be updated to 2.17.1")
+	}
+}
+
+func TestMavenApp_Run_InvokesResolveAfterPatch(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	tmpDir := t.TempDir()
+	pomFile := filepath.Join(tmpDir, "pom.xml")
+	content := `<?xml version="1.0"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.12</version>
+    </dependency>
+  </dependencies>
+</project>`
+	if err := os.WriteFile(pomFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+
+	mockAPIClient := &MockAPIClient{
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			return &rootio.AnalyzePackagesResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "junit:junit",
+						Version:     "4.12",
+						Patch:       rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
+						PatchAlias:  rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
+						CVEIDs:      []string{"CVE-2020-15250"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	mockParser := &MockMavenParser{
+		MavenParser: NewParser(logger),
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "junit:junit", Version: "4.12"},
+			}, nil
+		},
+	}
+
+	mockCmd := &MockCommandRunner{}
+
+	app := NewAppWithServices(
+		"test-key",
+		"https://api.root.io",
+		"https://pkg.root.io",
+		pomFile,
+		false, // NOT dry-run
+		true,
+		nil,
+		logger,
+		mockParser,
+		mockAPIClient,
+		mockCmd,
+	)
+
+	// Make mvn appear available
+	app.lookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
+
+	err := app.Run(ctx)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Assert mvn dependency:resolve was invoked
+	if len(mockCmd.Calls) != 1 {
+		t.Fatalf("Expected 1 command call, got %d", len(mockCmd.Calls))
+	}
+	if mockCmd.Calls[0].Name != "mvn" {
+		t.Errorf("Expected command name 'mvn', got '%s'", mockCmd.Calls[0].Name)
+	}
+	found := false
+	sawSettings := false
+	for i, arg := range mockCmd.Calls[0].Args {
+		if arg == "dependency:resolve" {
+			found = true
+		}
+		// The resolver must be pointed at the Root.io repo via `-s <settings.xml>` so it
+		// can fetch -root.io.N artifacts (which exist only in the Root.io Maven repo).
+		if arg == "-s" && i+1 < len(mockCmd.Calls[0].Args) {
+			sawSettings = true
+		}
+	}
+	if !found {
+		t.Errorf("Expected 'dependency:resolve' in args, got: %v", mockCmd.Calls[0].Args)
+	}
+	if !sawSettings {
+		t.Errorf("Expected '-s <settings.xml>' (Root.io repo auth) in args, got: %v", mockCmd.Calls[0].Args)
+	}
+}
+
+func TestWriteMavenSettings(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	// With pkgURL + apiKey → a settings.xml with the Root.io server, mirror, and repo.
+	app := &App{apiKey: "sk_mvnkey", pkgURL: "https://pkg.root.io", logger: logger}
+	path, cleanup, err := app.writeMavenSettings(t.TempDir())
+	if err != nil {
+		t.Fatalf("writeMavenSettings error: %v", err)
+	}
+	if path == "" {
+		t.Fatal("expected a settings.xml path")
+	}
+	defer cleanup()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read settings.xml: %v", err)
+	}
+	content := string(data)
+	for _, want := range []string{
+		"<username>root</username>",
+		"<password>sk_mvnkey</password>",
+		"https://pkg.root.io/maven",
+		"<blocked>false</blocked>", // Maven 3.9+ blocks plain-HTTP repos otherwise
+		"<activeProfile>rootio</activeProfile>",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("settings.xml missing %q; got:\n%s", want, content)
+		}
+	}
+
+	// cleanup() must remove the file.
+	cleanup()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("expected settings.xml removed after cleanup, stat err=%v", err)
+	}
+
+	// Missing pkgURL or apiKey → no settings (resolve without it).
+	if p, _, _ := (&App{apiKey: "k", logger: logger}).writeMavenSettings(t.TempDir()); p != "" {
+		t.Errorf("expected no settings.xml when pkgURL empty, got %q", p)
+	}
+	if p, _, _ := (&App{pkgURL: "https://pkg.root.io", logger: logger}).writeMavenSettings(t.TempDir()); p != "" {
+		t.Errorf("expected no settings.xml when apiKey empty, got %q", p)
+	}
+}
+
+func TestMavenApp_Run_DryRunDoesNotInvokeResolve(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	tmpDir := t.TempDir()
+	pomFile := filepath.Join(tmpDir, "pom.xml")
+	content := `<?xml version="1.0"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.12</version>
+    </dependency>
+  </dependencies>
+</project>`
+	if err := os.WriteFile(pomFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+
+	mockAPIClient := &MockAPIClient{
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			return &rootio.AnalyzePackagesResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "junit:junit",
+						Version:     "4.12",
+						Patch:       rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
+						PatchAlias:  rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
+						CVEIDs:      []string{"CVE-2020-15250"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	mockParser := &MockParser{
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "junit:junit", Version: "4.12"},
+			}, nil
+		},
+	}
+
+	mockCmd := &MockCommandRunner{}
+
+	app := NewAppWithServices(
+		"test-key",
+		"https://api.root.io",
+		"https://pkg.root.io",
+		pomFile,
+		true, // DRY-RUN
+		true,
+		nil,
+		logger,
+		mockParser,
+		mockAPIClient,
+		mockCmd,
+	)
+
+	// Make mvn appear available
+	app.lookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
+
+	err := app.Run(ctx)
+	// Dry-run returns early with ErrPatchesAvailable, not an actual error
+	if err != common.ErrPatchesAvailable {
+		t.Fatalf("Expected ErrPatchesAvailable, got: %v", err)
+	}
+
+	// Assert mvn dependency:resolve was NOT invoked
+	if len(mockCmd.Calls) != 0 {
+		t.Errorf("Expected no command calls in dry-run mode, got %d", len(mockCmd.Calls))
+	}
+}
+
+func TestMavenApp_Run_SkipsResolveWhenMvnAbsent(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	tmpDir := t.TempDir()
+	pomFile := filepath.Join(tmpDir, "pom.xml")
+	content := `<?xml version="1.0"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.12</version>
+    </dependency>
+  </dependencies>
+</project>`
+	if err := os.WriteFile(pomFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+
+	mockAPIClient := &MockAPIClient{
+		AnalyzePackagesFunc: func(ctx context.Context, packages []rootio.Package, ignore []rootio.Package, ecosystem string) (*rootio.AnalyzePackagesResponse, error) {
+			return &rootio.AnalyzePackagesResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "junit:junit",
+						Version:     "4.12",
+						Patch:       rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
+						PatchAlias:  rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
+						CVEIDs:      []string{"CVE-2020-15250"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	mockParser := &MockMavenParser{
+		MavenParser: NewParser(logger),
+		ParseFunc: func(ctx context.Context, filePath string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{
+				{Name: "junit:junit", Version: "4.12"},
+			}, nil
+		},
+	}
+
+	mockCmd := &MockCommandRunner{}
+
+	app := NewAppWithServices(
+		"test-key",
+		"https://api.root.io",
+		"https://pkg.root.io",
+		pomFile,
+		false, // NOT dry-run
+		true,
+		nil,
+		logger,
+		mockParser,
+		mockAPIClient,
+		mockCmd,
+	)
+
+	// Make mvn appear ABSENT
+	app.lookPath = func(name string) (string, error) {
+		return "", os.ErrNotExist
+	}
+
+	err := app.Run(ctx)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Assert mvn dependency:resolve was NOT invoked
+	if len(mockCmd.Calls) != 0 {
+		t.Errorf("Expected no command calls when mvn is absent, got %d", len(mockCmd.Calls))
+	}
+
+	// Verify pom.xml was still patched
+	updatedContent, err := os.ReadFile(pomFile)
+	if err != nil {
+		t.Fatalf("Failed to read file: %v", err)
+	}
+	if !strings.Contains(string(updatedContent), "4.13.2") {
+		t.Error("File should contain updated version 4.13.2 even when mvn is absent")
 	}
 }
