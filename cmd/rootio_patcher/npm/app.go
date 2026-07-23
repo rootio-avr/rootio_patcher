@@ -200,11 +200,6 @@ func (a *App) Run(ctx context.Context) error {
 		return nil
 	}
 
-	if len(response.Patches) == 0 {
-		fmt.Println("\nNo patches needed - all packages are up to date!")
-		return nil
-	}
-
 	// 6. Execute or dry-run patches
 	if a.dryRun {
 		a.logger.DebugContext(ctx, "DRY-RUN MODE: No changes will be made")

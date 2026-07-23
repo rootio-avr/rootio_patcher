@@ -341,6 +341,9 @@ func (p *NpmParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOve
 
 func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (map[string]string, []string, error) {
 	sets := make(map[string]string)
+	// deletes stays empty: the direct-dep rewrite keeps the original dependency key
+	// (only its value changes to the npm: alias), so nothing is removed. Kept for the
+	// shared PatchOptions.Deletes contract other ecosystems/paths may use.
 	var deletes []string
 
 	pkgJsonContent, err := os.ReadFile(packageJSONPath)
