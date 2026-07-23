@@ -21,6 +21,7 @@ import (
 	"rootio_patcher/cmd/rootio_patcher/npm"
 	"rootio_patcher/cmd/rootio_patcher/nuget"
 	"rootio_patcher/cmd/rootio_patcher/pip"
+	"rootio_patcher/cmd/rootio_patcher/rpm"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -38,6 +39,9 @@ type CLI struct {
 	Composer ComposerCmd `cmd:"" help:"Composer (PHP) package remediation"`
 	Apt      AptCmd      `cmd:"" help:"APT (Debian/Ubuntu) OS-level package remediation"`
 	Apk      ApkCmd      `cmd:"" help:"APK (Alpine Linux) OS-level package remediation"`
+	Yum      YumCmd      `cmd:"" help:"yum (RHEL/CentOS) OS-level package upgrade"`
+	Dnf      DnfCmd      `cmd:"" help:"dnf (Fedora/RHEL) OS-level package upgrade"`
+	Microdnf MicrodnfCmd `cmd:"" help:"microdnf (minimal RHEL-family images) OS-level package upgrade"`
 }
 
 // AptCmd handles APT-related commands
@@ -83,6 +87,72 @@ func (cmd *ApkRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 
 	ignoreSet := common.LoadIgnoreList(".rootioignore", cmd.Ignore)
 	app := apk.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.UseAlias, cmd.Verbose, cmd.SkipUpgrades, ignoreSet, logger)
+	return app.Run(ctx)
+}
+
+// YumCmd handles yum-related commands
+type YumCmd struct {
+	Remediate YumRemediateCmd `cmd:"" help:"Upgrade installed RHEL/CentOS packages to their latest version via yum"`
+}
+
+// YumRemediateCmd upgrades installed yum packages to the latest version.
+// Root.io has no targeted patches for yum, so this only performs the broad
+// upstream upgrade — it never calls the analyze API or installs patches.
+type YumRemediateCmd struct {
+	DryRun bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+}
+
+// Run executes the yum remediate command
+func (cmd *YumRemediateCmd) Run(ctx context.Context, _ *config.Config, logger *slog.Logger) error {
+	logger.InfoContext(ctx, "Starting yum remediation", slog.Bool("dry_run", cmd.DryRun))
+
+	ignoreSet := common.LoadIgnoreList(".rootioignore", cmd.Ignore)
+	app := rpm.NewApp(rpm.YumManager(), cmd.DryRun, ignoreSet, logger)
+	return app.Run(ctx)
+}
+
+// DnfCmd handles dnf-related commands
+type DnfCmd struct {
+	Remediate DnfRemediateCmd `cmd:"" help:"Upgrade installed Fedora/RHEL packages to their latest version via dnf"`
+}
+
+// DnfRemediateCmd upgrades installed dnf packages to the latest version.
+// Root.io has no targeted patches for dnf, so this only performs the broad
+// upstream upgrade — it never calls the analyze API or installs patches.
+type DnfRemediateCmd struct {
+	DryRun bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+}
+
+// Run executes the dnf remediate command
+func (cmd *DnfRemediateCmd) Run(ctx context.Context, _ *config.Config, logger *slog.Logger) error {
+	logger.InfoContext(ctx, "Starting dnf remediation", slog.Bool("dry_run", cmd.DryRun))
+
+	ignoreSet := common.LoadIgnoreList(".rootioignore", cmd.Ignore)
+	app := rpm.NewApp(rpm.DnfManager(), cmd.DryRun, ignoreSet, logger)
+	return app.Run(ctx)
+}
+
+// MicrodnfCmd handles microdnf-related commands
+type MicrodnfCmd struct {
+	Remediate MicrodnfRemediateCmd `cmd:"" help:"Upgrade installed packages to their latest version via microdnf"`
+}
+
+// MicrodnfRemediateCmd upgrades installed microdnf packages to the latest version.
+// Root.io has no targeted patches for microdnf, so this only performs the broad
+// upstream upgrade — it never calls the analyze API or installs patches.
+type MicrodnfRemediateCmd struct {
+	DryRun bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+}
+
+// Run executes the microdnf remediate command
+func (cmd *MicrodnfRemediateCmd) Run(ctx context.Context, _ *config.Config, logger *slog.Logger) error {
+	logger.InfoContext(ctx, "Starting microdnf remediation", slog.Bool("dry_run", cmd.DryRun))
+
+	ignoreSet := common.LoadIgnoreList(".rootioignore", cmd.Ignore)
+	app := rpm.NewApp(rpm.MicrodnfManager(), cmd.DryRun, ignoreSet, logger)
 	return app.Run(ctx)
 }
 

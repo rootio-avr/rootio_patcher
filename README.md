@@ -1,18 +1,20 @@
 # Root.io Patcher
 
-> Automated security patching for Python, npm, Maven, Go, NuGet, Composer, APT, and APK packages with Root.io
+> Automated security patching for Python, npm, Maven, Go, NuGet, Composer, APT, APK, and RPM-family (yum/dnf/microdnf) packages with Root.io
 
 [![Release](https://img.shields.io/github/v/release/rootio-avr/rootio_patcher)](https://github.com/rootio-avr/rootio_patcher/releases)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/rootio-avr/rootio_patcher)](https://golang.org/dl/)
 [![License](https://img.shields.io/github/license/rootio-avr/rootio_patcher)](LICENSE)
 
-`rootio_patcher` is a command-line tool that automatically identifies and patches vulnerabilities in your dependencies using Root.io's security fixes. It supports Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), PHP (Composer), Debian/Ubuntu OS packages (APT), and Alpine Linux OS packages (APK) ecosystems, providing comprehensive security remediation across your entire stack.
+`rootio_patcher` is a command-line tool that automatically identifies and patches vulnerabilities in your dependencies using Root.io's security fixes. It supports Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), PHP (Composer), Debian/Ubuntu OS packages (APT), Alpine Linux OS packages (APK), and RHEL/Fedora-family OS packages (yum/dnf/microdnf) ecosystems, providing comprehensive security remediation across your entire stack.
+
+Root.io does not publish targeted patches for yum/dnf/microdnf. For these three, `rootio_patcher` skips the Root.io analysis step entirely and simply upgrades every installed package to the latest version available from your configured repositories — see [yum / dnf / microdnf](#yum--dnf--microdnf-rhelfedora-family) below.
 
 ---
 
 ## Features
 
-- 🔍 **Multi-Ecosystem Support** - Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), PHP (Composer), Debian/Ubuntu OS packages (APT), and Alpine Linux OS packages (APK)
+- 🔍 **Multi-Ecosystem Support** - Python (pip), JavaScript (npm/yarn/pnpm), Java (Maven), Go (modules), .NET (NuGet), PHP (Composer), Debian/Ubuntu OS packages (APT), Alpine Linux OS packages (APK), and RHEL/Fedora-family OS packages (yum/dnf/microdnf)
 - 🔧 **One-Command Patching** - Applies security fixes with a single command
 - 🌍 **Cross-Platform** - Works on Linux, macOS, and Windows
 - 🔒 **Secure by Default** - Dry-run mode enabled by default to preview changes
@@ -51,6 +53,12 @@ rootio_patcher apt remediate
 # For APK (Alpine Linux OS packages)
 rootio_patcher apk remediate
 
+# For yum/dnf/microdnf (RHEL/Fedora-family OS packages) — no API key needed,
+# these just upgrade installed packages to the latest available version
+rootio_patcher yum remediate
+rootio_patcher dnf remediate
+rootio_patcher microdnf remediate
+
 # 3. Apply patches for real
 rootio_patcher pip remediate --dry-run=false
 rootio_patcher npm remediate --dry-run=false
@@ -59,6 +67,9 @@ rootio_patcher go remediate --dry-run=false
 rootio_patcher composer remediate --dry-run=false
 rootio_patcher apt remediate --dry-run=false
 rootio_patcher apk remediate --dry-run=false
+rootio_patcher yum remediate --dry-run=false
+rootio_patcher dnf remediate --dry-run=false
+rootio_patcher microdnf remediate --dry-run=false
 ```
 
 ---
@@ -248,6 +259,25 @@ rootio_patcher apk remediate [FLAGS]
 Requires `root` — intended to run inside containers or as part of a privileged build step.
 
 > **Note:** The Root.io APK repository currently only publishes `amd64` packages.
+
+#### yum / dnf / microdnf (RHEL/Fedora family)
+
+```bash
+rootio_patcher yum remediate [FLAGS]
+rootio_patcher dnf remediate [FLAGS]
+rootio_patcher microdnf remediate [FLAGS]
+```
+
+**Flags:**
+- `--dry-run` - Preview changes without applying (default: `true`)
+- `--ignore` - Ignore package@version, or a bare package name to always skip (repeatable, comma-separated). Also merged with `.rootioignore` file.
+
+**How it works:** Root.io does not publish targeted patches for yum/dnf/microdnf, so these three commands never call the Root.io API and take no `ROOTIO_API_KEY`/`--use-alias` — they only scan installed packages (via `rpm -qa`) and upgrade every one of them to the latest version available from your configured repositories:
+- `yum remediate` refreshes the metadata cache (`yum makecache`) then runs `yum update -y <names>`
+- `dnf remediate` refreshes the metadata cache (`dnf makecache`) then runs `dnf upgrade -y <names>`
+- `microdnf remediate` runs `microdnf upgrade -y --refresh <names>` (microdnf has no separate cache-refresh command, so `--refresh` is passed on the upgrade itself)
+
+Requires `root` — intended to run inside containers or as part of a privileged build step.
 
 ### Configuration Details
 
@@ -1223,6 +1253,35 @@ docker build --build-arg ROOTIO_API_KEY=$ROOTIO_API_KEY -t myapp .
 
 > **Note:** The Root.io APK repository currently only publishes `amd64` packages. Ensure your Docker build targets `linux/amd64` (e.g. `docker build --platform linux/amd64 ...`) when building on ARM hosts.
 
+#### dnf/yum/microdnf Dockerfile (RHEL/Fedora family)
+
+```dockerfile
+FROM rockylinux:9
+# or: FROM rockylinux:8 (use `rootio_patcher yum remediate` instead of `dnf`)
+# or: FROM registry.access.redhat.com/ubi9/ubi-minimal (use `rootio_patcher microdnf remediate`)
+
+# Install your application dependencies
+RUN dnf install -y ca-certificates curl wget && dnf clean all
+
+# Download rootio_patcher
+RUN curl -sL https://github.com/rootio-avr/rootio_patcher/releases/latest/download/rootio_patcher_linux_x86_64.tar.gz | tar xz && \
+    chmod +x rootio_patcher && \
+    mv rootio_patcher /usr/local/bin/
+
+# Upgrade OS-level packages during build — no ROOTIO_API_KEY needed,
+# yum/dnf/microdnf never call the Root.io API
+RUN rootio_patcher dnf remediate --dry-run=false
+
+# Your application
+COPY . .
+CMD ["./app"]
+```
+
+Build with:
+```bash
+docker build -t myapp .
+```
+
 ---
 
 ## Vulnerability Gate
@@ -1592,6 +1651,15 @@ Then contact Root.io support with the package details that caused the issue.
    - Installs Root.io patches from the Root.io APK repository — either as aliased packages (e.g. `rootio-curl`; APK handles replacement via `provides`) or under the original name (e.g. `curl`) depending on `--use-alias`
 6. **Cleanup**: Removes the Root.io APK repository entry and public key
 
+### yum / dnf / microdnf (RHEL/Fedora family) - Upgrade-Only
+
+Root.io does not publish targeted patches for these ecosystems, so there is no analyze/patch step at all:
+
+1. **Discovery**: Scans installed packages via `rpm -qa` (the `gpg-pubkey` pseudo-package representing imported GPG keys is excluded — it is not a real installable package)
+2. **Filtering**: Removes any package matched by `--ignore` or `.rootioignore`
+3. **Reporting**: In dry-run (the default), prints the full list of packages that would be upgraded
+4. **Upgrade**: Refreshes the package metadata cache, then upgrades every remaining installed package to the latest version available from your configured repositories (`yum update`, `dnf upgrade`, or `microdnf upgrade --refresh`)
+
 ---
 
 ## Security Considerations
@@ -1607,6 +1675,8 @@ Then contact Root.io support with the package details that caused the issue.
 - By default, `DRY_RUN=true` prevents any changes. Review the dry-run output before applying patches.
 
 - The `apt remediate` and `apk remediate` commands require `root` privileges to install packages and modify repository configuration.
+
+- The `yum remediate`, `dnf remediate`, and `microdnf remediate` commands require `root` privileges to upgrade packages. They make no network calls to Root.io — only to your configured yum/dnf repositories.
 
 ---
 
