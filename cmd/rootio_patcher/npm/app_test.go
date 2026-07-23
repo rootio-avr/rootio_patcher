@@ -2,6 +2,7 @@ package npm
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"log/slog"
 	"os"
@@ -21,6 +22,7 @@ func TestNpmApp_Run_FileNotFound(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		"/nonexistent/package-lock.json",
 		true,  // dryRun
 		true,  // useAlias
@@ -52,6 +54,7 @@ func TestNpmApp_Run_NoPackages(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		lockFile,
 		true,  // dryRun
 		true,  // useAlias
@@ -104,6 +107,7 @@ func TestNpmApp_Run_APIError(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		lockFile,
 		true,  // dryRun
 		true,  // useAlias
@@ -152,6 +156,7 @@ func TestNpmApp_Run_NoPatches(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		lockFile,
 		true,  // dryRun
 		true,  // useAlias
@@ -227,6 +232,7 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		lockFile,
 		true,  // dry-run
 		true,  // useAlias
@@ -327,6 +333,7 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		lockFile,
 		false, // NOT dry-run
 		true,  // useAlias
@@ -343,24 +350,23 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 	}
 
 	// Verify package.json was patched. lodash is direct + vulnerable, so the
-	// dependencies entry is rewritten to the new package name/version (old
-	// "lodash" key removed), and a version-scoped override is also added
-	// (this form works for all transitive dependencies regardless of nesting
-	// or aliasing; see TestNpmApp_UpdatePackageJSON_Npm for the same
-	// assertion via the full integration path).
+	// dependency VALUE is rewritten to the npm: alias while keeping the original
+	// "lodash" key — the only form npm can resolve for a -root.io build (which lives
+	// solely under the @rootio scope). The key is NOT renamed to @rootio/lodash, and
+	// NO overrides entry is emitted for the direct dep (that triggers EOVERRIDE).
 	updatedContent, err := os.ReadFile(packageJSON)
 	if err != nil {
 		t.Fatalf("Failed to read package.json: %v", err)
 	}
 	content := string(updatedContent)
-	if strings.Contains(content, `"lodash":`) {
-		t.Error("package.json should not contain old lodash dependency entry")
+	if !strings.Contains(content, `"lodash": "npm:@rootio/lodash@4.17.21"`) {
+		t.Errorf("package.json should rewrite lodash direct dep to the npm: alias; got:\n%s", content)
 	}
-	if !strings.Contains(content, `"@rootio/lodash": "4.17.21"`) {
-		t.Error("package.json should rewrite lodash direct dep to @rootio/lodash@4.17.21")
+	if strings.Contains(content, `"@rootio/lodash": "4.17.21"`) {
+		t.Error("direct dep key must not be renamed to @rootio/lodash")
 	}
-	if !strings.Contains(content, `"lodash@4.17.20": "npm:@rootio/lodash@4.17.21"`) {
-		t.Error("package.json should contain scoped override for lodash@4.17.20")
+	if strings.Contains(content, `"lodash@4.17.20":`) {
+		t.Error("direct dep must not also get an overrides entry (EOVERRIDE)")
 	}
 }
 
@@ -466,6 +472,7 @@ func TestNpmApp_Run_InvokesInstallAfterPatch(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		lockFile,
 		false, // NOT dry-run
 		true,  // useAlias
@@ -501,6 +508,48 @@ func TestNpmApp_Run_InvokesInstallAfterPatch(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("Expected 'install' in args, got %v", mockCmd.Calls[0].Args)
+	}
+
+	// The resolver MUST run with Root.io registry + auth env, or `npm install`
+	// cannot fetch the @rootio-scoped override packages (401/ETARGET).
+	env := strings.Join(mockCmd.Calls[0].Env, "\n")
+	if !strings.Contains(env, "npm_config_@rootio:registry=https://pkg.root.io/npm/") {
+		t.Errorf("Expected @rootio scoped registry env, got: %v", mockCmd.Calls[0].Env)
+	}
+	if !strings.Contains(env, ":username=root") {
+		t.Errorf("Expected basic-auth username=root env, got: %v", mockCmd.Calls[0].Env)
+	}
+	if !strings.Contains(env, ":_password=") {
+		t.Errorf("Expected basic-auth _password env, got: %v", mockCmd.Calls[0].Env)
+	}
+}
+
+func TestNpmEnv(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	// With pkgURL + apiKey → scoped registry + base64 basic-auth env.
+	app := &App{apiKey: "sk_testkey", pkgURL: "https://pkg.root.io", logger: logger}
+	env := app.npmEnv()
+	joined := strings.Join(env, "\n")
+	if !strings.Contains(joined, "npm_config_@rootio:registry=https://pkg.root.io/npm/") {
+		t.Errorf("missing scoped registry, got: %v", env)
+	}
+	if !strings.Contains(joined, "npm_config_//pkg.root.io/npm/:username=root") {
+		t.Errorf("missing username, got: %v", env)
+	}
+	// password is base64(apiKey)
+	wantPass := "npm_config_//pkg.root.io/npm/:_password=" + base64.StdEncoding.EncodeToString([]byte("sk_testkey"))
+	if !strings.Contains(joined, wantPass) {
+		t.Errorf("missing/incorrect base64 password, got: %v", env)
+	}
+
+	// Missing pkgURL → nil (nothing to configure).
+	if got := (&App{apiKey: "k", logger: logger}).npmEnv(); got != nil {
+		t.Errorf("expected nil env when pkgURL empty, got: %v", got)
+	}
+	// Missing apiKey → nil.
+	if got := (&App{pkgURL: "https://pkg.root.io", logger: logger}).npmEnv(); got != nil {
+		t.Errorf("expected nil env when apiKey empty, got: %v", got)
 	}
 }
 
@@ -571,6 +620,7 @@ func TestNpmApp_Run_SkipsInstallWhenPMAbsent(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		lockFile,
 		false, // NOT dry-run
 		true,  // useAlias
@@ -601,8 +651,8 @@ func TestNpmApp_Run_SkipsInstallWhenPMAbsent(t *testing.T) {
 		t.Fatalf("Failed to read package.json: %v", err)
 	}
 	content := string(updatedContent)
-	if !strings.Contains(content, `"@rootio/lodash": "4.17.21"`) {
-		t.Error("package.json should still be patched even when PM not found")
+	if !strings.Contains(content, `"lodash": "npm:@rootio/lodash@4.17.21"`) {
+		t.Error("package.json should still be patched (direct dep rewritten to npm: alias) even when PM not found")
 	}
 }
 
@@ -669,6 +719,7 @@ func TestNpmApp_Run_DryRunDoesNotInvokeInstall(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		lockFile,
 		true, // DRY-RUN
 		true, // useAlias

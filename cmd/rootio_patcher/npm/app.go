@@ -2,8 +2,10 @@ package npm
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +39,7 @@ func (r *RealCommandRunner) Run(ctx context.Context, dir string, env []string, n
 type App struct {
 	apiKey          string
 	apiURL          string
+	pkgURL          string
 	packageManager  string
 	lockFilePath    string
 	packageJSONPath string
@@ -52,7 +55,7 @@ type App struct {
 
 // NewApp creates a new npm application instance.
 // directory is the project root where the lock file and package.json live (use "." for CWD).
-func NewApp(apiKey, apiURL, packageManager, directory string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, pkgURL, packageManager, directory string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
 	lockFileName := lockFileNameForPackageManager(packageManager)
 	lockFilePath := filepath.Join(directory, lockFileName)
 
@@ -67,6 +70,7 @@ func NewApp(apiKey, apiURL, packageManager, directory string, dryRun, useAlias b
 	return NewAppWithServices(
 		apiKey,
 		apiURL,
+		pkgURL,
 		lockFilePath,
 		dryRun,
 		useAlias,
@@ -94,7 +98,7 @@ func lockFileNameForPackageManager(packageManager string) string {
 // packageManagerOrPath accepts either a package manager name ("npm", "yarn", "pnpm")
 // or an absolute/relative lock file path (used in tests).
 func NewAppWithServices(
-	apiKey, apiURL, packageManagerOrPath string,
+	apiKey, apiURL, pkgURL, packageManagerOrPath string,
 	dryRun, useAlias bool,
 	ignoreSet map[string]struct{},
 	logger *slog.Logger,
@@ -130,6 +134,7 @@ func NewAppWithServices(
 	return &App{
 		apiKey:          apiKey,
 		apiURL:          apiURL,
+		pkgURL:          pkgURL,
 		packageManager:  packageManager,
 		lockFilePath:    lockFilePath,
 		packageJSONPath: packageJSONPath,
@@ -367,10 +372,34 @@ func (a *App) getOverrideField() string {
 	}
 }
 
-// npmEnv returns extra environment for the resolver.
-// npm overrides pin @rootio-scoped packages published to the public npm registry
-// (registry.npmjs.org); the resolver needs no pkg.root.io authentication.
-// Returns nil intentionally.
+// npmEnv returns the environment the inline `npm install` needs to resolve the
+// patched overrides. The patcher rewrites vulnerable deps to `@rootio/<pkg>`
+// packages that live in the Root.io npm registry (`<pkgURL>/npm/`), NOT the public
+// npm registry — so the resolver MUST be pointed at that scoped registry with
+// Root.io basic auth (`root:<apiKey>`), or `npm install` fails with 401/ETARGET.
+//
+// Emitted as `npm_config_*` env vars (npm's config-via-env form). We set them via
+// the CommandRunner's env slice rather than a .npmrc file so nothing is written to
+// the build context. Basic auth mirrors pip/composer (user "root", password = apiKey).
 func (a *App) npmEnv() []string {
-	return nil
+	if a.pkgURL == "" || a.apiKey == "" {
+		// No registry/key configured — nothing to add. `npm install` will use whatever
+		// registry config already exists (or fail loudly if the @rootio deps are unreachable).
+		return nil
+	}
+	u, err := url.Parse(a.pkgURL)
+	if err != nil || u.Host == "" {
+		a.logger.Warn("Failed to parse pkgURL for npm registry auth, skipping", slog.String("url", a.pkgURL))
+		return nil
+	}
+	// Registry path for npm packages on pkg.root.io is "<host>/npm/".
+	registry := fmt.Sprintf("%s://%s/npm/", u.Scheme, u.Host)
+	// npm reads Basic-auth credentials from a host-scoped key; the password is base64-encoded.
+	authHostKey := fmt.Sprintf("//%s/npm/", u.Host)
+	encodedPassword := base64.StdEncoding.EncodeToString([]byte(a.apiKey))
+	return []string{
+		"npm_config_@rootio:registry=" + registry,
+		fmt.Sprintf("npm_config_%s:username=root", authHostKey),
+		fmt.Sprintf("npm_config_%s:_password=%s", authHostKey, encodedPassword),
+	}
 }

@@ -250,19 +250,23 @@ func TestNpmParser_UpdatePackageJSON_DirectAndTransitive(t *testing.T) {
 	got, _ := os.ReadFile(pkgPath)
 	content := string(got)
 
-	// Old uuid should be removed, new @rootio/uuid added
-	if strings.Contains(content, `"uuid": "npm:@rootio/uuid@11.0.3-root.io.1"`) {
-		t.Errorf("old uuid package should be removed; got:\n%s", content)
+	// Direct dep (uuid@11.0.3): rewrite the dependency VALUE to the npm: alias, keeping the
+	// original key. This is the only form npm can resolve for a -root.io.N build (which exists
+	// only under the @rootio scope) — even with a stale lockfile. See npm_parser.go rationale.
+	if !strings.Contains(content, `"uuid": "npm:@rootio/uuid@11.0.3-root.io.1"`) {
+		t.Errorf("expected direct dep uuid rewritten to npm: alias; got:\n%s", content)
 	}
-	if !strings.Contains(content, `"@rootio/uuid": "11.0.3-root.io.1"`) {
-		t.Errorf("expected new @rootio/uuid package; got:\n%s", content)
+	// The key must NOT be renamed to @rootio/uuid (that pins a plain version npm can't find → ETARGET).
+	if strings.Contains(content, `"@rootio/uuid": "11.0.3-root.io.1"`) {
+		t.Errorf("direct dep must keep original key (not rename to @rootio/uuid); got:\n%s", content)
 	}
-	// npm now uses version-scoped flat overrides for transitive uses
+	// No stray override for the DIRECT dep version (would cause EOVERRIDE).
+	if strings.Contains(content, `"uuid@11.0.3":`) {
+		t.Errorf("direct dep must not also get an overrides entry (EOVERRIDE); got:\n%s", content)
+	}
+	// Transitive use (uuid@10.0.0 under dockerode): version-scoped flat override.
 	if !strings.Contains(content, `"uuid@10.0.0": "npm:@rootio/uuid@10.0.0-root.io.1"`) {
-		t.Errorf("expected version-scoped override for uuid@10.0.0; got:\n%s", content)
-	}
-	if !strings.Contains(content, `"uuid@11.0.3": "npm:@rootio/uuid@11.0.3-root.io.1"`) {
-		t.Errorf("expected version-scoped override for uuid@11.0.3; got:\n%s", content)
+		t.Errorf("expected version-scoped override for transitive uuid@10.0.0; got:\n%s", content)
 	}
 	if !strings.Contains(content, `"dockerode": "^4.0.12"`) {
 		t.Errorf("dockerode direct dep must remain unchanged; got:\n%s", content)

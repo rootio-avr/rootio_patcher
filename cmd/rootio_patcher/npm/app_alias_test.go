@@ -83,6 +83,7 @@ func TestNpmApp_RealAPIResponse(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		"npm",
 		false, // not dry-run
 		true,  // useAlias (default)
@@ -110,43 +111,26 @@ func TestNpmApp_RealAPIResponse(t *testing.T) {
 		t.Fatalf("Failed to parse updated package.json: %v", err)
 	}
 
-	// @babel/helpers@7.26.0 is direct + vulnerable → expect:
-	// 1. Old package removed, new @rootio package added to dependencies
-	// 2. Version-scoped override for transitive uses
+	// @babel/helpers@7.26.0 is direct + vulnerable → the dependency VALUE is rewritten to
+	// the npm: alias while the original "@babel/helpers" key is kept; no key rename, no override.
 	deps := pkgJSON["dependencies"].(map[string]interface{})
 
-	// Old package should be removed
-	if _, exists := deps["@babel/helpers"]; exists {
-		t.Error("Expected old @babel/helpers package to be removed from dependencies")
+	expectedAlias := "npm:@rootio/babel__helpers@7.26.0-root.io.2"
+	if v, _ := deps["@babel/helpers"].(string); v != expectedAlias {
+		t.Errorf("Expected @babel/helpers rewritten to %q, got %q", expectedAlias, deps["@babel/helpers"])
 	}
-
-	// New @rootio package should be added
-	newPkgName := "@rootio/babel__helpers"
-	expectedVersion := "7.26.0-root.io.2"
-	if deps[newPkgName] == nil {
-		t.Errorf("Expected new package %q to be added to dependencies", newPkgName)
-	} else if deps[newPkgName].(string) != expectedVersion {
-		t.Errorf("Expected %q version %q, got %q", newPkgName, expectedVersion, deps[newPkgName])
+	// Key must NOT be renamed to the scoped name.
+	if _, exists := deps["@rootio/babel__helpers"]; exists {
+		t.Error("direct dep key must not be renamed to @rootio/babel__helpers")
 	}
-
-	// Should have version-scoped override for transitive uses
-	overrides, hasOverrides := pkgJSON["overrides"].(map[string]interface{})
-	if !hasOverrides {
-		t.Error("expected overrides field with version-scoped override")
-	}
-	if hasOverrides {
-		expectedOverride := "npm:@rootio/babel__helpers@7.26.0-root.io.2"
-		found := false
-		for key, val := range overrides {
-			if strings.HasPrefix(key, "@babel/helpers@") && val == expectedOverride {
-				found = true
-				break
+	// A direct dep must NOT also get an overrides entry (EOVERRIDE).
+	if overrides, hasOverrides := pkgJSON["overrides"].(map[string]interface{}); hasOverrides {
+		for key := range overrides {
+			if strings.HasPrefix(key, "@babel/helpers@") {
+				t.Errorf("direct dep must not get an overrides entry, found %q", key)
 			}
 		}
-		if !found {
-			t.Errorf("expected version-scoped override for @babel/helpers in overrides")
-		}
 	}
 
-	t.Logf("✓ Correctly replaced direct dep: %s → %s@%s", "@babel/helpers", newPkgName, expectedVersion)
+	t.Logf("✓ Correctly rewrote direct dep @babel/helpers → %s", expectedAlias)
 }

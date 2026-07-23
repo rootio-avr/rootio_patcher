@@ -349,35 +349,55 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 	}
 
 	for _, ov := range overrides {
-		// Use version-scoped flat override (e.g., "uuid@9.0.1": "npm:@rootio/uuid@...")
-		// This works for all transitive dependencies regardless of nesting or aliasing
-		key := ov.PackageName + "@" + ov.Version
-		sets[npmOverridesPath+"."+escapeSjsonKey(key)] = ov.Value
-
-		// npm gives a nested/path-scoped override ({"<parent>": {"<pkg>": "..."}})
-		// precedence over a flat key for the same package, for any parent it
-		// names. If a pre-existing nested entry already targets this package,
-		// it must be updated in place or it will shadow the flat key forever.
+		// Nested/path-scoped overrides ({"<parent>": {"<pkg>": "..."}}) apply to
+		// transitive consumers and take precedence over a flat key. Emit/refresh them
+		// for every parent that already targets this package, whether the package is a
+		// direct dep, a transitive dep, or both — a pre-existing nested entry would
+		// otherwise shadow our patch forever. (Independent of the direct-vs-transitive
+		// choice below, which only concerns the ROOT dependency line.)
 		for parent, nestedKey := range findNestedOverrideParents(pkgJsonContent, ov.PackageName, ov.Version) {
 			path := npmOverridesPath + "." + escapeSjsonKey(parent) + "." + escapeSjsonKey(nestedKey)
 			sets[path] = ov.Value
 		}
 
 		if ov.RewriteDirect {
-			// Use PatchInfo from API response (either patch or patch_alias based on useAlias)
-			newPkgName := ov.PatchInfo.Name
-			newVersion := ov.PatchInfo.Version
-
+			// The vulnerable package is (also) a DIRECT dependency. A flat `overrides`
+			// entry does NOT apply to a direct dep and conflicts with it (→ EOVERRIDE),
+			// so we rewrite the dependency line ITSELF to the aliased package.
+			//
+			// We keep the ORIGINAL dependency key and set its value to the `npm:` alias
+			// form: `"lodash": "npm:@rootio/lodash@4.17.20-root.io.3"`. This is the only
+			// form npm can resolve for a `-root.io.N` build (which exists solely under the
+			// @rootio scope, never under the original name on the public registry) — even
+			// with a stale lockfile. Renaming the key to `@rootio/lodash` or pinning the
+			// original name to a `-root.io.N` version both fail (ETARGET), regardless of
+			// useAlias. Direct deps therefore always use the alias value.
+			//
+			// ov.Value is already the `npm:<alias>@<version>` form (built in applyPatches
+			// from patch.PatchAlias). Note: any transitive consumers of the SAME package
+			// at this version are still covered by the nested-parent overrides emitted
+			// above, so those copies are patched too.
+			rewritten := false
 			for _, field := range []string{"dependencies", "devDependencies"} {
-				oldPath := field + "." + escapeSjsonKey(ov.PackageName)
-				if gjsonGet(pkgJsonContent, oldPath).Exists() {
-					// Remove old package and add new package
-					deletes = append(deletes, oldPath)
-					newPath := field + "." + escapeSjsonKey(newPkgName)
-					sets[newPath] = newVersion
+				depPath := field + "." + escapeSjsonKey(ov.PackageName)
+				if gjsonGet(pkgJsonContent, depPath).Exists() {
+					sets[depPath] = ov.Value
+					rewritten = true
 				}
 			}
+			if rewritten {
+				// The direct-dep rewrite handles the root line; a flat override for the
+				// same package@version would trigger EOVERRIDE, so skip it here.
+				continue
+			}
+			// Defensive: RewriteDirect was set but no direct dep entry found — fall through
+			// to the flat override form below.
 		}
+
+		// Transitive-only dependency: version-scoped flat override
+		// (e.g., "uuid@9.0.1": "npm:@rootio/uuid@...") which npm applies to nested deps.
+		key := ov.PackageName + "@" + ov.Version
+		sets[npmOverridesPath+"."+escapeSjsonKey(key)] = ov.Value
 	}
 	return sets, deletes, nil
 }

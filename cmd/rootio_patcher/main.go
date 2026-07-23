@@ -278,7 +278,7 @@ func (cmd *NpmRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 		return fmt.Errorf("invalid directory: %w", err)
 	}
 
-	app := npm.NewApp(cfg.APIKey, cfg.APIURL, cmd.PackageManager, dir, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
+	app := npm.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.PackageManager, dir, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
 

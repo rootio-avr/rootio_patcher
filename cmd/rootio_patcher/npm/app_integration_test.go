@@ -76,6 +76,7 @@ func TestNpmApp_UpdatePackageJSON_Npm(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		"npm",
 		false, // not dry-run
 		true,  // useAlias (default)
@@ -103,26 +104,19 @@ func TestNpmApp_UpdatePackageJSON_Npm(t *testing.T) {
 		t.Fatalf("Failed to parse updated package.json: %v", err)
 	}
 
-	// lodash@4.17.20 is the user's direct dep AT the vulnerable version,
-	// and no transitive consumer exists. Expected result:
-	// old package removed, new @rootio package added, plus override for transitive uses.
+	// lodash@4.17.20 is the user's direct dep AT the vulnerable version, no transitive
+	// consumer. The dependency VALUE is rewritten to the npm: alias; key kept, no rename.
 	deps := pkgJSON["dependencies"].(map[string]interface{})
 
-	// Old package should be removed
-	if _, exists := deps["lodash"]; exists {
-		t.Error("Expected old lodash package to be removed from dependencies")
+	expectedAlias := "npm:@rootio/lodash@4.17.21"
+	if v, _ := deps["lodash"].(string); v != expectedAlias {
+		t.Errorf("Expected lodash rewritten to %q, got %q", expectedAlias, deps["lodash"])
+	}
+	if _, exists := deps["@rootio/lodash"]; exists {
+		t.Error("direct dep key must not be renamed to @rootio/lodash")
 	}
 
-	// New @rootio package should be added
-	newPkgName := "@rootio/lodash"
-	expectedVersion := "4.17.21"
-	if deps[newPkgName] == nil {
-		t.Errorf("Expected new package %q to be added to dependencies", newPkgName)
-	} else if deps[newPkgName].(string) != expectedVersion {
-		t.Errorf("Expected %q version %q, got %q", newPkgName, expectedVersion, deps[newPkgName])
-	}
-
-	t.Log("Successfully rewrote direct dep to alias for npm (no transitive consumers)")
+	t.Log("Successfully rewrote direct dep to npm: alias for npm (no transitive consumers)")
 }
 
 // TestNpmApp_UpdatePackageJSON_Yarn tests yarn resolutions format
@@ -186,6 +180,7 @@ express@4.18.0:
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		"yarn",
 		false, // not dry-run
 		true,  // useAlias (default)
@@ -286,6 +281,7 @@ func TestNpmApp_UpdatePackageJSON_Pnpm(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		"pnpm",
 		false, // not dry-run
 		true,  // useAlias (default)
@@ -405,6 +401,7 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		"npm",
 		false, // not dry-run
 		true,  // useAlias (default)
@@ -432,39 +429,26 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 		t.Fatalf("Failed to parse updated package.json: %v", err)
 	}
 
-	// With new approach: old package removed, new @rootio package added, plus override
+	// Direct-dep rewrite: the "lodash" key is KEPT, its value becomes the npm: alias.
+	// (Only form npm can resolve for a -root.io build; no key rename, no stray override.)
 	deps := pkgJSON["dependencies"].(map[string]interface{})
 
-	// Old package should be removed
-	if _, exists := deps["lodash"]; exists {
-		t.Error("Expected old lodash package to be removed from dependencies")
+	expectedAlias := "npm:@rootio/lodash@4.17.21"
+	if deps["lodash"] == nil {
+		t.Error("Expected lodash key to remain in dependencies (rewritten to npm: alias)")
+	} else if deps["lodash"].(string) != expectedAlias {
+		t.Errorf("Expected lodash rewritten to %q, got %q", expectedAlias, deps["lodash"])
 	}
-
-	// New @rootio package should be added
-	newPkgName := "@rootio/lodash"
-	expectedVersion := "4.17.21"
-	if deps[newPkgName] == nil {
-		t.Errorf("Expected new package %q to be added to dependencies", newPkgName)
-	} else if deps[newPkgName].(string) != expectedVersion {
-		t.Errorf("Expected %q version %q, got %q", newPkgName, expectedVersion, deps[newPkgName])
+	// Key must NOT be renamed to @rootio/lodash.
+	if _, exists := deps["@rootio/lodash"]; exists {
+		t.Error("Direct dep key must not be renamed to @rootio/lodash")
 	}
-
-	// Should have version-scoped override for transitive uses
-	overrides, hasOverrides := pkgJSON["overrides"].(map[string]interface{})
-	if !hasOverrides {
-		t.Error("expected overrides field with version-scoped override")
-	}
-	if hasOverrides {
-		expectedOverride := "npm:@rootio/lodash@4.17.21"
-		found := false
-		for key, val := range overrides {
-			if strings.HasPrefix(key, "lodash@") && val == expectedOverride {
-				found = true
-				break
+	// A direct dep must NOT also get an overrides entry (EOVERRIDE).
+	if overrides, hasOverrides := pkgJSON["overrides"].(map[string]interface{}); hasOverrides {
+		for key := range overrides {
+			if strings.HasPrefix(key, "lodash@") {
+				t.Errorf("direct dep must not also get an overrides entry, found %q", key)
 			}
-		}
-		if !found {
-			t.Errorf("expected version-scoped override for lodash in overrides")
 		}
 	}
 
@@ -475,7 +459,7 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 		t.Error("Expected indented JSON")
 	}
 
-	t.Log("Successfully replaced direct dep with @rootio package")
+	t.Log("Successfully rewrote direct dep to @rootio npm: alias")
 }
 
 // TestNpmApp_AddOverrides_WithExistingOverrides tests appending to existing overrides
@@ -558,6 +542,7 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 	app := NewAppWithServices(
 		"test-key",
 		"https://api.root.io",
+		"https://pkg.root.io",
 		"npm",
 		false, // not dry-run
 		true,  // useAlias (default)
@@ -585,59 +570,42 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 		t.Fatalf("Failed to parse updated package.json: %v", err)
 	}
 
-	// Verify overrides field exists and has all three packages
+	// Verify overrides field exists (it still holds the pre-existing axios override)
 	overrides, ok := pkgJSON["overrides"].(map[string]interface{})
 	if !ok {
 		t.Fatal("Expected 'overrides' field")
 	}
 
 	// Existing axios override is unrelated to the patches; it must be preserved.
-	// Both lodash and express are direct + vulnerable, so:
-	// - Old packages removed, new @rootio packages added to dependencies
-	// - Version-scoped overrides added for transitive uses
+	// Both lodash and express are direct + vulnerable, so each dependency VALUE is
+	// rewritten to the npm: alias (key kept), and NO overrides entry is emitted for them.
 	if axios, _ := overrides["axios"].(string); axios != "npm:@rootio/axios@0.21.2" {
 		t.Errorf("existing axios override should be preserved, got %q", axios)
 	}
 
-	// Check for version-scoped overrides
-	foundLodash := false
-	foundExpress := false
+	// Direct deps must NOT get overrides entries (would cause EOVERRIDE).
 	for key := range overrides {
-		if strings.HasPrefix(key, "lodash@") {
-			foundLodash = true
+		if strings.HasPrefix(key, "lodash@") || strings.HasPrefix(key, "express@") {
+			t.Errorf("direct dep must not get an overrides entry, found %q", key)
 		}
-		if strings.HasPrefix(key, "express@") {
-			foundExpress = true
-		}
-	}
-	if !foundLodash {
-		t.Error("expected version-scoped lodash override")
-	}
-	if !foundExpress {
-		t.Error("expected version-scoped express override")
 	}
 
 	deps := pkgJSON["dependencies"].(map[string]interface{})
 
-	// Old packages should be removed
-	if _, exists := deps["lodash"]; exists {
-		t.Error("Expected old lodash package to be removed")
+	// Keys kept, values rewritten to the npm: alias.
+	if v, _ := deps["lodash"].(string); v != "npm:@rootio/lodash@4.17.21" {
+		t.Errorf("Expected lodash rewritten to npm:@rootio/lodash@4.17.21, got %q", deps["lodash"])
 	}
-	if _, exists := deps["express"]; exists {
-		t.Error("Expected old express package to be removed")
+	if v, _ := deps["express"].(string); v != "npm:@rootio/express@4.18.2" {
+		t.Errorf("Expected express rewritten to npm:@rootio/express@4.18.2, got %q", deps["express"])
 	}
-
-	// New @rootio packages should be added
-	if deps["@rootio/lodash"] == nil {
-		t.Error("Expected @rootio/lodash to be added")
-	} else if deps["@rootio/lodash"].(string) != "4.17.21" {
-		t.Errorf("Expected @rootio/lodash version 4.17.21, got %q", deps["@rootio/lodash"])
+	// Keys must NOT be renamed to the scoped names.
+	if _, exists := deps["@rootio/lodash"]; exists {
+		t.Error("lodash key must not be renamed to @rootio/lodash")
 	}
-	if deps["@rootio/express"] == nil {
-		t.Error("Expected @rootio/express to be added")
-	} else if deps["@rootio/express"].(string) != "4.18.2" {
-		t.Errorf("Expected @rootio/express version 4.18.2, got %q", deps["@rootio/express"])
+	if _, exists := deps["@rootio/express"]; exists {
+		t.Error("express key must not be renamed to @rootio/express")
 	}
 
-	t.Log("Successfully rewrote direct deps and preserved existing unrelated override")
+	t.Log("Successfully rewrote direct deps to npm: aliases and preserved existing unrelated override")
 }
