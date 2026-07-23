@@ -360,6 +360,46 @@ func TestNpmParser_FindParents_NestedTransitive(t *testing.T) {
 	}
 }
 
+// TestNpmParser_FindParents_AliasedTransitiveParent is the regression test for
+// the npm analog of yarn Bug 2, one level deeper than a direct aliased parent:
+// a TRANSITIVE parent that a prior round aliased. Its lock path keeps the
+// pre-alias name ("node_modules/@apollo/federation-internals") while its
+// resolved identity lives in the entry's "name" field
+// ("@rootio/apollo__federation-internals"). npm matches a nested/path-scoped
+// override against the RESOLVED identity, so FindParents must return the name
+// field, not the path segment — otherwise the emitted nested override is inert
+// and the child (uuid) is re-flagged forever.
+func TestNpmParser_FindParents_AliasedTransitiveParent(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	lockPath := tmpDir + "/package-lock.json"
+
+	lock := `{
+  "name": "test-app",
+  "lockfileVersion": 3,
+  "packages": {
+    "": { "dependencies": { "@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-root.io.3" } },
+    "node_modules/@apollo/federation-internals": {
+      "name": "@rootio/apollo__federation-internals",
+      "version": "2.13.0-root.io.3",
+      "dependencies": { "uuid": "^9.0.0" }
+    },
+    "node_modules/uuid": { "version": "9.0.1-root.io.1" }
+  }
+}`
+	if err := os.WriteFile(lockPath, []byte(lock), 0644); err != nil {
+		t.Fatalf("Failed to write lock: %v", err)
+	}
+
+	got, err := NewNpmParser().FindParents(ctx, lockPath, "uuid", "9.0.1-root.io.1")
+	if err != nil {
+		t.Fatalf("FindParents failed: %v", err)
+	}
+	if len(got) != 1 || got[0] != "@rootio/apollo__federation-internals" {
+		t.Errorf("expected resolved parent identity [@rootio/apollo__federation-internals], got %v", got)
+	}
+}
+
 // TestNpmParser_UpdatePackageJSON_ParentScoped is the regression test for the
 // reported bug: a vulnerable transitive dependency must not degrade the user's
 // direct dependency at a different version. The override must be parent-scoped
@@ -521,5 +561,102 @@ func TestNpmParser_UpdatePackageJSON_LeavesUnrelatedVersionScopedNestedOverride(
 	}
 	if !strings.Contains(content, `"uuid@11.1.1": "npm:@rootio/uuid@11.1.0-root.io.1"`) {
 		t.Errorf("expected flat override for uuid@11.1.1; got:\n%s", content)
+	}
+}
+
+// TestNpmParser_UpdatePackageJSON_RebumpsExistingFlatKeyInPlace is the
+// regression test for non-convergence Pattern A (dead flat-key re-bump).
+//
+// After a prior round, uuid resolves at the alias's OWN output version
+// (9.0.1-root.io.1) via the flat key "uuid@9.0.1". When that alias itself
+// needs a further bump, the API flags uuid@9.0.1-root.io.1. Naively adding a
+// second flat key "uuid@9.0.1-root.io.1" is dead: that version string is only
+// ever an override's output, never a range any real dependent declares, so it
+// can never match and uuid stays pinned at root.io.1 forever. The fix must
+// update the EXISTING controlling key ("uuid@9.0.1") in place and must NOT
+// add the dead key.
+func TestNpmParser_UpdatePackageJSON_RebumpsExistingFlatKeyInPlace(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	pkgPath := tmpDir + "/package.json"
+
+	pkg := `{
+  "name": "test-app",
+  "version": "1.0.0",
+  "overrides": {
+    "uuid@9.0.1": "npm:@rootio/uuid@9.0.1-root.io.1"
+  }
+}`
+	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
+	}
+
+	overrides := []ScopedOverride{
+		{
+			PackageName: "uuid",
+			Version:     "9.0.1-root.io.1", // the alias's own installed output
+			Value:       "npm:@rootio/uuid@9.0.1-root.io.4",
+		},
+	}
+
+	if err := NewNpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+		t.Fatalf("UpdatePackageJSON failed: %v", err)
+	}
+
+	got, _ := os.ReadFile(pkgPath)
+	content := string(got)
+
+	if !strings.Contains(content, `"uuid@9.0.1": "npm:@rootio/uuid@9.0.1-root.io.4"`) {
+		t.Errorf("existing controlling key uuid@9.0.1 must be bumped in place to root.io.4; got:\n%s", content)
+	}
+	if strings.Contains(content, `"uuid@9.0.1-root.io.1"`) {
+		t.Errorf("must NOT add a dead flat key keyed on the alias's own output version; got:\n%s", content)
+	}
+}
+
+// TestNpmParser_UpdatePackageJSON_NestedUnderAliasedParent is the regression
+// test for non-convergence Pattern B (aliased-parent nested-key mismatch) —
+// the npm analog of the yarn aliased-parent bug. Once a parent is aliased
+// (@apollo/gateway -> @rootio/apollo__gateway via a top-level flat dep), the
+// resolved node is @rootio/apollo__gateway, so a nested override keyed under
+// the pre-alias name "@apollo/gateway" matches nothing and the child stays
+// unpatched forever. FindParents already returns the RESOLVED identity in
+// ov.Parents, so UpdatePackageJSON must key the nested override under that
+// resolved parent.
+func TestNpmParser_UpdatePackageJSON_NestedUnderAliasedParent(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	pkgPath := tmpDir + "/package.json"
+
+	pkg := `{
+  "name": "test-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "@rootio/apollo__gateway": "2.13.0-root.io.2"
+  }
+}`
+	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
+		t.Fatalf("Failed to create package.json: %v", err)
+	}
+
+	overrides := []ScopedOverride{
+		{
+			PackageName: "@apollo/query-planner",
+			Version:     "2.13.0",
+			Value:       "npm:@rootio/apollo__query-planner@2.13.0-root.io.2",
+			Parents:     []string{"@rootio/apollo__gateway"}, // resolved identity from FindParents
+		},
+	}
+
+	if err := NewNpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+		t.Fatalf("UpdatePackageJSON failed: %v", err)
+	}
+
+	got, _ := os.ReadFile(pkgPath)
+	content := string(got)
+
+	if !strings.Contains(content, `"@rootio/apollo__gateway": {`) ||
+		!strings.Contains(content, `"@apollo/query-planner": "npm:@rootio/apollo__query-planner@2.13.0-root.io.2"`) {
+		t.Errorf("expected nested override keyed under the RESOLVED parent @rootio/apollo__gateway; got:\n%s", content)
 	}
 }
