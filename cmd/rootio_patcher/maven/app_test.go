@@ -575,14 +575,67 @@ func TestMavenApp_Run_InvokesResolveAfterPatch(t *testing.T) {
 		t.Errorf("Expected command name 'mvn', got '%s'", mockCmd.Calls[0].Name)
 	}
 	found := false
-	for _, arg := range mockCmd.Calls[0].Args {
+	sawSettings := false
+	for i, arg := range mockCmd.Calls[0].Args {
 		if arg == "dependency:resolve" {
 			found = true
-			break
+		}
+		// The resolver must be pointed at the Root.io repo via `-s <settings.xml>` so it
+		// can fetch -root.io.N artifacts (which exist only in the Root.io Maven repo).
+		if arg == "-s" && i+1 < len(mockCmd.Calls[0].Args) {
+			sawSettings = true
 		}
 	}
 	if !found {
 		t.Errorf("Expected 'dependency:resolve' in args, got: %v", mockCmd.Calls[0].Args)
+	}
+	if !sawSettings {
+		t.Errorf("Expected '-s <settings.xml>' (Root.io repo auth) in args, got: %v", mockCmd.Calls[0].Args)
+	}
+}
+
+func TestWriteMavenSettings(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	// With pkgURL + apiKey → a settings.xml with the Root.io server, mirror, and repo.
+	app := &App{apiKey: "sk_mvnkey", pkgURL: "https://pkg.root.io", logger: logger}
+	path, cleanup, err := app.writeMavenSettings(t.TempDir())
+	if err != nil {
+		t.Fatalf("writeMavenSettings error: %v", err)
+	}
+	if path == "" {
+		t.Fatal("expected a settings.xml path")
+	}
+	defer cleanup()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read settings.xml: %v", err)
+	}
+	content := string(data)
+	for _, want := range []string{
+		"<username>root</username>",
+		"<password>sk_mvnkey</password>",
+		"https://pkg.root.io/maven",
+		"<blocked>false</blocked>", // Maven 3.9+ blocks plain-HTTP repos otherwise
+		"<activeProfile>rootio</activeProfile>",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("settings.xml missing %q; got:\n%s", want, content)
+		}
+	}
+
+	// cleanup() must remove the file.
+	cleanup()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("expected settings.xml removed after cleanup, stat err=%v", err)
+	}
+
+	// Missing pkgURL or apiKey → no settings (resolve without it).
+	if p, _, _ := (&App{apiKey: "k", logger: logger}).writeMavenSettings(t.TempDir()); p != "" {
+		t.Errorf("expected no settings.xml when pkgURL empty, got %q", p)
+	}
+	if p, _, _ := (&App{pkgURL: "https://pkg.root.io", logger: logger}).writeMavenSettings(t.TempDir()); p != "" {
+		t.Errorf("expected no settings.xml when apiKey empty, got %q", p)
 	}
 }
 

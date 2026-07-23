@@ -2,11 +2,14 @@ package maven
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/pkg/rootio"
@@ -150,8 +153,20 @@ func (a *App) Run(ctx context.Context) error {
 		a.logger.WarnContext(ctx, "mvn not found on PATH, skipping dependency resolution; patched pom left unresolved (downstream build may fail to fetch the patched dependencies)", slog.String("resolver", "mvn"))
 	} else {
 		dir := filepath.Dir(a.filePath)
+		// The patched pom references `-root.io.N` versions that live ONLY in the Root.io
+		// Maven repo — Maven Central has no such versions. So the resolver must be pointed
+		// at that repo with Root.io basic auth. Maven has no env-var form for this (unlike
+		// npm), so we write a temporary settings.xml and pass it via `-s`. Cleaned up after.
+		mvnArgs := []string{"dependency:resolve"}
+		settingsPath, cleanup, serr := a.writeMavenSettings(dir)
+		if serr != nil {
+			a.logger.WarnContext(ctx, "could not write maven settings.xml for Root.io repo auth; resolving without it (patched versions may be unresolvable)", slog.String("error", serr.Error()))
+		} else if settingsPath != "" {
+			defer cleanup()
+			mvnArgs = append([]string{"-s", settingsPath}, mvnArgs...)
+		}
 		a.logger.DebugContext(ctx, "Running mvn dependency:resolve", slog.String("dir", dir))
-		if err := a.cmdRunner.Run(ctx, dir, a.mavenEnv(), "mvn", "dependency:resolve"); err != nil {
+		if err := a.cmdRunner.Run(ctx, dir, a.mavenEnv(), "mvn", mvnArgs...); err != nil {
 			return fmt.Errorf("mvn dependency:resolve failed: %w", err)
 		}
 	}
@@ -230,8 +245,92 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 	return nil
 }
 
-// mavenEnv returns extra environment for the resolver.
-// Root.io repo auth (settings.xml) is a deferred follow-up. Returns nil for now.
+// mavenEnv returns extra environment for the resolver. Maven auth cannot be expressed
+// via environment variables (it requires a settings.xml), so this stays nil — see
+// writeMavenSettings, which supplies the Root.io repo + credentials via `mvn -s`.
 func (a *App) mavenEnv() []string {
 	return nil
+}
+
+// writeMavenSettings writes a temporary Maven settings.xml that points the resolver at
+// the Root.io Maven repo (<pkgURL>/maven) with Root.io basic auth (user "root", password
+// = apiKey), so `mvn dependency:resolve` can fetch the `-root.io.N` patched artifacts that
+// exist ONLY there (never on Maven Central). It also configures a mirror with <blocked>false</blocked>
+// because Maven 3.9+ blocks plain-HTTP repositories by default and local/dev pkg URLs are http.
+//
+// Returns the settings path and a cleanup func. If pkgURL or apiKey is unset it returns
+// ("", noop, nil) so the caller resolves without it (whatever repos the pom already declares).
+func (a *App) writeMavenSettings(dir string) (string, func(), error) {
+	noop := func() {}
+	if a.pkgURL == "" || a.apiKey == "" {
+		return "", noop, nil
+	}
+	u, err := url.Parse(a.pkgURL)
+	if err != nil || u.Host == "" {
+		return "", noop, fmt.Errorf("invalid pkgURL %q: %w", a.pkgURL, err)
+	}
+	repoURL := fmt.Sprintf("%s://%s/maven", u.Scheme, u.Host)
+
+	// XML-escape the credentials/URL that go into the settings file.
+	settings := fmt.Sprintf(`<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <servers>
+    <server>
+      <id>rootio</id>
+      <username>root</username>
+      <password>%s</password>
+    </server>
+  </servers>
+  <mirrors>
+    <mirror>
+      <id>rootio</id>
+      <url>%s</url>
+      <mirrorOf>external:*</mirrorOf>
+      <blocked>false</blocked>
+    </mirror>
+  </mirrors>
+  <profiles>
+    <profile>
+      <id>rootio</id>
+      <repositories>
+        <repository>
+          <id>rootio</id>
+          <url>%s</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+      </repositories>
+    </profile>
+  </profiles>
+  <activeProfiles>
+    <activeProfile>rootio</activeProfile>
+  </activeProfiles>
+</settings>
+`, xmlEscape(a.apiKey), xmlEscape(repoURL), xmlEscape(repoURL))
+
+	f, err := os.CreateTemp(dir, "rootio-settings-*.xml")
+	if err != nil {
+		// Fall back to the system temp dir if the project dir isn't writable.
+		f, err = os.CreateTemp("", "rootio-settings-*.xml")
+		if err != nil {
+			return "", noop, fmt.Errorf("create settings.xml: %w", err)
+		}
+	}
+	path := f.Name()
+	if _, err := f.WriteString(settings); err != nil {
+		f.Close()
+		os.Remove(path)
+		return "", noop, fmt.Errorf("write settings.xml: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		return "", noop, fmt.Errorf("close settings.xml: %w", err)
+	}
+	return path, func() { os.Remove(path) }, nil
+}
+
+// xmlEscape escapes a string for safe inclusion in XML text/attribute content.
+func xmlEscape(s string) string {
+	var b strings.Builder
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
 }
