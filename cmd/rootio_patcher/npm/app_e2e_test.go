@@ -12,20 +12,13 @@ import (
 	"rootio_patcher/pkg/rootio"
 )
 
-// axios patch info as returned by the live /v3/analyze/npm endpoint (captured
-// 2026-08-04) for all three input shapes exercised below: an already-aliased
-// direct dep left over from a prior version of the tool (@rootio/axios), a
-// plain direct dep on the pre-rebrand root.io version suffix, and a plain
-// direct dep already on the aikido suffix. All three converge on the same
-// patch target.
 var axiosPatch = rootio.PatchInfo{Name: "axios", Version: "1.15.0-aikido.12"}
 
-// TestNpmApp_E2E_NonAliased_AxiosScenarios runs npm/yarn/pnpm remediation for
-// the three input scenarios above, and asserts every package manager
-// converges on a plain "axios": "1.15.0-aikido.12" direct dependency — no
-// "npm:" alias descriptor and no leftover @rootio/axios key. The npm
-// ecosystem never aliases packages: direct deps and overrides always use the
-// plain patched name/version.
+// Covers an already-aliased direct dep left over from a prior version of the
+// tool (@rootio/axios), a plain direct dep on the pre-rebrand root.io suffix,
+// and a plain direct dep already on the aikido suffix — all three must
+// converge on the same plain "axios": "1.15.0-aikido.12" dependency, with no
+// "npm:" alias descriptor and no leftover @rootio/axios key.
 func TestNpmApp_E2E_NonAliased_AxiosScenarios(t *testing.T) {
 	scenarios := []struct {
 		name    string
@@ -48,10 +41,6 @@ func TestNpmApp_E2E_NonAliased_AxiosScenarios(t *testing.T) {
 	}
 }
 
-// runNonAliasedAxiosScenario builds a package.json + lock file fixture for
-// the given package manager with pkgName@version as a direct dependency,
-// runs the real App against a mocked analyze API response, and asserts the
-// resulting package.json.
 func runNonAliasedAxiosScenario(t *testing.T, packageManager, pkgName, version string) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -156,9 +145,6 @@ func runNonAliasedAxiosScenario(t *testing.T, packageManager, pkgName, version s
 	}
 }
 
-// writeNpmLockFixture creates a minimal but valid package-lock.json (v3)
-// declaring pkgName@version as both a direct dependency and its resolved
-// top-level node_modules entry.
 func writeNpmLockFixture(t *testing.T, dir, pkgName, version string) {
 	t.Helper()
 	lockFile := filepath.Join(dir, "package-lock.json")
@@ -179,8 +165,6 @@ func writeNpmLockFixture(t *testing.T, dir, pkgName, version string) {
 	}
 }
 
-// writeYarnLockFixture creates a minimal Yarn 1 (classic) yarn.lock entry
-// resolving pkgName's exact version-pinned range to version.
 func writeYarnLockFixture(t *testing.T, dir, pkgName, version string) {
 	t.Helper()
 	lockFile := filepath.Join(dir, "yarn.lock")
@@ -197,8 +181,6 @@ func writeYarnLockFixture(t *testing.T, dir, pkgName, version string) {
 	}
 }
 
-// writePnpmLockFixture creates a minimal pnpm-lock.yaml declaring pkgName as
-// a root importer dependency resolved to version.
 func writePnpmLockFixture(t *testing.T, dir, pkgName, version string) {
 	t.Helper()
 	lockFile := filepath.Join(dir, "pnpm-lock.yaml")
