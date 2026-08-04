@@ -2,6 +2,7 @@ package golang
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -40,17 +41,18 @@ func (r *RealCommandRunner) Run(ctx context.Context, dir string, env []string, n
 
 // App handles Go module remediation.
 type App struct {
-	apiKey    string
-	apiURL    string
-	pkgURL    string
-	goModPath string
-	dryRun    bool
-	useAlias  bool
-	ignoreSet map[string]struct{}
-	logger    *slog.Logger
-	parser    GoModParser
-	apiClient common.APIClient
-	cmdRunner CommandRunner
+	apiKey     string
+	apiURL     string
+	pkgURL     string
+	goModPath  string
+	reportPath string // set by WithReport; empty disables the report
+	dryRun     bool
+	useAlias   bool
+	ignoreSet  map[string]struct{}
+	logger     *slog.Logger
+	parser     GoModParser
+	apiClient  common.APIClient
+	cmdRunner  CommandRunner
 }
 
 // NewApp creates a new App with injected services.
@@ -77,6 +79,13 @@ func NewApp(
 		apiClient: apiClient,
 		cmdRunner: cmdRunner,
 	}
+}
+
+// WithReport makes Run write a JSON report of the remediated modules to path. An empty path
+// disables it.
+func (a *App) WithReport(path string) *App {
+	a.reportPath = path
+	return a
 }
 
 // buildGoEnv constructs the go command environment with the Root.io GOPROXY and the given GONOSUMDB value.
@@ -142,18 +151,19 @@ func (a *App) Run(ctx context.Context) error {
 		slog.Int("patches_available", len(response.Patches)),
 		slog.Int("packages_skipped", len(response.Skipped)))
 
-	// 5. Handle no patches
+	// 5. Record what was found, in both dry-run and apply mode, so an empty report means
+	// "nothing to fix" rather than "remediation never ran"
+	if err := a.writeReport(response.Patches); err != nil {
+		return err
+	}
+
+	// 6. Handle no patches
 	if len(response.Patches) == 0 {
 		fmt.Println("\nNo patches available - all packages are up to date!")
 		return nil
 	}
 
-	if len(response.Patches) == 0 {
-		fmt.Println("\nNo patches available - all packages are up to date!")
-		return nil
-	}
-
-	// 6. Dry-run: print what would be done
+	// 7. Dry-run: print what would be done
 	if a.dryRun {
 		a.logger.DebugContext(ctx, "DRY-RUN MODE: No changes will be made")
 		a.reportDryRun(response.Patches)
@@ -200,6 +210,50 @@ func (a *App) Run(ctx context.Context) error {
 	fmt.Println("  2. Run: go build ./...")
 	fmt.Println("  3. Test your application")
 
+	return nil
+}
+
+// ReportEntry is one remediated module in the --report file. Callers such as the binary build
+// pipeline read this to learn which CVEs a dependency bump closed, since that is invisible in the
+// built artifact.
+type ReportEntry struct {
+	Name       string   `json:"name"`
+	OldVersion string   `json:"old_version"`
+	NewVersion string   `json:"new_version"`
+	CVEIDs     []string `json:"cve_ids"`
+}
+
+// writeReport records the remediation as JSON when --report is set, and is a no-op otherwise.
+func (a *App) writeReport(patches []rootio.PackagePatch) error {
+	if a.reportPath == "" {
+		return nil
+	}
+
+	entries := make([]ReportEntry, 0, len(patches))
+	for _, patch := range patches {
+		_, newVersion := a.replaceTarget(patch)
+		cves := patch.CVEIDs
+		if cves == nil {
+			cves = []string{}
+		}
+		entries = append(entries, ReportEntry{
+			Name:       patch.PackageName,
+			OldVersion: patch.Version,
+			NewVersion: newVersion,
+			CVEIDs:     cves,
+		})
+	}
+
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal report: %w", err)
+	}
+	if err := os.WriteFile(a.reportPath, append(data, '\n'), 0o644); err != nil {
+		return fmt.Errorf("failed to write report %s: %w", a.reportPath, err)
+	}
+
+	a.logger.Debug("wrote remediation report",
+		slog.String("path", a.reportPath), slog.Int("modules", len(entries)))
 	return nil
 }
 

@@ -301,6 +301,7 @@ type GoRemediateCmd struct {
 	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
 	UseAlias bool     `default:"true" help:"Use Root.io aliased modules (pkg.root.io/*); set false to use original module paths"`
 	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	Report   string   `help:"Write a JSON report of the remediated modules and the CVEs they fix to this path."`
 }
 
 // Run executes the go remediate command
@@ -312,7 +313,7 @@ func (cmd *GoRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *
 		golang.NewGoModParser(logger),
 		rootio.NewClient(cfg.APIURL, cfg.APIKey),
 		golang.NewRealCommandRunner(),
-	)
+	).WithReport(cmd.Report)
 	return app.Run(ctx)
 }
 
