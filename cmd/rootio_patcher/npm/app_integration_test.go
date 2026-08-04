@@ -47,8 +47,8 @@ func TestNpmApp_UpdatePackageJSON_Npm(t *testing.T) {
 					{
 						PackageName: "lodash",
 						Version:     "4.17.20",
-						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
+						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21-root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21-root.io.1"},
 					},
 				},
 			}, nil
@@ -106,7 +106,7 @@ func TestNpmApp_UpdatePackageJSON_Npm(t *testing.T) {
 	// entry is bumped in place (no aliasing, no name change).
 	deps := pkgJSON["dependencies"].(map[string]interface{})
 
-	expectedVersion := "4.17.21"
+	expectedVersion := "4.17.21-root.io.1"
 	if deps["lodash"] == nil {
 		t.Fatal("Expected lodash to remain in dependencies")
 	} else if deps["lodash"].(string) != expectedVersion {
@@ -150,8 +150,8 @@ func TestNpmApp_UpdatePackageJSON_Yarn(t *testing.T) {
 					{
 						PackageName: "express",
 						Version:     "4.18.0",
-						Patch:       rootio.PatchInfo{Name: "express", Version: "4.18.2"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/express", Version: "4.18.2"},
+						Patch:       rootio.PatchInfo{Name: "express", Version: "4.18.2-root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/express", Version: "4.18.2-root.io.1"},
 					},
 				},
 			}, nil
@@ -206,7 +206,7 @@ express@4.18.0:
 	// no transitive consumers in the fixture → expect the entry bumped in
 	// place, no resolutions field needed.
 	deps := pkgJSON["dependencies"].(map[string]interface{})
-	expectedVersion := "4.18.2"
+	expectedVersion := "4.18.2-root.io.1"
 	if deps["express"].(string) != expectedVersion {
 		t.Errorf("Expected express direct dep bumped to %q, got %q", expectedVersion, deps["express"])
 	}
@@ -248,8 +248,8 @@ func TestNpmApp_UpdatePackageJSON_Pnpm(t *testing.T) {
 					{
 						PackageName: "jest",
 						Version:     "29.0.0",
-						Patch:       rootio.PatchInfo{Name: "jest", Version: "29.5.0"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/jest", Version: "29.5.0"},
+						Patch:       rootio.PatchInfo{Name: "jest", Version: "29.5.0-root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/jest", Version: "29.5.0-root.io.1"},
 					},
 				},
 			}, nil
@@ -317,7 +317,7 @@ func TestNpmApp_UpdatePackageJSON_Pnpm(t *testing.T) {
 	if !ok {
 		t.Fatalf("Expected 'jest@29.0.0' in pnpm.overrides; got: %v", overrides)
 	}
-	expectedOverride := "29.5.0"
+	expectedOverride := "29.5.0-root.io.1"
 	if jestOverride != expectedOverride {
 		t.Errorf("Expected jest override '%s', got '%s'", expectedOverride, jestOverride)
 	}
@@ -360,8 +360,8 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 					{
 						PackageName: "lodash",
 						Version:     "4.17.20",
-						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
+						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21-root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21-root.io.1"},
 					},
 				},
 			}, nil
@@ -421,7 +421,7 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 	// a plain version-scoped override for transitive uses.
 	deps := pkgJSON["dependencies"].(map[string]interface{})
 
-	expectedVersion := "4.17.21"
+	expectedVersion := "4.17.21-root.io.1"
 	if deps["lodash"] == nil {
 		t.Fatal("Expected lodash to remain in dependencies")
 	} else if deps["lodash"].(string) != expectedVersion {
@@ -475,7 +475,7 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
     "axios": "0.21.1"
   },
   "overrides": {
-    "axios": "npm:@rootio/axios@0.21.2"
+    "axios": "npm:@rootio/axios@0.21.2-root.io.1"
   }
 }`
 	if err := os.WriteFile(packageJSON, []byte(initialContent), 0644); err != nil {
@@ -495,14 +495,14 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 					{
 						PackageName: "lodash",
 						Version:     "4.17.20",
-						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
+						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21-root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21-root.io.1"},
 					},
 					{
 						PackageName: "express",
 						Version:     "4.18.0",
-						Patch:       rootio.PatchInfo{Name: "express", Version: "4.18.2"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/express", Version: "4.18.2"},
+						Patch:       rootio.PatchInfo{Name: "express", Version: "4.18.2-root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "@rootio/express", Version: "4.18.2-root.io.1"},
 					},
 				},
 			}, nil
@@ -573,7 +573,7 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 	// Both lodash and express are direct + vulnerable, so:
 	// - Dependency entries bumped in place (no name change)
 	// - Plain version-scoped overrides added for transitive uses
-	if axios, _ := overrides["axios"].(string); axios != "npm:@rootio/axios@0.21.2" {
+	if axios, _ := overrides["axios"].(string); axios != "npm:@rootio/axios@0.21.2-root.io.1" {
 		t.Errorf("existing axios override should be preserved, got %q", axios)
 	}
 
@@ -581,10 +581,10 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 	foundLodash := false
 	foundExpress := false
 	for key, val := range overrides {
-		if strings.HasPrefix(key, "lodash@") && val == "4.17.21" {
+		if strings.HasPrefix(key, "lodash@") && val == "4.17.21-root.io.1" {
 			foundLodash = true
 		}
-		if strings.HasPrefix(key, "express@") && val == "4.18.2" {
+		if strings.HasPrefix(key, "express@") && val == "4.18.2-root.io.1" {
 			foundExpress = true
 		}
 	}
@@ -599,13 +599,13 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 
 	if deps["lodash"] == nil {
 		t.Fatal("Expected lodash to remain in dependencies")
-	} else if deps["lodash"].(string) != "4.17.21" {
-		t.Errorf("Expected lodash version 4.17.21, got %q", deps["lodash"])
+	} else if deps["lodash"].(string) != "4.17.21-root.io.1" {
+		t.Errorf("Expected lodash version 4.17.21-root.io.1, got %q", deps["lodash"])
 	}
 	if deps["express"] == nil {
 		t.Fatal("Expected express to remain in dependencies")
-	} else if deps["express"].(string) != "4.18.2" {
-		t.Errorf("Expected express version 4.18.2, got %q", deps["express"])
+	} else if deps["express"].(string) != "4.18.2-root.io.1" {
+		t.Errorf("Expected express version 4.18.2-root.io.1, got %q", deps["express"])
 	}
 
 	t.Log("Successfully bumped direct deps in place and preserved existing unrelated override")

@@ -197,7 +197,7 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 					{
 						PackageName: "lodash",
 						Version:     "4.17.20",
-						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21"},
+						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21-root.io.1"},
 						CVEIDs:      []string{"CVE-2021-23337"},
 					},
 				},
@@ -237,7 +237,7 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 	if strings.Contains(string(updatedContent), "overrides") {
 		t.Error("package.json should not be modified in dry-run mode")
 	}
-	if strings.Contains(string(updatedContent), "4.17.21") {
+	if strings.Contains(string(updatedContent), "4.17.21-root.io.1") {
 		t.Error("package.json should not contain patches in dry-run mode")
 	}
 }
@@ -288,7 +288,7 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 					{
 						PackageName: "lodash",
 						Version:     "4.17.20",
-						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21"},
+						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21-root.io.1"},
 						CVEIDs:      []string{"CVE-2021-23337"},
 					},
 				},
@@ -333,10 +333,10 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 		t.Fatalf("Failed to read package.json: %v", err)
 	}
 	content := string(updatedContent)
-	if !strings.Contains(content, `"lodash": "4.17.21"`) {
-		t.Error("package.json should bump lodash direct dep in place to 4.17.21")
+	if !strings.Contains(content, `"lodash": "4.17.21-root.io.1"`) {
+		t.Error("package.json should bump lodash direct dep in place to 4.17.21-root.io.1")
 	}
-	if !strings.Contains(content, `"lodash@4.17.20": "4.17.21"`) {
+	if !strings.Contains(content, `"lodash@4.17.20": "4.17.21-root.io.1"`) {
 		t.Error("package.json should contain plain scoped override for lodash@4.17.20")
 	}
 }
