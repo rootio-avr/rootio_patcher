@@ -47,6 +47,78 @@ require golang.org/x/sys v0.0.0-20230101000000-abcdef123456 // indirect
 	require.NoError(t, app.Run(ctx))
 }
 
+func TestGoLangApp_Run_WritesReport(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	dir := t.TempDir()
+	goModPath := writeGoMod(t, dir, `module example.com/app
+
+go 1.21
+
+require golang.org/x/net v0.17.0
+`)
+	patch := rootio.PackagePatch{
+		PackageName: "golang.org/x/net",
+		Version:     "v0.17.0",
+		Patch:       rootio.PatchInfo{Version: "v0.17.1"},
+		PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang.org/x/net", Version: "v0.17.0-aikido.1"},
+		CVEIDs:      []string{"CVE-2023-44487", "CVE-2023-39325"},
+	}
+	client := &MockAPIClient{
+		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+			return &rootio.AnalyzePackagesResponse{Patches: []rootio.PackagePatch{patch}}, nil
+		},
+	}
+
+	reportPath := filepath.Join(dir, "report.json")
+	app := NewApp(
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, true, nil, logger,
+		NewGoModParser(logger), client, &MockCommandRunner{},
+	).WithReport(reportPath)
+
+	require.NoError(t, app.Run(ctx))
+
+	data, err := os.ReadFile(reportPath)
+	require.NoError(t, err)
+	assert.JSONEq(t, `[{
+		"name": "golang.org/x/net",
+		"old_version": "v0.17.0",
+		"new_version": "v0.17.0-aikido.1",
+		"cve_ids": ["CVE-2023-44487", "CVE-2023-39325"]
+	}]`, string(data))
+}
+
+func TestGoLangApp_Run_WritesEmptyReportWhenNothingToFix(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	dir := t.TempDir()
+	goModPath := writeGoMod(t, dir, `module example.com/app
+
+go 1.21
+
+require github.com/google/uuid v1.3.0
+`)
+	client := &MockAPIClient{
+		AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+			return &rootio.AnalyzePackagesResponse{Patches: []rootio.PackagePatch{}}, nil
+		},
+	}
+
+	reportPath := filepath.Join(dir, "report.json")
+	app := NewApp(
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, true, true, nil, logger,
+		NewGoModParser(logger), client, &MockCommandRunner{},
+	).WithReport(reportPath)
+
+	require.NoError(t, app.Run(ctx))
+
+	data, err := os.ReadFile(reportPath)
+	require.NoError(t, err)
+	assert.JSONEq(t, "[]", string(data), "an empty report distinguishes nothing-to-fix from never-ran")
+}
+
 func TestGoLangApp_Run_APIError(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
