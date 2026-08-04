@@ -195,6 +195,7 @@ rootio_patcher go remediate [FLAGS]
 - `--go-mod` - Path to go.mod (default: `go.mod`)
 - `--dry-run` - Preview changes without applying (default: `true`)
 - `--use-alias` - Use Root.io aliased modules (`pkg.root.io/*`); set `false` to use original module paths (default: `true`)
+- `--report` - Write a JSON report of the remediated modules and the CVEs they fix to this path
 
 **How it works:** Pre-build patching — adds a version-pinned `replace` directive for each patched module, in one of two modes controlled by `--use-alias`:
 - `--use-alias=true` (default): `replace <module> <version> => pkg.root.io/golang/<module> <patched-version>` — redirects to the aliased module under `pkg.root.io/...`.
