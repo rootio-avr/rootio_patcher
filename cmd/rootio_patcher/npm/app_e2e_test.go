@@ -84,7 +84,7 @@ func runNonAliasedAxiosScenario(t *testing.T, packageManager, pkgName, version s
 	}
 
 	originalDir, _ := os.Getwd()
-	defer os.Chdir(originalDir)
+	defer func() { _ = os.Chdir(originalDir) }()
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatalf("failed to chdir: %v", err)
 	}
