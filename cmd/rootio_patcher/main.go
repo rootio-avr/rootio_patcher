@@ -165,7 +165,6 @@ type PipCmd struct {
 type PipRemediateCmd struct {
 	PythonPath string   `default:"python" help:"Path to Python interpreter"`
 	DryRun     bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias   bool     `default:"true" help:"Use Root.io aliased packages"`
 	Ignore     []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
@@ -263,7 +262,7 @@ func createLogger(logLevelStr string) *slog.Logger {
 func (cmd *PipRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting pip remediation")
 
-	app := pip.NewApp(cfg, cmd.PythonPath, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
+	app := pip.NewApp(cfg, cmd.PythonPath, cmd.DryRun, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
 

@@ -28,11 +28,6 @@ inputs:
     description: '(pip) Path to Python interpreter'
     required: false
     default: 'python'
-  use-alias:
-    description: '(pip) Use Root.io aliased packages'
-    required: false
-    default: 'true'
-
   # maven-specific
   file:
     description: '(maven) Path to pom.xml'
@@ -92,8 +87,7 @@ runs:
         case "${{ inputs.ecosystem }}" in
           pip)
             rootio_patcher pip remediate \
-              --python-path="${{ inputs.python-path }}" \
-              --use-alias="${{ inputs.use-alias }}"
+              --python-path="${{ inputs.python-path }}"
             ;;
           npm)
             rootio_patcher npm remediate \

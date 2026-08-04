@@ -16,7 +16,6 @@ type App struct {
 	cfg        *config.Config
 	pythonPath string
 	dryRun     bool
-	useAlias   bool
 	ignoreSet  map[string]struct{}
 	logger     *slog.Logger
 
@@ -26,19 +25,19 @@ type App struct {
 }
 
 // NewApp creates a new pip application instance
-func NewApp(cfg *config.Config, pythonPath string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
-	pipService := NewService(pythonPath, cfg.PKGURL, cfg.APIKey, cfg.PipIndexURL, useAlias, logger)
+func NewApp(cfg *config.Config, pythonPath string, dryRun bool, ignoreEntries []string, logger *slog.Logger) *App {
+	pipService := NewService(pythonPath, cfg.PKGURL, cfg.APIKey, cfg.PipIndexURL, logger)
 	apiClient := rootio.NewClient(cfg.APIURL, cfg.APIKey)
 	reporter := common.NewReporter(cfg.PKGURL, logger)
 
-	return NewAppWithServices(cfg, pythonPath, dryRun, useAlias, ignoreEntries, logger, pipService, apiClient, reporter)
+	return NewAppWithServices(cfg, pythonPath, dryRun, ignoreEntries, logger, pipService, apiClient, reporter)
 }
 
 // NewAppWithServices creates a new pip application with injected services (for testing)
 func NewAppWithServices(
 	cfg *config.Config,
 	pythonPath string,
-	dryRun, useAlias bool,
+	dryRun bool,
 	ignoreEntries []string,
 	logger *slog.Logger,
 	pipService Service,
@@ -50,7 +49,6 @@ func NewAppWithServices(
 		cfg:        cfg,
 		pythonPath: pythonPath,
 		dryRun:     dryRun,
-		useAlias:   useAlias,
 		ignoreSet:  ignoreSet,
 		logger:     logger,
 		pipService: pipService,
@@ -100,7 +98,7 @@ func (a *App) Run(ctx context.Context) error {
 	// 5. Execute or dry-run patches
 	if a.dryRun {
 		a.logger.DebugContext(ctx, "DRY-RUN MODE: No changes will be made")
-		a.reporter.ReportDryRun(response.Patches, a.useAlias)
+		a.reporter.ReportDryRun(response.Patches, false)
 		return common.ErrPatchesAvailable
 	}
 
@@ -119,15 +117,7 @@ func (a *App) Run(ctx context.Context) error {
 // applyPatches applies patches sequentially, exits on first failure
 func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) error {
 	for i, patch := range patches {
-		// Select patch info based on config
-		var patchName, patchVersion string
-		if a.useAlias {
-			patchName = patch.PatchAlias.Name
-			patchVersion = patch.PatchAlias.Version
-		} else {
-			patchName = patch.Patch.Name
-			patchVersion = patch.Patch.Version
-		}
+		patchName, patchVersion := patch.Patch.Name, patch.Patch.Version
 
 		fmt.Printf("[%d/%d] Patching %s (%s → %s)...\n",
 			i+1, len(patches),
@@ -135,9 +125,7 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 			patch.Version,
 			patchVersion)
 
-		a.logger.DebugContext(ctx, "Patch details",
-			slog.String("patch_name", patchName),
-			slog.Bool("use_alias", a.useAlias))
+		a.logger.DebugContext(ctx, "Patch details", slog.String("patch_name", patchName))
 
 		// Use special handling for pip package - upgrade instead of uninstall+install
 		var err error

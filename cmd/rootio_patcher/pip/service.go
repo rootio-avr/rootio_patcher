@@ -34,18 +34,16 @@ type PipService struct {
 	pkgURL      string
 	apiKey      string
 	pipIndexURL string // overrides constructed index URL when non-empty
-	useAlias    bool
 	logger      *slog.Logger
 }
 
 // NewService creates a new pip service
-func NewService(pythonPath, pkgURL, apiKey, pipIndexURL string, useAlias bool, logger *slog.Logger) *PipService {
+func NewService(pythonPath, pkgURL, apiKey, pipIndexURL string, logger *slog.Logger) *PipService {
 	return &PipService{
 		pythonPath:  pythonPath,
 		pkgURL:      pkgURL,
 		apiKey:      apiKey,
 		pipIndexURL: pipIndexURL,
-		useAlias:    useAlias,
 		logger:      logger,
 	}
 }
@@ -81,19 +79,14 @@ func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) 
 		return fmt.Errorf("uninstall failed: %w (output: %s)", err, string(output))
 	}
 
-	// 2. Select patch based on useAlias flag
-	var patchInfo rootio.PatchInfo
-	if s.useAlias {
-		patchInfo = patch.PatchAlias
-	} else {
-		patchInfo = patch.Patch
-	}
+	// 2. Install the patched package under its original name. Aliased pypi packages
+	// (rootio_*) stopped being published at the aikido rebrand, so only plain names
+	// have current builds.
+	patchInfo := patch.Patch
 
-	// 3. Install patched package
 	s.logger.DebugContext(ctx, "Installing patched package",
 		slog.String("package_name", patchInfo.Name),
-		slog.String("version", patchInfo.Version),
-		slog.Bool("use_alias", s.useAlias))
+		slog.String("version", patchInfo.Version))
 
 	indexURL := s.constructIndexURL()
 	packageSpec := fmt.Sprintf("%s==%s", patchInfo.Name, patchInfo.Version)
@@ -116,12 +109,7 @@ func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) 
 
 // ApplyPatchForPip applies a patch for pip itself using upgrade
 func (s *PipService) ApplyPatchForPip(ctx context.Context, patch rootio.PackagePatch) error {
-	var patchInfo rootio.PatchInfo
-	if s.useAlias {
-		patchInfo = patch.PatchAlias
-	} else {
-		patchInfo = patch.Patch
-	}
+	patchInfo := patch.Patch
 
 	s.logger.DebugContext(ctx, "Upgrading pip package",
 		slog.String("version", patchInfo.Version))

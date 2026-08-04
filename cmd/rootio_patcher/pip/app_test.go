@@ -25,7 +25,7 @@ func TestPipApp_Run_NoPackages(t *testing.T) {
 	mockAPIClient := &MockAPIClient{}
 
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", true, true, nil, logger, mockPipService, mockAPIClient, nil)
+	app := NewAppWithServices(cfg, "python", true, nil, logger, mockPipService, mockAPIClient, nil)
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -47,7 +47,7 @@ func TestPipApp_Run_CollectorError(t *testing.T) {
 	mockAPIClient := &MockAPIClient{}
 
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", true, true, nil, logger, mockPipService, mockAPIClient, nil)
+	app := NewAppWithServices(cfg, "python", true, nil, logger, mockPipService, mockAPIClient, nil)
 
 	err := app.Run(ctx)
 	if err == nil {
@@ -78,7 +78,7 @@ func TestPipApp_Run_APIError(t *testing.T) {
 	}
 
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", true, true, nil, logger, mockPipService, mockAPIClient, nil)
+	app := NewAppWithServices(cfg, "python", true, nil, logger, mockPipService, mockAPIClient, nil)
 
 	err := app.Run(ctx)
 	if err == nil {
@@ -111,7 +111,7 @@ func TestPipApp_Run_NoPatches(t *testing.T) {
 	}
 
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", true, true, nil, logger, mockPipService, mockAPIClient, nil)
+	app := NewAppWithServices(cfg, "python", true, nil, logger, mockPipService, mockAPIClient, nil)
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -153,7 +153,7 @@ func TestPipApp_Run_DryRunWithPatches(t *testing.T) {
 
 	mockReporter := common.NewReporter("https://pkg.root.io", logger)
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", true, true, nil, logger, mockPipService, mockAPIClient, mockReporter)
+	app := NewAppWithServices(cfg, "python", true, nil, logger, mockPipService, mockAPIClient, mockReporter)
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -201,7 +201,7 @@ func TestPipApp_Run_ApplyPatches(t *testing.T) {
 
 	mockReporter := common.NewReporter("https://pkg.root.io", logger)
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", false, true, nil, logger, mockPipService, mockAPIClient, mockReporter)
+	app := NewAppWithServices(cfg, "python", false, nil, logger, mockPipService, mockAPIClient, mockReporter)
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -246,7 +246,7 @@ func TestPipApp_Run_ApplyPatchError(t *testing.T) {
 
 	mockReporter := common.NewReporter("https://pkg.root.io", logger)
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", false, true, nil, logger, mockPipService, mockAPIClient, mockReporter)
+	app := NewAppWithServices(cfg, "python", false, nil, logger, mockPipService, mockAPIClient, mockReporter)
 
 	err := app.Run(ctx)
 	if err == nil {
@@ -292,7 +292,7 @@ func TestPipApp_Run_PipPackageUsesSpecialHandler(t *testing.T) {
 
 	mockReporter := common.NewReporter("https://pkg.root.io", logger)
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", false, false, nil, logger, mockPipService, mockAPIClient, mockReporter)
+	app := NewAppWithServices(cfg, "python", false, nil, logger, mockPipService, mockAPIClient, mockReporter)
 
 	err := app.Run(ctx)
 	if err != nil {
@@ -345,7 +345,7 @@ func TestPipApp_Run_MultiplePatches(t *testing.T) {
 
 	mockReporter := common.NewReporter("https://pkg.root.io", logger)
 	cfg := &config.Config{}
-	app := NewAppWithServices(cfg, "python", false, true, nil, logger, mockPipService, mockAPIClient, mockReporter)
+	app := NewAppWithServices(cfg, "python", false, nil, logger, mockPipService, mockAPIClient, mockReporter)
 
 	err := app.Run(ctx)
 	if err != nil {
