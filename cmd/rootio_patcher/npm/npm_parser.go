@@ -398,7 +398,6 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 		}
 
 		if ov.RewriteDirect {
-			// Use PatchInfo from API response (either patch or patch_alias based on useAlias)
 			newPkgName := ov.PatchInfo.Name
 			newVersion := ov.PatchInfo.Version
 

@@ -191,14 +191,16 @@ func (p *PnpmParser) IsDirectVulnerable(ctx context.Context, lockFilePath, packa
 
 // UpdatePackageJSON writes pnpm overrides as version-scoped flat keys:
 //
-//	"pnpm": { "overrides": { "<name>@<version>": "<alias>" } }
+//	"pnpm": { "overrides": { "<name>@<version>": "<version>" } }
 //
 // This form is documented by pnpm and only matches the exact vulnerable
 // version. When the user's direct dep is at the vulnerable version
-// (RewriteDirect=true) the dependencies/devDependencies entry is rewritten
-// to the alias as well.
+// (RewriteDirect=true) the dependencies/devDependencies entry is renamed to
+// PatchInfo's plain name/version (mirrors npm's own direct-dependency
+// rewrite).
 func (p *PnpmParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
 	sets := make(map[string]string)
+	var deletes []string
 	var pkgContent []byte
 	for _, ov := range overrides {
 		sets[pnpmOverridesPath+"."+escapeSjsonKey(ov.PackageName+"@"+ov.Version)] = ov.Value
@@ -210,16 +212,21 @@ func (p *PnpmParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOv
 				}
 				pkgContent = c
 			}
+			newPkgName := ov.PatchInfo.Name
+			newVersion := ov.PatchInfo.Version
 			for _, field := range []string{"dependencies", "devDependencies"} {
-				path := field + "." + escapeSjsonKey(ov.PackageName)
-				if gjsonGet(pkgContent, path).Exists() {
-					sets[path] = ov.Value
+				oldPath := field + "." + escapeSjsonKey(ov.PackageName)
+				if gjsonGet(pkgContent, oldPath).Exists() {
+					deletes = append(deletes, oldPath)
+					newPath := field + "." + escapeSjsonKey(newPkgName)
+					sets[newPath] = newVersion
 				}
 			}
 		}
 	}
 	return NewPackageJSONPatcher().Patch(ctx, PatchOptions{
 		Sets:            sets,
+		Deletes:         deletes,
 		PackageJSONPath: packageJSONPath,
 	})
 }

@@ -179,7 +179,6 @@ type NpmRemediateCmd struct {
 	PackageManager string   `default:"npm" enum:"npm,yarn,pnpm" help:"Package manager to use (npm, yarn, or pnpm)"`
 	Directory      string   `default:"." short:"C" help:"Project directory containing the lock file and package.json (defaults to current directory)"`
 	DryRun         bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias       bool     `default:"true" help:"Use Root.io aliased packages (@rootio/pkg) instead of original package names"`
 	Ignore         []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
@@ -270,15 +269,14 @@ func (cmd *PipRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 // Run executes the npm remediate command
 func (cmd *NpmRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting npm remediation",
-		slog.String("package_manager", cmd.PackageManager),
-		slog.Bool("use_alias", cmd.UseAlias))
+		slog.String("package_manager", cmd.PackageManager))
 
 	dir, err := filepath.Abs(cmd.Directory)
 	if err != nil {
 		return fmt.Errorf("invalid directory: %w", err)
 	}
 
-	app := npm.NewApp(cfg.APIKey, cfg.APIURL, cmd.PackageManager, dir, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
+	app := npm.NewApp(cfg.APIKey, cfg.APIURL, cmd.PackageManager, dir, cmd.DryRun, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
 

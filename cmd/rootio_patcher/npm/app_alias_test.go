@@ -85,7 +85,6 @@ func TestNpmApp_RealAPIResponse(t *testing.T) {
 		"https://api.root.io",
 		"npm",
 		false, // not dry-run
-		true,  // useAlias (default)
 		nil,
 		logger,
 		NewParser(),
@@ -110,42 +109,34 @@ func TestNpmApp_RealAPIResponse(t *testing.T) {
 	}
 
 	// @babel/helpers@7.26.0 is direct + vulnerable → expect:
-	// 1. Old package removed, new @rootio package added to dependencies
-	// 2. Version-scoped override for transitive uses
+	// 1. Dependency entry bumped in place (name unchanged, no aliasing)
+	// 2. Plain version-scoped override for transitive uses
 	deps := pkgJSON["dependencies"].(map[string]interface{})
 
-	// Old package should be removed
-	if _, exists := deps["@babel/helpers"]; exists {
-		t.Error("Expected old @babel/helpers package to be removed from dependencies")
-	}
-
-	// New @rootio package should be added
-	newPkgName := "@rootio/babel__helpers"
 	expectedVersion := "7.26.0-root.io.2"
-	if deps[newPkgName] == nil {
-		t.Errorf("Expected new package %q to be added to dependencies", newPkgName)
-	} else if deps[newPkgName].(string) != expectedVersion {
-		t.Errorf("Expected %q version %q, got %q", newPkgName, expectedVersion, deps[newPkgName])
+	if deps["@babel/helpers"] == nil {
+		t.Fatal("Expected @babel/helpers to remain in dependencies")
+	} else if deps["@babel/helpers"].(string) != expectedVersion {
+		t.Errorf("Expected @babel/helpers version %q, got %q", expectedVersion, deps["@babel/helpers"])
 	}
 
-	// Should have version-scoped override for transitive uses
+	// Should have a plain version-scoped override for transitive uses
 	overrides, hasOverrides := pkgJSON["overrides"].(map[string]interface{})
 	if !hasOverrides {
 		t.Error("expected overrides field with version-scoped override")
 	}
 	if hasOverrides {
-		expectedOverride := "npm:@rootio/babel__helpers@7.26.0-root.io.2"
 		found := false
 		for key, val := range overrides {
-			if strings.HasPrefix(key, "@babel/helpers@") && val == expectedOverride {
+			if strings.HasPrefix(key, "@babel/helpers@") && val == expectedVersion {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("expected version-scoped override for @babel/helpers in overrides")
+			t.Errorf("expected plain version-scoped override for @babel/helpers in overrides, got %+v", overrides)
 		}
 	}
 
-	t.Logf("✓ Correctly replaced direct dep: %s → %s@%s", "@babel/helpers", newPkgName, expectedVersion)
+	t.Logf("✓ Correctly bumped direct dep in place: @babel/helpers@%s", expectedVersion)
 }
