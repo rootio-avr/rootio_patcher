@@ -191,14 +191,17 @@ func (p *YarnParser) FindParents(ctx context.Context, lockFilePath, packageName,
 //	"resolutions": { "<parent>/<child>": "<alias>" }
 //
 // When no parent is known the entry falls back to a flat "<child>" key.
-// Direct dependencies are never modified.
+// When the user's direct dependency resolves to the vulnerable version, the
+// dependencies/devDependencies entry is also rewritten (see
+// buildResolutionSetsWithDirect).
 func (p *YarnParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
-	sets, err := buildResolutionSetsWithDirect(overrides, packageJSONPath)
+	sets, deletes, err := buildResolutionSetsWithDirect(overrides, packageJSONPath)
 	if err != nil {
 		return err
 	}
 	return NewPackageJSONPatcher().Patch(ctx, PatchOptions{
 		Sets:            sets,
+		Deletes:         deletes,
 		PackageJSONPath: packageJSONPath,
 	})
 }

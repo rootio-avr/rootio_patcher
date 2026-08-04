@@ -21,8 +21,7 @@ func TestNpmApp_Run_FileNotFound(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		"/nonexistent/package-lock.json",
-		true,  // dryRun
-		true,  // useAlias
+		true, // dryRun
 		nil,
 		logger,
 		&MockParser{},
@@ -51,8 +50,7 @@ func TestNpmApp_Run_NoPackages(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		lockFile,
-		true,  // dryRun
-		true,  // useAlias
+		true, // dryRun
 		nil,
 		logger,
 		&MockParser{},
@@ -102,8 +100,7 @@ func TestNpmApp_Run_APIError(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		lockFile,
-		true,  // dryRun
-		true,  // useAlias
+		true, // dryRun
 		nil,
 		logger,
 		mockParser,
@@ -149,8 +146,7 @@ func TestNpmApp_Run_NoPatches(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		lockFile,
-		true,  // dryRun
-		true,  // useAlias
+		true, // dryRun
 		nil,
 		logger,
 		&MockParser{},
@@ -201,7 +197,7 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 					{
 						PackageName: "lodash",
 						Version:     "4.17.20",
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
+						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21"},
 						CVEIDs:      []string{"CVE-2021-23337"},
 					},
 				},
@@ -221,8 +217,7 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		lockFile,
-		true,  // dry-run
-		true,  // useAlias
+		true, // dry-run
 		nil,
 		logger,
 		mockParser,
@@ -242,7 +237,7 @@ func TestNpmApp_Run_DryRun(t *testing.T) {
 	if strings.Contains(string(updatedContent), "overrides") {
 		t.Error("package.json should not be modified in dry-run mode")
 	}
-	if strings.Contains(string(updatedContent), "@rootio/lodash") {
+	if strings.Contains(string(updatedContent), "4.17.21") {
 		t.Error("package.json should not contain patches in dry-run mode")
 	}
 }
@@ -293,7 +288,7 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 					{
 						PackageName: "lodash",
 						Version:     "4.17.20",
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21"},
+						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21"},
 						CVEIDs:      []string{"CVE-2021-23337"},
 					},
 				},
@@ -316,7 +311,6 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 		"https://api.root.io",
 		lockFile,
 		false, // NOT dry-run
-		true,  // useAlias
 		nil,
 		logger,
 		mockParser,
@@ -329,24 +323,21 @@ func TestNpmApp_Run_ApplyPatches(t *testing.T) {
 	}
 
 	// Verify package.json was patched. lodash is direct + vulnerable, so the
-	// dependencies entry is rewritten to the new package name/version (old
-	// "lodash" key removed), and a version-scoped override is also added
-	// (this form works for all transitive dependencies regardless of nesting
-	// or aliasing; see TestNpmApp_UpdatePackageJSON_Npm for the same
-	// assertion via the full integration path).
+	// dependencies entry is bumped in place to the patched version (name is
+	// unchanged since there's no aliasing), and a plain version-scoped
+	// override is also added for any transitive consumers (see
+	// TestNpmApp_UpdatePackageJSON_Npm for the same assertion via the full
+	// integration path).
 	updatedContent, err := os.ReadFile(packageJSON)
 	if err != nil {
 		t.Fatalf("Failed to read package.json: %v", err)
 	}
 	content := string(updatedContent)
-	if strings.Contains(content, `"lodash":`) {
-		t.Error("package.json should not contain old lodash dependency entry")
+	if !strings.Contains(content, `"lodash": "4.17.21"`) {
+		t.Error("package.json should bump lodash direct dep in place to 4.17.21")
 	}
-	if !strings.Contains(content, `"@rootio/lodash": "4.17.21"`) {
-		t.Error("package.json should rewrite lodash direct dep to @rootio/lodash@4.17.21")
-	}
-	if !strings.Contains(content, `"lodash@4.17.20": "npm:@rootio/lodash@4.17.21"`) {
-		t.Error("package.json should contain scoped override for lodash@4.17.20")
+	if !strings.Contains(content, `"lodash@4.17.20": "4.17.21"`) {
+		t.Error("package.json should contain plain scoped override for lodash@4.17.20")
 	}
 }
 

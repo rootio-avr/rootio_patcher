@@ -21,7 +21,6 @@ type App struct {
 	packageJSONPath string
 	dryRun          bool
 	ignoreSet       map[string]struct{}
-	useAlias        bool // Controls direct dep rewrite format: true=keep npm: prefix, false=replace package name
 	logger          *slog.Logger
 	parser          npmParser
 	apiClient       common.APIClient
@@ -29,7 +28,7 @@ type App struct {
 
 // NewApp creates a new npm application instance.
 // directory is the project root where the lock file and package.json live (use "." for CWD).
-func NewApp(apiKey, apiURL, packageManager, directory string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, packageManager, directory string, dryRun bool, ignoreEntries []string, logger *slog.Logger) *App {
 	lockFileName := lockFileNameForPackageManager(packageManager)
 	lockFilePath := filepath.Join(directory, lockFileName)
 
@@ -46,7 +45,6 @@ func NewApp(apiKey, apiURL, packageManager, directory string, dryRun, useAlias b
 		apiURL,
 		lockFilePath,
 		dryRun,
-		useAlias,
 		ignoreSet,
 		logger,
 		parser,
@@ -71,7 +69,7 @@ func lockFileNameForPackageManager(packageManager string) string {
 // or an absolute/relative lock file path (used in tests).
 func NewAppWithServices(
 	apiKey, apiURL, packageManagerOrPath string,
-	dryRun, useAlias bool,
+	dryRun bool,
 	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	parser npmParser,
@@ -109,7 +107,6 @@ func NewAppWithServices(
 		lockFilePath:    lockFilePath,
 		packageJSONPath: packageJSONPath,
 		dryRun:          dryRun,
-		useAlias:        useAlias,
 		ignoreSet:       ignoreSet,
 		logger:          logger,
 		parser:          parser,
@@ -209,7 +206,7 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	for i, patch := range patches {
 		fmt.Printf("%d. Package: %s\n", i+1, patch.PackageName)
 		fmt.Printf("   Current version: %s\n", patch.Version)
-		fmt.Printf("   Aliased package: npm:%s@%s\n", patch.PatchAlias.Name, patch.PatchAlias.Version)
+		fmt.Printf("   Patched package: %s@%s\n", patch.Patch.Name, patch.Patch.Version)
 		if len(patch.CVEIDs) > 0 {
 			fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
 		}
@@ -270,23 +267,13 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 			return fmt.Errorf("failed to check direct dep for %s@%s: %w", patch.PackageName, patch.Version, err)
 		}
 
-		// Choose patch info based on useAlias flag
-		patchInfo := patch.Patch
-		if a.useAlias {
-			patchInfo = patch.PatchAlias
-		}
-
-		// For overrides (transitive deps), always use aliased package with npm: prefix
-		overrideValue := fmt.Sprintf("npm:%s@%s", patch.PatchAlias.Name, patch.PatchAlias.Version)
-
 		overrides = append(overrides, ScopedOverride{
 			PackageName:   patch.PackageName,
 			Version:       patch.Version,
-			Value:         overrideValue,
-			PatchInfo:     patchInfo, // Used for direct dependency rewrite
+			Value:         patch.Patch.Version, // Plain patched version, used for both transitive overrides and direct rewrites
+			PatchInfo:     patch.Patch,
 			Parents:       parents,
 			RewriteDirect: direct,
-			UseAlias:      a.useAlias,
 		})
 		var scopes []string
 		if direct {
@@ -296,9 +283,9 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 			scopes = append(scopes, "under "+strings.Join(parents, ", "))
 		}
 		if len(scopes) == 0 {
-			fmt.Printf("  - %s@%s → %s@%s\n", patch.PackageName, patch.Version, patch.PatchAlias.Name, patch.PatchAlias.Version)
+			fmt.Printf("  - %s@%s → %s@%s\n", patch.PackageName, patch.Version, patch.Patch.Name, patch.Patch.Version)
 		} else {
-			fmt.Printf("  - %s@%s (%s) → %s@%s\n", patch.PackageName, patch.Version, strings.Join(scopes, ", "), patch.PatchAlias.Name, patch.PatchAlias.Version)
+			fmt.Printf("  - %s@%s (%s) → %s@%s\n", patch.PackageName, patch.Version, strings.Join(scopes, ", "), patch.Patch.Name, patch.Patch.Version)
 		}
 	}
 

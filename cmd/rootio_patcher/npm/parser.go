@@ -33,29 +33,26 @@ const (
 // a single patch can produce both (rewrite the direct line AND emit overrides
 // for transitive consumers).
 //
-// PatchInfo contains the package name and version to use for direct dependency
-// rewrites. Comes from either patch or patch_alias based on useAlias flag.
-//
-// UseAlias controls which API patch info is used:
-//   - true:  Uses patch_alias (e.g., "@rootio/uuid@9.0.1-root.io.1")
-//   - false: Uses patch (e.g., "uuid@9.0.1-root.io.1")
+// PatchInfo contains the plain package name and patched version to rename a
+// direct dependency to (e.g. "axios"@"1.15.0-aikido.12").
 type ScopedOverride struct {
 	PackageName   string
 	Version       string
-	Value         string           // Override value for transitive deps
+	Value         string           // Plain patched version, used for transitive overrides
 	PatchInfo     rootio.PatchInfo // Patch info for direct dep rewrites
 	Parents       []string
 	RewriteDirect bool
-	UseAlias      bool
 }
 
 // buildResolutionSetsWithDirect builds the sjson-path → value map for yarn
 // and yarn2, which both use the parent/child slash-path resolution shape.
 // Shared so YarnParser and Yarn2Parser don't drift. When an override has
-// RewriteDirect=true the dependencies/devDependencies entry is also
-// rewritten to the alias.
-func buildResolutionSetsWithDirect(overrides []ScopedOverride, packageJSONPath string) (map[string]string, error) {
+// RewriteDirect=true the dependencies/devDependencies entry is renamed to
+// PatchInfo's plain name/version, mirroring npm's own direct-dependency
+// rewrite in buildNpmOverrideSets.
+func buildResolutionSetsWithDirect(overrides []ScopedOverride, packageJSONPath string) (map[string]string, []string, error) {
 	sets := make(map[string]string)
+	var deletes []string
 	var pkgContent []byte
 	for _, ov := range overrides {
 		for _, parent := range ov.Parents {
@@ -65,19 +62,23 @@ func buildResolutionSetsWithDirect(overrides []ScopedOverride, packageJSONPath s
 			if pkgContent == nil {
 				c, err := os.ReadFile(packageJSONPath)
 				if err != nil {
-					return nil, fmt.Errorf("failed to read %s: %w", packageJSONPath, err)
+					return nil, nil, fmt.Errorf("failed to read %s: %w", packageJSONPath, err)
 				}
 				pkgContent = c
 			}
+			newPkgName := ov.PatchInfo.Name
+			newVersion := ov.PatchInfo.Version
 			for _, field := range []string{"dependencies", "devDependencies"} {
-				path := field + "." + escapeSjsonKey(ov.PackageName)
-				if gjsonGet(pkgContent, path).Exists() {
-					sets[path] = ov.Value
+				oldPath := field + "." + escapeSjsonKey(ov.PackageName)
+				if gjsonGet(pkgContent, oldPath).Exists() {
+					deletes = append(deletes, oldPath)
+					newPath := field + "." + escapeSjsonKey(newPkgName)
+					sets[newPath] = newVersion
 				}
 			}
 		}
 	}
-	return sets, nil
+	return sets, deletes, nil
 }
 
 // readDirectDepSpecs returns the spec strings under dependencies and
