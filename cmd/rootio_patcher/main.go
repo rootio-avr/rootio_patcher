@@ -296,7 +296,7 @@ type GoCmd struct {
 type GoRemediateCmd struct {
 	GoMod    string   `default:"go.mod" help:"Path to go.mod"`
 	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"true" help:"Use Root.io aliased modules (pkg.root.io/*); set false to use original module paths"`
+	UseAlias bool     `default:"false" help:"Use Root.io aliased modules (pkg.root.io/*); set false to use original module paths"`
 	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 	Report   string   `help:"Write a JSON report of the remediated modules and the CVEs they fix to this path."`
 }
