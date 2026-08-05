@@ -75,7 +75,7 @@ func (a *App) Run(ctx context.Context) error {
 	sdkPackages := make([]rootio.Package, len(packages))
 	for i, pkg := range packages {
 		sdkPackages[i] = rootio.Package{
-			Name:    pkg.Name,
+			Name:    denormalizeAliasName(pkg.Name),
 			Version: pkg.Version,
 		}
 	}
@@ -115,6 +115,13 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
+// denormalizeAliasName undoes pip list's PEP 503 normalization (rootio_x -> rootio-x) so re-analysis recognizes aliased installs.
+func denormalizeAliasName(name string) string {
+	if strings.HasPrefix(strings.ToLower(name), "rootio-") {
+		return "rootio_" + name[len("rootio-"):]
+	}
+	return name
+}
 
 // applyPatches applies patches sequentially, exits on first failure
 func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) error {
