@@ -40,7 +40,7 @@ func (c *Client) AnalyzePackages(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v3/analyze/%s", strings.TrimRight(c.baseURL, "/"), ecosystem)
+	url := fmt.Sprintf("%s/v3/analyze/v2/%s", strings.TrimRight(c.baseURL, "/"), ecosystem)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -86,7 +86,7 @@ func (c *Client) AnalyzeOsPackages(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v3/analyze/%s", c.baseURL, endpoint)
+	url := fmt.Sprintf("%s/v3/analyze/v2/%s", c.baseURL, endpoint)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
