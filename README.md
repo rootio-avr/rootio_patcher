@@ -156,9 +156,8 @@ rootio_patcher pip remediate [FLAGS]
 **Flags:**
 - `--python-path` - Path to Python interpreter (default: `python`)
 - `--dry-run` - Preview changes without applying (default: `true`)
-- `--use-alias` - Use Root.io aliased packages (default: `true`)
 
-**How it works:** Post-install patching - scans installed packages and reinstalls them with Root.io patches
+**How it works:** Post-install patching - scans installed packages and reinstalls them with Root.io patches, always under the original package name
 
 #### npm/yarn/pnpm
 
@@ -299,7 +298,7 @@ Set to `false` to actually apply patches:
 rootio_patcher pip remediate --dry-run=false
 ```
 
-#### `--use-alias` Flag (pip, apt, apk)
+#### `--use-alias` Flag (apt, apk)
 
 Root.io publishes each security patch under **two** package names: the original name (e.g. `curl`, `openssl`) and an aliased name with a `rootio-` prefix (e.g. `rootio-curl`, `rootio-openssl`). The `--use-alias` flag controls which variant the patcher installs.
 
@@ -315,9 +314,6 @@ rootio_patcher apt remediate --dry-run=false --use-alias=false
 
 # APK: non-aliased
 rootio_patcher apk remediate --dry-run=false --use-alias=false
-
-# pip: non-aliased
-rootio_patcher pip remediate --dry-run=false --use-alias=false
 ```
 
 #### `--python-path` Flag (pip only)
@@ -454,14 +450,6 @@ Applying 2 patches...
   ✓ Successfully patched requests
 
 ✓ Successfully patched 2 packages!
-```
-
-#### Use Direct Patches (No Aliases)
-
-Install patches using original package names:
-
-```bash
-rootio_patcher pip remediate --dry-run=false --use-alias=false
 ```
 
 #### Target Specific Python Environment
@@ -1345,7 +1333,7 @@ A reusable composite action is included in this repository. It wraps the vulnera
 | `package-manager` | No | `npm` | *(npm)* `npm`, `yarn`, or `pnpm` |
 | `directory` | No | `.` | *(npm)* Project directory containing the lock file |
 | `python-path` | No | `python` | *(pip)* Path to Python interpreter |
-| `use-alias` | No | `true` | *(pip, apt, apk)* Install Root.io aliased packages (`rootio-*`); set `false` to install under original names |
+| `use-alias` | No | `true` | *(apt, apk)* Install Root.io aliased packages (`rootio-*`); set `false` to install under original names |
 | `file` | No | `pom.xml` | *(maven)* Path to pom.xml; *(composer)* Path to composer.json |
 
 Advanced settings (`ROOTIO_API_URL`, `ROOTIO_PKG_URL`, `ROOTIO_PIP_INDEX_URL`, `LOG_LEVEL`) are not inputs — pass them as environment variables on the calling step instead:
