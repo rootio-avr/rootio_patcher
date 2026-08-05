@@ -79,9 +79,6 @@ func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) 
 		return fmt.Errorf("uninstall failed: %w (output: %s)", err, string(output))
 	}
 
-	// 2. Install the patched package under its original name. Aliased pypi packages
-	// (rootio_*) stopped being published at the aikido rebrand, so only plain names
-	// have current builds.
 	patchInfo := patch.Patch
 
 	s.logger.DebugContext(ctx, "Installing patched package",
