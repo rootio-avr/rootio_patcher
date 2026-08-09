@@ -269,6 +269,51 @@ func TestNpmParser_UpdatePackageJSON_DirectAndTransitive(t *testing.T) {
 	}
 }
 
+// TestNpmParser_UpdatePackageJSON_AikidoVersionFlavor verifies an "aikido"-flavored
+// patched version is written identically to a "rootio"-flavored one: the version
+// string is opaque data, never parsed or pattern-matched by this tool.
+func TestNpmParser_UpdatePackageJSON_AikidoVersionFlavor(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	pkgPath := tmpDir + "/package.json"
+
+	if err := os.WriteFile(pkgPath, []byte(`{
+  "name": "test-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "uuid": "^11.0.3"
+  }
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	overrides := []ScopedOverride{
+		{
+			PackageName:   "uuid",
+			Version:       "11.0.3",
+			Value:         "npm:@rootio/uuid@11.0.3-aikido.io.1",
+			PatchInfo:     rootio.PatchInfo{Name: "@rootio/uuid", Version: "11.0.3-aikido.io.1"},
+			RewriteDirect: true,
+		},
+	}
+	if err := NewNpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := os.ReadFile(pkgPath)
+	content := string(got)
+
+	if strings.Contains(content, `"uuid": "npm:@rootio/uuid@11.0.3-aikido.io.1"`) {
+		t.Errorf("old uuid package should be removed; got:\n%s", content)
+	}
+	if !strings.Contains(content, `"@rootio/uuid": "11.0.3-aikido.io.1"`) {
+		t.Errorf("expected new @rootio/uuid package with aikido-flavored version; got:\n%s", content)
+	}
+	if !strings.Contains(content, `"uuid@11.0.3": "npm:@rootio/uuid@11.0.3-aikido.io.1"`) {
+		t.Errorf("expected version-scoped override for uuid@11.0.3; got:\n%s", content)
+	}
+}
+
 // TestNpmParser_FindParents_HoistedTransitive verifies the EOVERRIDE-fix
 // case: the user's direct uuid range overlaps dockerode's transitive range,
 // so npm hoists a single uuid copy at the top level (no nested path).

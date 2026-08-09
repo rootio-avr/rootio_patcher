@@ -347,6 +347,33 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 	}
 }
 
+// TestApp_Run_NonAliased_AikidoVersionFlavor verifies an "aikido"-flavored patched
+// version (as opposed to "root.io") behaves identically: the version string is
+// opaque data, never parsed or pattern-matched — install still resolves by name
+// alone, relying on the pin-priority set up during Setup.
+func TestApp_Run_NonAliased_AikidoVersionFlavor(t *testing.T) {
+	runner := &MockRunner{}
+	apiClient := &MockAPIClient{
+		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+			return &rootio.OsAnalyzeResponse{
+				Patches: []rootio.PackagePatch{
+					{
+						PackageName: "curl",
+						Version:     "7.88.1-10+deb12u5",
+						Patch:       rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u5+aikido.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.aikido.io.1"},
+					},
+				},
+			}, nil
+		},
+	}
+	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, false, nil)
+	require.NoError(t, app.Run(context.Background()))
+
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "curl"),
+		"non-aliased must install original package name regardless of version flavor")
+}
+
 // TestApp_Run_NonAliased_ForceOverwriteMatchesAliasedPath is a regression test:
 // the original (non-aliased) install path must set the same
 // Dpkg::Options::=--force-overwrite flag as the aliased path, since Root.io
