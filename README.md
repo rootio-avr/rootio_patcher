@@ -316,6 +316,8 @@ rootio_patcher apt remediate --dry-run=false --use-alias=false
 rootio_patcher apk remediate --dry-run=false --use-alias=false
 ```
 
+**Deprecated for `pip` and `npm`:** these ecosystems no longer publish aliased packages, so patches are always installed under their original names. `--use-alias` is still accepted there for backwards compatibility — it is ignored, and passing it logs a warning instead of failing.
+
 #### `--python-path` Flag (pip only)
 
 Specifies which Python interpreter to use. This is useful if you have multiple Python versions:

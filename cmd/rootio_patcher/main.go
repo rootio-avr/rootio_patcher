@@ -156,6 +156,22 @@ func (cmd *MicrodnfRemediateCmd) Run(ctx context.Context, _ *config.Config, logg
 	return app.Run(ctx)
 }
 
+// deprecatedUseAlias accepts and ignores --use-alias on commands that dropped alias mode.
+type deprecatedUseAlias struct {
+	UseAlias *bool `help:"Deprecated and ignored; patches are always installed under their original names." hidden:""`
+}
+
+// warnUseAliasIgnored tells the caller their --use-alias was accepted but had no
+// effect. No-op when the flag was not passed.
+func (d deprecatedUseAlias) warnUseAliasIgnored(ctx context.Context, logger *slog.Logger, ecosystem string) {
+	if d.UseAlias == nil {
+		return
+	}
+	logger.WarnContext(ctx, "--use-alias is deprecated and ignored; patches are always installed under their original names",
+		slog.String("ecosystem", ecosystem),
+		slog.Bool("value", *d.UseAlias))
+}
+
 // PipCmd handles pip-related commands
 type PipCmd struct {
 	Remediate PipRemediateCmd `cmd:"" help:"Remediate Python packages (post-install patching)"`
@@ -163,6 +179,8 @@ type PipCmd struct {
 
 // PipRemediateCmd remediates installed Python packages
 type PipRemediateCmd struct {
+	deprecatedUseAlias
+
 	PythonPath string   `default:"python" help:"Path to Python interpreter"`
 	DryRun     bool     `default:"true" help:"Preview changes without applying them"`
 	Ignore     []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
@@ -175,6 +193,8 @@ type NpmCmd struct {
 
 // NpmRemediateCmd remediates npm packages by patching lock file and package.json
 type NpmRemediateCmd struct {
+	deprecatedUseAlias
+
 	PackageManager string   `default:"npm" enum:"npm,yarn,pnpm" help:"Package manager to use (npm, yarn, or pnpm)"`
 	Directory      string   `default:"." short:"C" help:"Project directory containing the lock file and package.json (defaults to current directory)"`
 	DryRun         bool     `default:"true" help:"Preview changes without applying them"`
@@ -260,6 +280,7 @@ func createLogger(logLevelStr string) *slog.Logger {
 // Run executes the pip remediate command
 func (cmd *PipRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting pip remediation")
+	cmd.warnUseAliasIgnored(ctx, logger, "pip")
 
 	app := pip.NewApp(cfg, cmd.PythonPath, cmd.DryRun, cmd.Ignore, logger)
 	return app.Run(ctx)
@@ -269,6 +290,7 @@ func (cmd *PipRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 func (cmd *NpmRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting npm remediation",
 		slog.String("package_manager", cmd.PackageManager))
+	cmd.warnUseAliasIgnored(ctx, logger, "npm")
 
 	dir, err := filepath.Abs(cmd.Directory)
 	if err != nil {
