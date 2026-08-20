@@ -336,8 +336,11 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 	// Must install under original names, with --force-overwrite (two Root.io
 	// patched packages can ship the same file, e.g. ROOT-SECURITY-RELEASE.md;
 	// without this flag dpkg aborts with a file-conflict error).
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "curl=7.88.1-10+deb12u5+root.io.1", "openssl=3.0.11-1+root.io.1"),
-		"non-aliased must pin original names to the analyzed version")
+	// No version pin: pin-priority 1001 for the rootio registry guarantees the
+	// rootio package wins, and avoids epoch-mismatch failures for packages like
+	// bsdutils/login where the API omits the epoch from Patch.Version.
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "curl", "openssl"),
+		"non-aliased must install by name only, relying on pin-priority 1001")
 
 	// Must NOT install any rootio-* aliased name
 	for _, c := range runner.Calls {

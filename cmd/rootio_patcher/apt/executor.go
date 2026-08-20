@@ -117,12 +117,8 @@ func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patch
 	if !useAlias {
 		var names []string
 		for _, p := range patches {
-			spec := p.Patch.Name
-			if p.Patch.Version != "" {
-				spec = spec + "=" + p.Patch.Version // else apt ranks leftover .root. debs above .aikido.
-			}
-			names = append(names, spec)
-			e.logf("→ installing non-aliased %s", spec)
+			names = append(names, p.Patch.Name)
+			e.logf("→ installing non-aliased %s", p.Patch.Name)
 		}
 		args := append([]string{"-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades"}, names...)
 		return e.runner.Run(ctx, "apt-get", args...)
