@@ -367,34 +367,17 @@ func (a *App) getOverrideField() string {
 	}
 }
 
-// npmEnv returns the environment the inline `npm install` needs to resolve the
-// patched overrides. Patched builds live in the Root.io npm registry
-// (`<pkgURL>/npm/`), NOT the public npm registry — so the resolver MUST be
-// pointed there with Root.io basic auth (`root:<apiKey>`), or `npm install`
-// fails with 401/ETARGET.
+// npmEnv points the inline `npm install` at the Root.io registry, where patched
+// builds live, with basic auth (`root:<apiKey>`). Passed as `npm_config_*` env
+// vars rather than a .npmrc so nothing is written to the build context.
 //
-// It has to be the DEFAULT registry, not a scope-specific one. npm patches are
-// published under the package's ORIGINAL name, in arbitrary scopes
-// (`@opentelemetry/core`) or none at all (`uuid`), so no `<scope>:registry` key
-// can cover them: npm consults the default registry for `uuid` and fails with
-// `ETARGET No matching version found for uuid@9.0.1-root.io.4`.
+// Must be the DEFAULT registry, not `@rootio:registry`: patches are published
+// under the package's ORIGINAL name (`uuid`, `@opentelemetry/core`), which no
+// `<scope>:registry` key can reach. Safe because `<pkgURL>/npm/` is a full
+// mirror, so unpatched deps resolve through it too.
 //
-// Unconditional on purpose. Which name shape actually reaches the resolver is
-// decided by the backend (applyPatches forwards patch.PatchAlias into
-// ScopedOverride.Value verbatim), not by anything we can see here — so gating on
-// useAlias would just reintroduce the same guess. Pointing the default registry
-// at the mirror is correct for BOTH shapes. Safe because `<pkgURL>/npm/` is a
-// full mirror of the public registry, not a patches-only repo, so unpatched deps
-// and `@rootio/*` names alike resolve through it.
-//
-// Caveat: this overrides a project .npmrc that sets its own DEFAULT registry
-// (scope-specific keys like `@corp:registry` survive). A build context whose
-// default registry is a private Artifactory/Nexus feed will fail to resolve deps
-// that exist only there.
-//
-// Emitted as `npm_config_*` env vars (npm's config-via-env form). We set them via
-// the CommandRunner's env slice rather than a .npmrc file so nothing is written to
-// the build context. Basic auth mirrors pip/composer (user "root", password = apiKey).
+// Caveat: overrides a project .npmrc's own default registry (scope-specific keys
+// survive), so deps that exist only in a private feed won't resolve.
 func (a *App) npmEnv() []string {
 	if a.pkgURL == "" || a.apiKey == "" {
 		// No registry/key configured — nothing to add. `npm install` will use whatever

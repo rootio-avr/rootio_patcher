@@ -368,20 +368,13 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 			// entry does NOT apply to a direct dep and conflicts with it (→ EOVERRIDE),
 			// so we rewrite the dependency line ITSELF to the aliased package.
 			//
-			// We keep the ORIGINAL dependency key and set its value to ov.Value — the
-			// `npm:` form built from whatever the backend returned, e.g.
-			// `"lodash": "npm:@rootio/lodash@4.17.20-root.io.3"`. Keeping the key and
-			// changing only the value resolves even against a stale lockfile; renaming the
-			// key to the patch's own name would not.
+			// We keep the ORIGINAL key and change only its value to ov.Value (already the
+			// `npm:<name>@<version>` form, built in applyPatches), e.g.
+			// `"lodash": "npm:@rootio/lodash@4.17.20-root.io.3"`. That resolves even
+			// against a stale lockfile; renaming the key would not.
 			//
-			// Note: pinning the ORIGINAL name to a `-root.io.N` version is no longer an
-			// ETARGET — npmEnv() now points the DEFAULT registry at the Root.io mirror,
-			// which serves patches under their original name. Both name shapes resolve.
-			//
-			// ov.Value is already the `npm:<alias>@<version>` form (built in applyPatches
-			// from patch.PatchAlias). Note: any transitive consumers of the SAME package
-			// at this version are still covered by the nested-parent overrides emitted
-			// above, so those copies are patched too.
+			// Transitive consumers of the same package@version are still covered by the
+			// nested-parent overrides emitted above.
 			rewritten := false
 			for _, field := range []string{"dependencies", "devDependencies"} {
 				depPath := field + "." + escapeSjsonKey(ov.PackageName)
