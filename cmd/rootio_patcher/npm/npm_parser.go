@@ -243,9 +243,10 @@ func (p *NpmParser) FindParents(ctx context.Context, lockFilePath, packageName, 
 		}
 
 		// Prefer the entry's resolved identity ("name" field) over the path
-		// segment. When a parent was aliased in a prior round, its lock path
-		// keeps the pre-alias name (e.g. "node_modules/@apollo/federation-internals")
-		// while "name" holds the alias it actually resolves to
+		// segment. When a parent was aliased by a legacy round (we no longer
+		// alias), its lock path keeps the pre-alias name (e.g.
+		// "node_modules/@apollo/federation-internals") while "name" holds the
+		// alias it actually resolves to
 		// (e.g. "@rootio/apollo__federation-internals"). npm matches a nested
 		// override against the resolved identity, so keying under the path
 		// name would silently never apply.
@@ -330,13 +331,13 @@ func extractParentName(pkgPath string) string {
 
 // UpdatePackageJSON writes npm overrides as version-scoped flat keys:
 //
-//	"overrides": { "<package>@<version>": "<alias>" }
+//	"overrides": { "<package>@<version>": "<patched version>" }
 //
-// This form works universally for transitive and aliased dependencies.
-// When the user's direct dep is vulnerable (RewriteDirect=true), the old package
-// is removed from dependencies and replaced with the new @rootio package to avoid
-// npm's EOVERRIDE error (which occurs when both a direct dependency and an override
-// target the same package@version).
+// This form works universally for transitive dependencies regardless of nesting.
+// When the user's direct dep is vulnerable (RewriteDirect=true), its dependencies
+// entry is bumped in place to the patched version, which also avoids npm's
+// EOVERRIDE error (raised when a direct dependency and an override target the
+// same package@version).
 func (p *NpmParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
 	sets, deletes, err := buildNpmOverrideSets(overrides, packageJSONPath)
 	if err != nil {
@@ -377,8 +378,8 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 			sets[npmOverridesPath+"."+escapeSjsonKey(key)] = ov.Value
 		}
 
-		// Pattern B: when the parent is itself aliased, its resolved node name
-		// differs from the pre-alias dependency name. FindParents returns the
+		// Pattern B: when the parent carries a legacy alias, its resolved node
+		// name differs from the pre-alias dependency name. FindParents returns the
 		// RESOLVED parent identity (e.g. "@rootio/apollo__gateway"), which is
 		// what npm matches a nested/path-scoped override against — keying under
 		// the pre-alias name ("@apollo/gateway") silently never applies. Write
