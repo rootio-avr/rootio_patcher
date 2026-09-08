@@ -368,10 +368,19 @@ func (a *App) getOverrideField() string {
 }
 
 // npmEnv returns the environment the inline `npm install` needs to resolve the
-// patched overrides. The patcher rewrites vulnerable deps to `@rootio/<pkg>`
-// packages that live in the Root.io npm registry (`<pkgURL>/npm/`), NOT the public
-// npm registry — so the resolver MUST be pointed at that scoped registry with
-// Root.io basic auth (`root:<apiKey>`), or `npm install` fails with 401/ETARGET.
+// patched overrides. Patched builds live in the Root.io npm registry
+// (`<pkgURL>/npm/`), NOT the public npm registry — so the resolver MUST be
+// pointed there with Root.io basic auth (`root:<apiKey>`), or `npm install`
+// fails with 401/ETARGET.
+//
+// It has to be the DEFAULT registry, not a scope-scoped one. npm patches are
+// published under the package's ORIGINAL name, in arbitrary scopes
+// (`@opentelemetry/core`) or none at all (`uuid`), so no `<scope>:registry` key
+// can cover them: npm consults the default registry for `uuid` and fails with
+// `ETARGET No matching version found for uuid@9.0.1-root.io.4`. This is safe
+// because `<pkgURL>/npm/` is a full mirror of the public registry, not a
+// patches-only repo — unpatched deps and any legacy `@rootio/*` alias still
+// resolve through it.
 //
 // Emitted as `npm_config_*` env vars (npm's config-via-env form). We set them via
 // the CommandRunner's env slice rather than a .npmrc file so nothing is written to
@@ -379,7 +388,7 @@ func (a *App) getOverrideField() string {
 func (a *App) npmEnv() []string {
 	if a.pkgURL == "" || a.apiKey == "" {
 		// No registry/key configured — nothing to add. `npm install` will use whatever
-		// registry config already exists (or fail loudly if the @rootio deps are unreachable).
+		// registry config already exists (or fail loudly if the patches are unreachable).
 		return nil
 	}
 	u, err := url.Parse(a.pkgURL)
@@ -393,7 +402,7 @@ func (a *App) npmEnv() []string {
 	authHostKey := fmt.Sprintf("//%s/npm/", u.Host)
 	encodedPassword := base64.StdEncoding.EncodeToString([]byte(a.apiKey))
 	return []string{
-		"npm_config_@rootio:registry=" + registry,
+		"npm_config_registry=" + registry,
 		fmt.Sprintf("npm_config_%s:username=root", authHostKey),
 		fmt.Sprintf("npm_config_%s:_password=%s", authHostKey, encodedPassword),
 	}
