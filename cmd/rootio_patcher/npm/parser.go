@@ -47,8 +47,8 @@ type ScopedOverride struct {
 // buildResolutionSetsWithDirect builds the sjson-path → value map for yarn
 // and yarn2, which both use the parent/child slash-path resolution shape.
 // Shared so YarnParser and Yarn2Parser don't drift. When an override has
-// RewriteDirect=true the dependencies/devDependencies entry is renamed to
-// PatchInfo's plain name/version, mirroring npm's own direct-dependency
+// RewriteDirect=true the dependencies/devDependencies entry is bumped in
+// place to the patched version, mirroring npm's own direct-dependency
 // rewrite in buildNpmOverrideSets.
 func buildResolutionSetsWithDirect(overrides []ScopedOverride, packageJSONPath string) (map[string]string, []string, error) {
 	sets := make(map[string]string)
