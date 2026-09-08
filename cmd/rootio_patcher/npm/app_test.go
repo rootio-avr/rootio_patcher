@@ -511,10 +511,10 @@ func TestNpmApp_Run_InvokesInstallAfterPatch(t *testing.T) {
 	}
 
 	// The resolver MUST run with Root.io registry + auth env, or `npm install`
-	// cannot fetch the @rootio-scoped override packages (401/ETARGET).
+	// cannot fetch the patched builds (401/ETARGET).
 	env := strings.Join(mockCmd.Calls[0].Env, "\n")
-	if !strings.Contains(env, "npm_config_@rootio:registry=https://pkg.root.io/npm/") {
-		t.Errorf("Expected @rootio scoped registry env, got: %v", mockCmd.Calls[0].Env)
+	if !strings.Contains(env, "npm_config_registry=https://pkg.root.io/npm/") {
+		t.Errorf("Expected Root.io default registry env, got: %v", mockCmd.Calls[0].Env)
 	}
 	if !strings.Contains(env, ":username=root") {
 		t.Errorf("Expected basic-auth username=root env, got: %v", mockCmd.Calls[0].Env)
@@ -527,12 +527,17 @@ func TestNpmApp_Run_InvokesInstallAfterPatch(t *testing.T) {
 func TestNpmEnv(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	// With pkgURL + apiKey → scoped registry + base64 basic-auth env.
+	// With pkgURL + apiKey → default registry + base64 basic-auth env.
+	// It must be the DEFAULT registry: patches keep the package's original name
+	// (`uuid`, `@opentelemetry/core`), which no `<scope>:registry` key can reach.
 	app := &App{apiKey: "sk_testkey", pkgURL: "https://pkg.root.io", logger: logger}
 	env := app.npmEnv()
 	joined := strings.Join(env, "\n")
-	if !strings.Contains(joined, "npm_config_@rootio:registry=https://pkg.root.io/npm/") {
-		t.Errorf("missing scoped registry, got: %v", env)
+	if !strings.Contains(joined, "npm_config_registry=https://pkg.root.io/npm/") {
+		t.Errorf("missing default registry, got: %v", env)
+	}
+	if strings.Contains(joined, "npm_config_@rootio:registry=") {
+		t.Errorf("must not scope the registry to @rootio, got: %v", env)
 	}
 	if !strings.Contains(joined, "npm_config_//pkg.root.io/npm/:username=root") {
 		t.Errorf("missing username, got: %v", env)
