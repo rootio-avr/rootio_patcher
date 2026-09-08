@@ -368,13 +368,15 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 			// entry does NOT apply to a direct dep and conflicts with it (→ EOVERRIDE),
 			// so we rewrite the dependency line ITSELF to the aliased package.
 			//
-			// We keep the ORIGINAL dependency key and set its value to the `npm:` alias
-			// form: `"lodash": "npm:@rootio/lodash@4.17.20-root.io.3"`. This is the only
-			// form npm can resolve for a `-root.io.N` build (which exists solely under the
-			// @rootio scope, never under the original name on the public registry) — even
-			// with a stale lockfile. Renaming the key to `@rootio/lodash` or pinning the
-			// original name to a `-root.io.N` version both fail (ETARGET), regardless of
-			// useAlias. Direct deps therefore always use the alias value.
+			// We keep the ORIGINAL dependency key and set its value to ov.Value — the
+			// `npm:` form built from whatever the backend returned, e.g.
+			// `"lodash": "npm:@rootio/lodash@4.17.20-root.io.3"`. Keeping the key and
+			// changing only the value resolves even against a stale lockfile; renaming the
+			// key to the patch's own name would not.
+			//
+			// Note: pinning the ORIGINAL name to a `-root.io.N` version is no longer an
+			// ETARGET — npmEnv() now points the DEFAULT registry at the Root.io mirror,
+			// which serves patches under their original name. Both name shapes resolve.
 			//
 			// ov.Value is already the `npm:<alias>@<version>` form (built in applyPatches
 			// from patch.PatchAlias). Note: any transitive consumers of the SAME package
