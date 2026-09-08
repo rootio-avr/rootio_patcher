@@ -361,12 +361,12 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 	}
 
 	for _, ov := range overrides {
-		// Use version-scoped flat override (e.g., "uuid@9.0.1": "9.0.1-root.io.1")
+		// Use version-scoped flat override (e.g., "uuid@9.0.1": "9.0.1-aikido.1")
 		// This works for all transitive dependencies regardless of nesting or aliasing.
 		//
 		// Pattern A guard: when a prior round already patched this package, the
 		// package now resolves at that round's OWN output version (e.g.
-		// 9.0.1-root.io.1), which is what the API re-flags. Adding a naive
+		// 9.0.1-aikido.1), which is what the API re-flags. Adding a naive
 		// "<name>@<that-output-version>" key is dead — that version string is
 		// never a range any real dependent declares, so it can never match and
 		// the package stays pinned forever. Instead, bump the pre-existing flat
@@ -420,8 +420,8 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 // "pnpm.overrides" for pnpm), the existing flat override key whose VALUE
 // currently resolves packageName to resolvedVersion, i.e. the key that
 // produced the patched output now being re-flagged. Values are plain patched
-// versions ("9.0.1-root.io.1") or legacy "npm:" alias descriptors
-// ("npm:@rootio/uuid@9.0.1-root.io.1"). When a package was patched in a prior
+// versions ("9.0.1-aikido.1") or legacy "npm:" alias descriptors
+// ("npm:@rootio/uuid@9.0.1-aikido.1"). When a package was patched in a prior
 // round, resolvedVersion equals that installed version, so the returned key
 // (e.g. "uuid@9.0.1") is the one to bump in place instead of adding a dead
 // "<name>@<resolvedVersion>" key that matches no real range.
@@ -443,10 +443,11 @@ func findControllingFlatKey(pkgContent []byte, overridesPath, packageName, resol
 			return true
 		}
 		// Value's installed version must match. Two shapes occur: a plain
-		// patched version ("4.17.21-root.io.1"), which is what we write now,
+		// patched version ("4.17.21-aikido.1"), which is what we write now,
 		// and a legacy "npm:" alias descriptor
-		// ("npm:@rootio/lodash@4.17.21-root.io.1"), where the installed
-		// version follows the alias's last "@".
+		// ("npm:@rootio/lodash@4.17.21-aikido.1"), where the installed
+		// version follows the alias's last "@". The suffix itself is never
+		// parsed — the value is compared to resolvedVersion verbatim.
 		v := value.String()
 		if idx := strings.LastIndex(v, "@"); idx > 0 {
 			v = v[idx+1:]

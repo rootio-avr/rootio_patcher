@@ -31,7 +31,7 @@ func TestPnpmParser_UpdatePackageJSON_VersionScoped(t *testing.T) {
 		{
 			PackageName: "uuid",
 			Version:     "10.0.0",
-			Value:       "npm:@rootio/uuid@10.0.0-root.io.1",
+			Value:       "npm:@rootio/uuid@10.0.0-aikido.1",
 		},
 	}
 	if err := NewPnpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
@@ -44,7 +44,7 @@ func TestPnpmParser_UpdatePackageJSON_VersionScoped(t *testing.T) {
 	if !strings.Contains(content, `"uuid": "^14.0.0"`) {
 		t.Errorf("user's direct uuid@^14.0.0 must be unchanged; got:\n%s", content)
 	}
-	if !strings.Contains(content, `"uuid@10.0.0": "npm:@rootio/uuid@10.0.0-root.io.1"`) {
+	if !strings.Contains(content, `"uuid@10.0.0": "npm:@rootio/uuid@10.0.0-aikido.1"`) {
 		t.Errorf("expected version-scoped pnpm override key 'uuid@10.0.0'; got:\n%s", content)
 	}
 	if !strings.Contains(content, `"pnpm"`) {
@@ -205,7 +205,7 @@ func TestYarnParser_UpdatePackageJSON_ParentScoped(t *testing.T) {
 		{
 			PackageName: "uuid",
 			Version:     "10.0.0",
-			Value:       "npm:@rootio/uuid@10.0.0-root.io.1",
+			Value:       "npm:@rootio/uuid@10.0.0-aikido.1",
 			Parents:     []string{"dockerode"},
 		},
 	}
@@ -219,7 +219,7 @@ func TestYarnParser_UpdatePackageJSON_ParentScoped(t *testing.T) {
 	if !strings.Contains(content, `"uuid": "^14.0.0"`) {
 		t.Errorf("user's direct uuid@^14.0.0 must be unchanged; got:\n%s", content)
 	}
-	if !strings.Contains(content, `"dockerode/uuid": "npm:@rootio/uuid@10.0.0-root.io.1"`) {
+	if !strings.Contains(content, `"dockerode/uuid": "npm:@rootio/uuid@10.0.0-aikido.1"`) {
 		t.Errorf("expected parent/child slash-path resolution 'dockerode/uuid'; got:\n%s", content)
 	}
 	if !strings.Contains(content, `"resolutions"`) {
@@ -231,7 +231,7 @@ func TestYarnParser_UpdatePackageJSON_ParentScoped(t *testing.T) {
 // the npm Pattern A guard test. Round 1 left "lodash@4.17.20" pointing at a
 // patched build; round 2 re-flags the package at that OUTPUT version, so the
 // existing key must be bumped in place. Adding a
-// "lodash@4.17.21-root.io.1" key instead would be dead — no dependent declares
+// "lodash@4.17.21-aikido.1" key instead would be dead — no dependent declares
 // that string as a range — so the original key would keep pinning the old
 // build and the CVE would go unfixed while the run reported success.
 func TestPnpmParser_UpdatePackageJSON_SecondRoundBumpsInPlace(t *testing.T) {
@@ -243,10 +243,10 @@ func TestPnpmParser_UpdatePackageJSON_SecondRoundBumpsInPlace(t *testing.T) {
 		prior      string
 		next       string
 	}{
-		{"plain patched version", "lodash", "lodash@4.17.20", "4.17.21-root.io.1", "4.17.21-root.io.1", "4.17.21-root.io.2"},
-		{"legacy npm: alias descriptor", "lodash", "lodash@4.17.20", "npm:@rootio/lodash@4.17.21-root.io.1", "4.17.21-root.io.1", "4.17.21-root.io.2"},
-		{"scoped package", "@babel/runtime", "@babel/runtime@7.25.0", "7.25.1-root.io.1", "7.25.1-root.io.1", "7.25.1-root.io.2"},
-		{"bare (unversioned) key", "lodash", "lodash", "4.17.21-root.io.1", "4.17.21-root.io.1", "4.17.21-root.io.2"},
+		{"plain patched version", "lodash", "lodash@4.17.20", "4.17.21-aikido.1", "4.17.21-aikido.1", "4.17.21-aikido.2"},
+		{"legacy npm: alias descriptor", "lodash", "lodash@4.17.20", "npm:@rootio/lodash@4.17.21-aikido.1", "4.17.21-aikido.1", "4.17.21-aikido.2"},
+		{"scoped package", "@babel/runtime", "@babel/runtime@7.25.0", "7.25.1-aikido.1", "7.25.1-aikido.1", "7.25.1-aikido.2"},
+		{"bare (unversioned) key", "lodash", "lodash", "4.17.21-aikido.1", "4.17.21-aikido.1", "4.17.21-aikido.2"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
