@@ -371,7 +371,7 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 		// never a range any real dependent declares, so it can never match and
 		// the package stays pinned forever. Instead, bump the pre-existing flat
 		// key that actually produced this resolved version, in place.
-		if existing := findControllingFlatKey(pkgJsonContent, ov.PackageName, ov.Version); existing != "" {
+		if existing := findControllingFlatKey(pkgJsonContent, npmOverridesPath, ov.PackageName, ov.Version); existing != "" {
 			sets[npmOverridesPath+"."+escapeSjsonKey(existing)] = ov.Value
 		} else {
 			key := ov.PackageName + "@" + ov.Version
@@ -416,7 +416,8 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 	return sets, deletes, nil
 }
 
-// findControllingFlatKey finds the existing flat override key whose VALUE
+// findControllingFlatKey finds, under overridesPath ("overrides" for npm,
+// "pnpm.overrides" for pnpm), the existing flat override key whose VALUE
 // currently resolves packageName to resolvedVersion, i.e. the key that
 // produced the patched output now being re-flagged. Values are plain patched
 // versions ("9.0.1-root.io.1") or legacy "npm:" alias descriptors
@@ -426,9 +427,9 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 // "<name>@<resolvedVersion>" key that matches no real range.
 // Only flat string entries are considered (nested objects are handled
 // separately by findNestedOverrideParents). Returns "" if none matches.
-func findControllingFlatKey(pkgContent []byte, packageName, resolvedVersion string) string {
+func findControllingFlatKey(pkgContent []byte, overridesPath, packageName, resolvedVersion string) string {
 	found := ""
-	gjsonGet(pkgContent, npmOverridesPath).ForEach(func(key, value gjson.Result) bool {
+	gjsonGet(pkgContent, overridesPath).ForEach(func(key, value gjson.Result) bool {
 		if value.Type != gjson.String {
 			return true
 		}
