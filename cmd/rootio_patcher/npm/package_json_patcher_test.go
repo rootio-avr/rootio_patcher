@@ -232,14 +232,14 @@ func TestNpmParser_UpdatePackageJSON_DirectAndTransitive(t *testing.T) {
 		{
 			PackageName:   "uuid",
 			Version:       "11.0.3",
-			Value:         "npm:@rootio/uuid@11.0.3-root.io.1",
-			PatchInfo:     rootio.PatchInfo{Name: "@rootio/uuid", Version: "11.0.3-root.io.1"},
+			Value:         "npm:@rootio/uuid@11.0.3-aikido.1",
+			PatchInfo:     rootio.PatchInfo{Name: "@rootio/uuid", Version: "11.0.3-aikido.1"},
 			RewriteDirect: true,
 		},
 		{
 			PackageName: "uuid",
 			Version:     "10.0.0",
-			Value:       "npm:@rootio/uuid@10.0.0-root.io.1",
+			Value:       "npm:@rootio/uuid@10.0.0-aikido.1",
 			Parents:     []string{"dockerode"},
 		},
 	}
@@ -251,17 +251,17 @@ func TestNpmParser_UpdatePackageJSON_DirectAndTransitive(t *testing.T) {
 	content := string(got)
 
 	// Old uuid should be removed, new @rootio/uuid added
-	if strings.Contains(content, `"uuid": "npm:@rootio/uuid@11.0.3-root.io.1"`) {
+	if strings.Contains(content, `"uuid": "npm:@rootio/uuid@11.0.3-aikido.1"`) {
 		t.Errorf("old uuid package should be removed; got:\n%s", content)
 	}
-	if !strings.Contains(content, `"@rootio/uuid": "11.0.3-root.io.1"`) {
+	if !strings.Contains(content, `"@rootio/uuid": "11.0.3-aikido.1"`) {
 		t.Errorf("expected new @rootio/uuid package; got:\n%s", content)
 	}
 	// npm now uses version-scoped flat overrides for transitive uses
-	if !strings.Contains(content, `"uuid@10.0.0": "npm:@rootio/uuid@10.0.0-root.io.1"`) {
+	if !strings.Contains(content, `"uuid@10.0.0": "npm:@rootio/uuid@10.0.0-aikido.1"`) {
 		t.Errorf("expected version-scoped override for uuid@10.0.0; got:\n%s", content)
 	}
-	if !strings.Contains(content, `"uuid@11.0.3": "npm:@rootio/uuid@11.0.3-root.io.1"`) {
+	if !strings.Contains(content, `"uuid@11.0.3": "npm:@rootio/uuid@11.0.3-aikido.1"`) {
 		t.Errorf("expected version-scoped override for uuid@11.0.3; got:\n%s", content)
 	}
 	if !strings.Contains(content, `"dockerode": "^4.0.12"`) {
@@ -378,20 +378,20 @@ func TestNpmParser_FindParents_AliasedTransitiveParent(t *testing.T) {
   "name": "test-app",
   "lockfileVersion": 3,
   "packages": {
-    "": { "dependencies": { "@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-root.io.3" } },
+    "": { "dependencies": { "@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-aikido.3" } },
     "node_modules/@apollo/federation-internals": {
       "name": "@rootio/apollo__federation-internals",
-      "version": "2.13.0-root.io.3",
+      "version": "2.13.0-aikido.3",
       "dependencies": { "uuid": "^9.0.0" }
     },
-    "node_modules/uuid": { "version": "9.0.1-root.io.1" }
+    "node_modules/uuid": { "version": "9.0.1-aikido.1" }
   }
 }`
 	if err := os.WriteFile(lockPath, []byte(lock), 0644); err != nil {
 		t.Fatalf("Failed to write lock: %v", err)
 	}
 
-	got, err := NewNpmParser().FindParents(ctx, lockPath, "uuid", "9.0.1-root.io.1")
+	got, err := NewNpmParser().FindParents(ctx, lockPath, "uuid", "9.0.1-aikido.1")
 	if err != nil {
 		t.Fatalf("FindParents failed: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestNpmParser_UpdatePackageJSON_ParentScoped(t *testing.T) {
 		{
 			PackageName: "uuid",
 			Version:     "10.0.0",
-			Value:       "npm:@rootio/uuid@10.0.0-root.io.1",
+			Value:       "npm:@rootio/uuid@10.0.0-aikido.1",
 			Parents:     []string{"dockerode"},
 		},
 	}
@@ -447,7 +447,7 @@ func TestNpmParser_UpdatePackageJSON_ParentScoped(t *testing.T) {
 	}
 	// npm now uses version-scoped flat overrides which safely target specific versions
 	// "uuid@10.0.0" only affects uuid@10.0.0, not uuid@14.0.0, so no conflict
-	if !strings.Contains(content, `"uuid@10.0.0": "npm:@rootio/uuid@10.0.0-root.io.1"`) {
+	if !strings.Contains(content, `"uuid@10.0.0": "npm:@rootio/uuid@10.0.0-aikido.1"`) {
 		t.Errorf("expected version-scoped override for uuid@10.0.0; got:\n%s", content)
 	}
 }
@@ -457,7 +457,7 @@ func TestNpmParser_UpdatePackageJSON_ParentScoped(t *testing.T) {
 // override (e.g. "@apollo/query-planner": {"@apollo/federation-internals": "...root.io.1"})
 // takes npm resolution precedence over any flat version-scoped key for the
 // same package. If remediate only ever adds a new flat key
-// ("@apollo/federation-internals@2.13.0-root.io.1": "...root.io.3") without
+// ("@apollo/federation-internals@2.13.0-aikido.1": "...root.io.3") without
 // touching the stale nested entry, the nested entry keeps winning forever and
 // --dry-run reports the same finding on every run. UpdatePackageJSON must
 // update the pre-existing nested entry's value in place.
@@ -470,13 +470,13 @@ func TestNpmParser_UpdatePackageJSON_UpdatesShadowingNestedOverride(t *testing.T
   "name": "test-app",
   "version": "1.0.0",
   "dependencies": {
-    "@apollo/gateway": "npm:@rootio/apollo__gateway@2.13.0-root.io.1"
+    "@apollo/gateway": "npm:@rootio/apollo__gateway@2.13.0-aikido.1"
   },
   "overrides": {
     "@apollo/query-planner": {
-      "@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-root.io.1"
+      "@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-aikido.1"
     },
-    "cacache": { "tar": "npm:@rootio/tar@6.2.1-root.io.7" }
+    "cacache": { "tar": "npm:@rootio/tar@6.2.1-aikido.7" }
   }
 }`
 	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
@@ -486,13 +486,13 @@ func TestNpmParser_UpdatePackageJSON_UpdatesShadowingNestedOverride(t *testing.T
 	overrides := []ScopedOverride{
 		{
 			PackageName: "@apollo/federation-internals",
-			Version:     "2.13.0-root.io.1",
-			Value:       "npm:@rootio/apollo__federation-internals@2.13.0-root.io.3",
+			Version:     "2.13.0-aikido.1",
+			Value:       "npm:@rootio/apollo__federation-internals@2.13.0-aikido.3",
 		},
 		{
 			PackageName: "tar",
-			Version:     "6.2.1-root.io.7",
-			Value:       "npm:@rootio/tar@6.2.1-root.io.9",
+			Version:     "6.2.1-aikido.7",
+			Value:       "npm:@rootio/tar@6.2.1-aikido.9",
 		},
 	}
 
@@ -503,16 +503,16 @@ func TestNpmParser_UpdatePackageJSON_UpdatesShadowingNestedOverride(t *testing.T
 	got, _ := os.ReadFile(pkgPath)
 	content := string(got)
 
-	if strings.Contains(content, `"@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-root.io.1"`) {
+	if strings.Contains(content, `"@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-aikido.1"`) {
 		t.Errorf("stale nested override for @apollo/federation-internals must be updated, not left shadowing the new flat key; got:\n%s", content)
 	}
-	if !strings.Contains(content, `"@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-root.io.3"`) {
+	if !strings.Contains(content, `"@apollo/federation-internals": "npm:@rootio/apollo__federation-internals@2.13.0-aikido.3"`) {
 		t.Errorf("expected nested override under @apollo/query-planner to be bumped to root.io.3; got:\n%s", content)
 	}
-	if strings.Contains(content, `"tar": "npm:@rootio/tar@6.2.1-root.io.7"`) {
+	if strings.Contains(content, `"tar": "npm:@rootio/tar@6.2.1-aikido.7"`) {
 		t.Errorf("stale nested override for tar under cacache must be updated, not left shadowing the new flat key; got:\n%s", content)
 	}
-	if !strings.Contains(content, `"tar": "npm:@rootio/tar@6.2.1-root.io.9"`) {
+	if !strings.Contains(content, `"tar": "npm:@rootio/tar@6.2.1-aikido.9"`) {
 		t.Errorf("expected nested override under cacache to be bumped to root.io.9; got:\n%s", content)
 	}
 }
@@ -533,7 +533,7 @@ func TestNpmParser_UpdatePackageJSON_LeavesUnrelatedVersionScopedNestedOverride(
   "version": "1.0.0",
   "overrides": {
     "parentA": {
-      "uuid@9.0.1": "npm:@rootio/uuid@9.0.1-root.io.1"
+      "uuid@9.0.1": "npm:@rootio/uuid@9.0.1-aikido.1"
     }
   }
 }`
@@ -545,7 +545,7 @@ func TestNpmParser_UpdatePackageJSON_LeavesUnrelatedVersionScopedNestedOverride(
 		{
 			PackageName: "uuid",
 			Version:     "11.1.1",
-			Value:       "npm:@rootio/uuid@11.1.0-root.io.1",
+			Value:       "npm:@rootio/uuid@11.1.0-aikido.1",
 		},
 	}
 
@@ -556,10 +556,10 @@ func TestNpmParser_UpdatePackageJSON_LeavesUnrelatedVersionScopedNestedOverride(
 	got, _ := os.ReadFile(pkgPath)
 	content := string(got)
 
-	if !strings.Contains(content, `"uuid@9.0.1": "npm:@rootio/uuid@9.0.1-root.io.1"`) {
+	if !strings.Contains(content, `"uuid@9.0.1": "npm:@rootio/uuid@9.0.1-aikido.1"`) {
 		t.Errorf("unrelated uuid@9.0.1 nested override must not be touched by a uuid@11.1.1 patch; got:\n%s", content)
 	}
-	if !strings.Contains(content, `"uuid@11.1.1": "npm:@rootio/uuid@11.1.0-root.io.1"`) {
+	if !strings.Contains(content, `"uuid@11.1.1": "npm:@rootio/uuid@11.1.0-aikido.1"`) {
 		t.Errorf("expected flat override for uuid@11.1.1; got:\n%s", content)
 	}
 }
@@ -568,9 +568,9 @@ func TestNpmParser_UpdatePackageJSON_LeavesUnrelatedVersionScopedNestedOverride(
 // regression test for non-convergence Pattern A (dead flat-key re-bump).
 //
 // After a prior round, uuid resolves at the alias's OWN output version
-// (9.0.1-root.io.1) via the flat key "uuid@9.0.1". When that alias itself
-// needs a further bump, the API flags uuid@9.0.1-root.io.1. Naively adding a
-// second flat key "uuid@9.0.1-root.io.1" is dead: that version string is only
+// (9.0.1-aikido.1) via the flat key "uuid@9.0.1". When that alias itself
+// needs a further bump, the API flags uuid@9.0.1-aikido.1. Naively adding a
+// second flat key "uuid@9.0.1-aikido.1" is dead: that version string is only
 // ever an override's output, never a range any real dependent declares, so it
 // can never match and uuid stays pinned at root.io.1 forever. The fix must
 // update the EXISTING controlling key ("uuid@9.0.1") in place and must NOT
@@ -584,7 +584,7 @@ func TestNpmParser_UpdatePackageJSON_RebumpsExistingFlatKeyInPlace(t *testing.T)
   "name": "test-app",
   "version": "1.0.0",
   "overrides": {
-    "uuid@9.0.1": "npm:@rootio/uuid@9.0.1-root.io.1"
+    "uuid@9.0.1": "npm:@rootio/uuid@9.0.1-aikido.1"
   }
 }`
 	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
@@ -594,8 +594,8 @@ func TestNpmParser_UpdatePackageJSON_RebumpsExistingFlatKeyInPlace(t *testing.T)
 	overrides := []ScopedOverride{
 		{
 			PackageName: "uuid",
-			Version:     "9.0.1-root.io.1", // the alias's own installed output
-			Value:       "npm:@rootio/uuid@9.0.1-root.io.4",
+			Version:     "9.0.1-aikido.1", // the alias's own installed output
+			Value:       "npm:@rootio/uuid@9.0.1-aikido.4",
 		},
 	}
 
@@ -606,10 +606,10 @@ func TestNpmParser_UpdatePackageJSON_RebumpsExistingFlatKeyInPlace(t *testing.T)
 	got, _ := os.ReadFile(pkgPath)
 	content := string(got)
 
-	if !strings.Contains(content, `"uuid@9.0.1": "npm:@rootio/uuid@9.0.1-root.io.4"`) {
+	if !strings.Contains(content, `"uuid@9.0.1": "npm:@rootio/uuid@9.0.1-aikido.4"`) {
 		t.Errorf("existing controlling key uuid@9.0.1 must be bumped in place to root.io.4; got:\n%s", content)
 	}
-	if strings.Contains(content, `"uuid@9.0.1-root.io.1"`) {
+	if strings.Contains(content, `"uuid@9.0.1-aikido.1"`) {
 		t.Errorf("must NOT add a dead flat key keyed on the alias's own output version; got:\n%s", content)
 	}
 }
@@ -632,7 +632,7 @@ func TestNpmParser_UpdatePackageJSON_NestedUnderAliasedParent(t *testing.T) {
   "name": "test-app",
   "version": "1.0.0",
   "dependencies": {
-    "@rootio/apollo__gateway": "2.13.0-root.io.2"
+    "@rootio/apollo__gateway": "2.13.0-aikido.2"
   }
 }`
 	if err := os.WriteFile(pkgPath, []byte(pkg), 0644); err != nil {
@@ -643,7 +643,7 @@ func TestNpmParser_UpdatePackageJSON_NestedUnderAliasedParent(t *testing.T) {
 		{
 			PackageName: "@apollo/query-planner",
 			Version:     "2.13.0",
-			Value:       "npm:@rootio/apollo__query-planner@2.13.0-root.io.2",
+			Value:       "npm:@rootio/apollo__query-planner@2.13.0-aikido.2",
 			Parents:     []string{"@rootio/apollo__gateway"}, // resolved identity from FindParents
 		},
 	}
@@ -656,7 +656,60 @@ func TestNpmParser_UpdatePackageJSON_NestedUnderAliasedParent(t *testing.T) {
 	content := string(got)
 
 	if !strings.Contains(content, `"@rootio/apollo__gateway": {`) ||
-		!strings.Contains(content, `"@apollo/query-planner": "npm:@rootio/apollo__query-planner@2.13.0-root.io.2"`) {
+		!strings.Contains(content, `"@apollo/query-planner": "npm:@rootio/apollo__query-planner@2.13.0-aikido.2"`) {
 		t.Errorf("expected nested override keyed under the RESOLVED parent @rootio/apollo__gateway; got:\n%s", content)
+	}
+}
+
+// TestNpmParser_UpdatePackageJSON_SecondRoundBumpsInPlace covers the Pattern A
+// guard for the value shape we actually write today: a plain patched version.
+// Round 1 wrote "lodash@4.17.20": "4.17.21-aikido.1". Round 2 re-flags the
+// package at that OUTPUT version, so the guard must bump the existing key in
+// place. Adding a "lodash@4.17.21-aikido.1" key instead would be dead — no
+// dependent declares that string as a range — silently leaving the CVE unfixed.
+func TestNpmParser_UpdatePackageJSON_SecondRoundBumpsInPlace(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		pkg        string // package the API re-flagged
+		priorKey   string // override key a prior round left behind
+		priorValue string // value that key currently holds
+		prior      string // version that value installs (what the lock now resolves to)
+		next       string // version this round patches to
+	}{
+		{"plain patched version", "lodash", "lodash@4.17.20", "4.17.21-aikido.1", "4.17.21-aikido.1", "4.17.21-aikido.2"},
+		{"legacy npm: alias descriptor", "lodash", "lodash@4.17.20", "npm:@rootio/lodash@4.17.21-aikido.1", "4.17.21-aikido.1", "4.17.21-aikido.2"},
+		{"scoped package", "@babel/runtime", "@babel/runtime@7.25.0", "7.25.1-aikido.1", "7.25.1-aikido.1", "7.25.1-aikido.2"},
+		{"bare (unversioned) key", "lodash", "lodash", "4.17.21-aikido.1", "4.17.21-aikido.1", "4.17.21-aikido.2"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			pkgPath := t.TempDir() + "/package.json"
+			if err := os.WriteFile(pkgPath, []byte(`{
+  "name": "test-app",
+  "dependencies": {"`+tt.pkg+`": "*"},
+  "overrides": {"`+tt.priorKey+`": "`+tt.priorValue+`"}
+}`), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			overrides := []ScopedOverride{{
+				PackageName: tt.pkg,
+				Version:     tt.prior,
+				Value:       tt.next,
+				PatchInfo:   rootio.PatchInfo{Name: tt.pkg, Version: tt.next},
+			}}
+			if err := NewNpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
+				t.Fatal(err)
+			}
+
+			got, _ := os.ReadFile(pkgPath)
+			content := string(got)
+			if !strings.Contains(content, `"`+tt.priorKey+`": "`+tt.next+`"`) {
+				t.Errorf("expected controlling key %q bumped in place to %s; got:\n%s", tt.priorKey, tt.next, content)
+			}
+			if strings.Contains(content, `"`+tt.pkg+`@`+tt.prior+`"`) {
+				t.Errorf("must not add a dead override key scoped to the prior output version; got:\n%s", content)
+			}
+		})
 	}
 }

@@ -314,7 +314,7 @@ func (p *Yarn2Parser) FindParents(ctx context.Context, lockFilePath, packageName
 
 // UpdatePackageJSON writes yarn resolutions as parent/child slash paths:
 //
-//	"resolutions": { "<parent>/<child>": "<alias>" }
+//	"resolutions": { "<parent>/<child>": "<patched version>" }
 //
 // When no parent is known the entry falls back to a flat "<child>" key.
 // When the user's direct dependency resolves to the vulnerable version, the

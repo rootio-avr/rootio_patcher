@@ -243,9 +243,10 @@ func (p *NpmParser) FindParents(ctx context.Context, lockFilePath, packageName, 
 		}
 
 		// Prefer the entry's resolved identity ("name" field) over the path
-		// segment. When a parent was aliased in a prior round, its lock path
-		// keeps the pre-alias name (e.g. "node_modules/@apollo/federation-internals")
-		// while "name" holds the alias it actually resolves to
+		// segment. When a parent was aliased by a legacy round (we no longer
+		// alias), its lock path keeps the pre-alias name (e.g.
+		// "node_modules/@apollo/federation-internals") while "name" holds the
+		// alias it actually resolves to
 		// (e.g. "@rootio/apollo__federation-internals"). npm matches a nested
 		// override against the resolved identity, so keying under the path
 		// name would silently never apply.
@@ -330,13 +331,13 @@ func extractParentName(pkgPath string) string {
 
 // UpdatePackageJSON writes npm overrides as version-scoped flat keys:
 //
-//	"overrides": { "<package>@<version>": "<alias>" }
+//	"overrides": { "<package>@<version>": "<patched version>" }
 //
-// This form works universally for transitive and aliased dependencies.
-// When the user's direct dep is vulnerable (RewriteDirect=true), the old package
-// is removed from dependencies and replaced with the new @rootio package to avoid
-// npm's EOVERRIDE error (which occurs when both a direct dependency and an override
-// target the same package@version).
+// This form works universally for transitive dependencies regardless of nesting.
+// When the user's direct dep is vulnerable (RewriteDirect=true), its dependencies
+// entry is bumped in place to the patched version, which also avoids npm's
+// EOVERRIDE error (raised when a direct dependency and an override target the
+// same package@version).
 func (p *NpmParser) UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error {
 	sets, deletes, err := buildNpmOverrideSets(overrides, packageJSONPath)
 	if err != nil {
@@ -360,25 +361,25 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 	}
 
 	for _, ov := range overrides {
-		// Use version-scoped flat override (e.g., "uuid@9.0.1": "npm:@rootio/uuid@...")
+		// Use version-scoped flat override (e.g., "uuid@9.0.1": "9.0.1-aikido.1")
 		// This works for all transitive dependencies regardless of nesting or aliasing.
 		//
-		// Pattern A guard: when a prior round already aliased this package, the
-		// package now resolves at the alias's OWN output version (e.g.
-		// 9.0.1-root.io.1), which is what the API re-flags. Adding a naive
+		// Pattern A guard: when a prior round already patched this package, the
+		// package now resolves at that round's OWN output version (e.g.
+		// 9.0.1-aikido.1), which is what the API re-flags. Adding a naive
 		// "<name>@<that-output-version>" key is dead — that version string is
 		// never a range any real dependent declares, so it can never match and
 		// the package stays pinned forever. Instead, bump the pre-existing flat
 		// key that actually produced this resolved version, in place.
-		if existing := findControllingFlatKey(pkgJsonContent, ov.PackageName, ov.Version); existing != "" {
+		if existing := findControllingFlatKey(pkgJsonContent, npmOverridesPath, ov.PackageName, ov.Version); existing != "" {
 			sets[npmOverridesPath+"."+escapeSjsonKey(existing)] = ov.Value
 		} else {
 			key := ov.PackageName + "@" + ov.Version
 			sets[npmOverridesPath+"."+escapeSjsonKey(key)] = ov.Value
 		}
 
-		// Pattern B: when the parent is itself aliased, its resolved node name
-		// differs from the pre-alias dependency name. FindParents returns the
+		// Pattern B: when the parent carries a legacy alias, its resolved node
+		// name differs from the pre-alias dependency name. FindParents returns the
 		// RESOLVED parent identity (e.g. "@rootio/apollo__gateway"), which is
 		// what npm matches a nested/path-scoped override against — keying under
 		// the pre-alias name ("@apollo/gateway") silently never applies. Write
@@ -415,19 +416,20 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 	return sets, deletes, nil
 }
 
-// findControllingFlatKey finds the existing flat override key whose VALUE
+// findControllingFlatKey finds, under overridesPath ("overrides" for npm,
+// "pnpm.overrides" for pnpm), the existing flat override key whose VALUE
 // currently resolves packageName to resolvedVersion, i.e. the key that
-// produced the alias output now being re-flagged. Override values look like
-// "npm:@rootio/uuid@9.0.1-root.io.1"; the version after the alias's last "@"
-// is what gets installed. When a package was aliased in a prior round,
-// resolvedVersion (e.g. "9.0.1-root.io.1") equals that installed version, so
-// the returned key (e.g. "uuid@9.0.1") is the one to bump in place instead of
-// adding a dead "<name>@<resolvedVersion>" key that matches no real range.
+// produced the patched output now being re-flagged. Values are plain patched
+// versions ("9.0.1-aikido.1") or legacy "npm:" alias descriptors
+// ("npm:@rootio/uuid@9.0.1-aikido.1"). When a package was patched in a prior
+// round, resolvedVersion equals that installed version, so the returned key
+// (e.g. "uuid@9.0.1") is the one to bump in place instead of adding a dead
+// "<name>@<resolvedVersion>" key that matches no real range.
 // Only flat string entries are considered (nested objects are handled
 // separately by findNestedOverrideParents). Returns "" if none matches.
-func findControllingFlatKey(pkgContent []byte, packageName, resolvedVersion string) string {
+func findControllingFlatKey(pkgContent []byte, overridesPath, packageName, resolvedVersion string) string {
 	found := ""
-	gjsonGet(pkgContent, npmOverridesPath).ForEach(func(key, value gjson.Result) bool {
+	gjsonGet(pkgContent, overridesPath).ForEach(func(key, value gjson.Result) bool {
 		if value.Type != gjson.String {
 			return true
 		}
@@ -440,9 +442,17 @@ func findControllingFlatKey(pkgContent []byte, packageName, resolvedVersion stri
 		if name != packageName {
 			return true
 		}
-		// Value's installed version (after the alias's last "@") must match.
+		// Value's installed version must match. Two shapes occur: a plain
+		// patched version ("4.17.21-aikido.1"), which is what we write now,
+		// and a legacy "npm:" alias descriptor
+		// ("npm:@rootio/lodash@4.17.21-aikido.1"), where the installed
+		// version follows the alias's last "@". The suffix itself is never
+		// parsed — the value is compared to resolvedVersion verbatim.
 		v := value.String()
-		if idx := strings.LastIndex(v, "@"); idx > 0 && v[idx+1:] == resolvedVersion {
+		if idx := strings.LastIndex(v, "@"); idx > 0 {
+			v = v[idx+1:]
+		}
+		if v == resolvedVersion {
 			found = k
 			return false
 		}
