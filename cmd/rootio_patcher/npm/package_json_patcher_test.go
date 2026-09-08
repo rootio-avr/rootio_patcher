@@ -670,27 +670,33 @@ func TestNpmParser_UpdatePackageJSON_NestedUnderAliasedParent(t *testing.T) {
 func TestNpmParser_UpdatePackageJSON_SecondRoundBumpsInPlace(t *testing.T) {
 	for _, tt := range []struct {
 		name       string
-		priorValue string
+		pkg        string // package the API re-flagged
+		priorKey   string // override key a prior round left behind
+		priorValue string // value that key currently holds
+		prior      string // version that value installs (what the lock now resolves to)
+		next       string // version this round patches to
 	}{
-		{"plain patched version", "4.17.21-root.io.1"},
-		{"legacy npm: alias descriptor", "npm:@rootio/lodash@4.17.21-root.io.1"},
+		{"plain patched version", "lodash", "lodash@4.17.20", "4.17.21-root.io.1", "4.17.21-root.io.1", "4.17.21-root.io.2"},
+		{"legacy npm: alias descriptor", "lodash", "lodash@4.17.20", "npm:@rootio/lodash@4.17.21-root.io.1", "4.17.21-root.io.1", "4.17.21-root.io.2"},
+		{"scoped package", "@babel/runtime", "@babel/runtime@7.25.0", "7.25.1-root.io.1", "7.25.1-root.io.1", "7.25.1-root.io.2"},
+		{"bare (unversioned) key", "lodash", "lodash", "4.17.21-root.io.1", "4.17.21-root.io.1", "4.17.21-root.io.2"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			pkgPath := t.TempDir() + "/package.json"
 			if err := os.WriteFile(pkgPath, []byte(`{
   "name": "test-app",
-  "dependencies": {"lodash": "^4.17.20"},
-  "overrides": {"lodash@4.17.20": "`+tt.priorValue+`"}
+  "dependencies": {"`+tt.pkg+`": "*"},
+  "overrides": {"`+tt.priorKey+`": "`+tt.priorValue+`"}
 }`), 0644); err != nil {
 				t.Fatal(err)
 			}
 
 			overrides := []ScopedOverride{{
-				PackageName: "lodash",
-				Version:     "4.17.21-root.io.1", // what the lock file now resolves to
-				Value:       "4.17.21-root.io.2",
-				PatchInfo:   rootio.PatchInfo{Name: "lodash", Version: "4.17.21-root.io.2"},
+				PackageName: tt.pkg,
+				Version:     tt.prior,
+				Value:       tt.next,
+				PatchInfo:   rootio.PatchInfo{Name: tt.pkg, Version: tt.next},
 			}}
 			if err := NewNpmParser().UpdatePackageJSON(ctx, overrides, pkgPath); err != nil {
 				t.Fatal(err)
@@ -698,10 +704,10 @@ func TestNpmParser_UpdatePackageJSON_SecondRoundBumpsInPlace(t *testing.T) {
 
 			got, _ := os.ReadFile(pkgPath)
 			content := string(got)
-			if !strings.Contains(content, `"lodash@4.17.20": "4.17.21-root.io.2"`) {
-				t.Errorf("expected the controlling key lodash@4.17.20 bumped in place; got:\n%s", content)
+			if !strings.Contains(content, `"`+tt.priorKey+`": "`+tt.next+`"`) {
+				t.Errorf("expected controlling key %q bumped in place to %s; got:\n%s", tt.priorKey, tt.next, content)
 			}
-			if strings.Contains(content, `"lodash@4.17.21-root.io.1"`) {
+			if strings.Contains(content, `"`+tt.pkg+`@`+tt.prior+`"`) {
 				t.Errorf("must not add a dead override key scoped to the prior output version; got:\n%s", content)
 			}
 		})
