@@ -360,11 +360,11 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 	}
 
 	for _, ov := range overrides {
-		// Use version-scoped flat override (e.g., "uuid@9.0.1": "npm:@rootio/uuid@...")
+		// Use version-scoped flat override (e.g., "uuid@9.0.1": "9.0.1-root.io.1")
 		// This works for all transitive dependencies regardless of nesting or aliasing.
 		//
-		// Pattern A guard: when a prior round already aliased this package, the
-		// package now resolves at the alias's OWN output version (e.g.
+		// Pattern A guard: when a prior round already patched this package, the
+		// package now resolves at that round's OWN output version (e.g.
 		// 9.0.1-root.io.1), which is what the API re-flags. Adding a naive
 		// "<name>@<that-output-version>" key is dead — that version string is
 		// never a range any real dependent declares, so it can never match and
@@ -417,12 +417,12 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 
 // findControllingFlatKey finds the existing flat override key whose VALUE
 // currently resolves packageName to resolvedVersion, i.e. the key that
-// produced the alias output now being re-flagged. Override values look like
-// "npm:@rootio/uuid@9.0.1-root.io.1"; the version after the alias's last "@"
-// is what gets installed. When a package was aliased in a prior round,
-// resolvedVersion (e.g. "9.0.1-root.io.1") equals that installed version, so
-// the returned key (e.g. "uuid@9.0.1") is the one to bump in place instead of
-// adding a dead "<name>@<resolvedVersion>" key that matches no real range.
+// produced the patched output now being re-flagged. Values are plain patched
+// versions ("9.0.1-root.io.1") or legacy "npm:" alias descriptors
+// ("npm:@rootio/uuid@9.0.1-root.io.1"). When a package was patched in a prior
+// round, resolvedVersion equals that installed version, so the returned key
+// (e.g. "uuid@9.0.1") is the one to bump in place instead of adding a dead
+// "<name>@<resolvedVersion>" key that matches no real range.
 // Only flat string entries are considered (nested objects are handled
 // separately by findNestedOverrideParents). Returns "" if none matches.
 func findControllingFlatKey(pkgContent []byte, packageName, resolvedVersion string) string {
@@ -440,9 +440,16 @@ func findControllingFlatKey(pkgContent []byte, packageName, resolvedVersion stri
 		if name != packageName {
 			return true
 		}
-		// Value's installed version (after the alias's last "@") must match.
+		// Value's installed version must match. Two shapes occur: a plain
+		// patched version ("4.17.21-root.io.1"), which is what we write now,
+		// and a legacy "npm:" alias descriptor
+		// ("npm:@rootio/lodash@4.17.21-root.io.1"), where the installed
+		// version follows the alias's last "@".
 		v := value.String()
-		if idx := strings.LastIndex(v, "@"); idx > 0 && v[idx+1:] == resolvedVersion {
+		if idx := strings.LastIndex(v, "@"); idx > 0 {
+			v = v[idx+1:]
+		}
+		if v == resolvedVersion {
 			found = k
 			return false
 		}
