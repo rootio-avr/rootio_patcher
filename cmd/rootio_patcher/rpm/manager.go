@@ -16,37 +16,51 @@ type Manager struct {
 	UpgradeArgs func(names []string) []string
 }
 
-func YumManager() Manager {
+// releaseVerArgs returns ["--releasever=<v>"], or nil when v is empty. Amazon
+// Linux 2023 minimal images pin a stale release snapshot in their repo
+// config, so upstream fixes (e.g. openssl-fips-provider-latest) are
+// unavailable until the caller overrides it, typically with "latest".
+func releaseVerArgs(releaseVer string) []string {
+	if releaseVer == "" {
+		return nil
+	}
+	return []string{"--releasever=" + releaseVer}
+}
+
+func YumManager(releaseVer string) Manager {
 	return Manager{
 		Name:        "yum",
 		Binary:      "yum",
-		RefreshArgs: []string{"makecache"},
+		RefreshArgs: append([]string{"makecache"}, releaseVerArgs(releaseVer)...),
 		UpgradeArgs: func(names []string) []string {
-			return append([]string{"update", "-y"}, names...)
+			args := append([]string{"update", "-y"}, releaseVerArgs(releaseVer)...)
+			return append(args, names...)
 		},
 	}
 }
 
-func DnfManager() Manager {
+func DnfManager(releaseVer string) Manager {
 	return Manager{
 		Name:        "dnf",
 		Binary:      "dnf",
-		RefreshArgs: []string{"makecache"},
+		RefreshArgs: append([]string{"makecache"}, releaseVerArgs(releaseVer)...),
 		UpgradeArgs: func(names []string) []string {
-			return append([]string{"upgrade", "-y"}, names...)
+			args := append([]string{"upgrade", "-y"}, releaseVerArgs(releaseVer)...)
+			return append(args, names...)
 		},
 	}
 }
 
 // MicrodnfManager targets microdnf, the minimal dnf variant found in
-// UBI/minimal RHEL-family images.
-func MicrodnfManager() Manager {
+// UBI/minimal RHEL-family images (and Amazon Linux 2023 minimal images).
+func MicrodnfManager(releaseVer string) Manager {
 	return Manager{
 		Name:   "microdnf",
 		Binary: "microdnf",
 		// microdnf has no makecache subcommand; --refresh on upgrade covers it.
 		UpgradeArgs: func(names []string) []string {
-			return append([]string{"upgrade", "-y", "--refresh"}, names...)
+			args := append([]string{"upgrade", "-y", "--refresh"}, releaseVerArgs(releaseVer)...)
+			return append(args, names...)
 		},
 	}
 }
