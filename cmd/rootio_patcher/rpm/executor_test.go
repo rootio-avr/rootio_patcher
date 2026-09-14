@@ -13,7 +13,7 @@ func testLogger() *slog.Logger {
 
 func TestExecutor_Refresh_WithRefreshArgs(t *testing.T) {
 	runner := &MockRunner{}
-	e := NewExecutor(YumManager(), testLogger(), runner)
+	e := NewExecutor(YumManager(""), testLogger(), runner)
 
 	if err := e.Refresh(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -26,7 +26,7 @@ func TestExecutor_Refresh_WithRefreshArgs(t *testing.T) {
 
 func TestExecutor_Refresh_NoRefreshArgsIsNoop(t *testing.T) {
 	runner := &MockRunner{}
-	e := NewExecutor(MicrodnfManager(), testLogger(), runner)
+	e := NewExecutor(MicrodnfManager(""), testLogger(), runner)
 
 	if err := e.Refresh(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -39,7 +39,7 @@ func TestExecutor_Refresh_NoRefreshArgsIsNoop(t *testing.T) {
 
 func TestExecutor_UpgradeAll_Dnf(t *testing.T) {
 	runner := &MockRunner{}
-	e := NewExecutor(DnfManager(), testLogger(), runner)
+	e := NewExecutor(DnfManager(""), testLogger(), runner)
 
 	if err := e.UpgradeAll(context.Background(), []string{"curl", "bash"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -65,7 +65,7 @@ func TestExecutor_UpgradeAll_Dnf(t *testing.T) {
 
 func TestExecutor_UpgradeAll_Microdnf_IncludesRefreshFlag(t *testing.T) {
 	runner := &MockRunner{}
-	e := NewExecutor(MicrodnfManager(), testLogger(), runner)
+	e := NewExecutor(MicrodnfManager(""), testLogger(), runner)
 
 	if err := e.UpgradeAll(context.Background(), []string{"curl"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -83,9 +83,29 @@ func TestExecutor_UpgradeAll_Microdnf_IncludesRefreshFlag(t *testing.T) {
 	}
 }
 
+func TestExecutor_ReleaseVer_AppliedToRefreshAndUpgrade(t *testing.T) {
+	runner := &MockRunner{}
+	e := NewExecutor(MicrodnfManager("latest"), testLogger(), runner)
+
+	if err := e.UpgradeAll(context.Background(), []string{"curl"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	call := runner.Calls[0]
+	wantArgs := []string{"upgrade", "-y", "--refresh", "--releasever=latest", "curl"}
+	if len(call.Args) != len(wantArgs) {
+		t.Fatalf("got args %+v, want %+v", call.Args, wantArgs)
+	}
+	for i, a := range wantArgs {
+		if call.Args[i] != a {
+			t.Errorf("arg[%d] = %q, want %q", i, call.Args[i], a)
+		}
+	}
+}
+
 func TestExecutor_UpgradeAll_NoNamesIsNoop(t *testing.T) {
 	runner := &MockRunner{}
-	e := NewExecutor(YumManager(), testLogger(), runner)
+	e := NewExecutor(YumManager(""), testLogger(), runner)
 
 	if err := e.UpgradeAll(context.Background(), nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)

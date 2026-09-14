@@ -99,8 +99,9 @@ type YumCmd struct {
 // Root.io has no targeted patches for yum, so this only performs the broad
 // upstream upgrade — it never calls the analyze API or installs patches.
 type YumRemediateCmd struct {
-	DryRun bool     `default:"true" help:"Preview changes without applying them"`
-	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	DryRun     bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore     []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	ReleaseVer string   `help:"Override the repo release version (e.g. 'latest'). Needed for images (e.g. Amazon Linux 2023) that pin a stale release snapshot." name:"releasever"`
 }
 
 // Run executes the yum remediate command
@@ -108,7 +109,7 @@ func (cmd *YumRemediateCmd) Run(ctx context.Context, _ *config.Config, logger *s
 	logger.InfoContext(ctx, "Starting yum remediation", slog.Bool("dry_run", cmd.DryRun))
 
 	ignoreSet := common.LoadIgnoreList(".rootioignore", cmd.Ignore)
-	app := rpm.NewApp(rpm.YumManager(), cmd.DryRun, ignoreSet, logger)
+	app := rpm.NewApp(rpm.YumManager(cmd.ReleaseVer), cmd.DryRun, ignoreSet, logger)
 	return app.Run(ctx)
 }
 
@@ -121,8 +122,9 @@ type DnfCmd struct {
 // Root.io has no targeted patches for dnf, so this only performs the broad
 // upstream upgrade — it never calls the analyze API or installs patches.
 type DnfRemediateCmd struct {
-	DryRun bool     `default:"true" help:"Preview changes without applying them"`
-	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	DryRun     bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore     []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	ReleaseVer string   `help:"Override the repo release version (e.g. 'latest'). Needed for images (e.g. Amazon Linux 2023) that pin a stale release snapshot." name:"releasever"`
 }
 
 // Run executes the dnf remediate command
@@ -130,7 +132,7 @@ func (cmd *DnfRemediateCmd) Run(ctx context.Context, _ *config.Config, logger *s
 	logger.InfoContext(ctx, "Starting dnf remediation", slog.Bool("dry_run", cmd.DryRun))
 
 	ignoreSet := common.LoadIgnoreList(".rootioignore", cmd.Ignore)
-	app := rpm.NewApp(rpm.DnfManager(), cmd.DryRun, ignoreSet, logger)
+	app := rpm.NewApp(rpm.DnfManager(cmd.ReleaseVer), cmd.DryRun, ignoreSet, logger)
 	return app.Run(ctx)
 }
 
@@ -143,8 +145,9 @@ type MicrodnfCmd struct {
 // Root.io has no targeted patches for microdnf, so this only performs the broad
 // upstream upgrade — it never calls the analyze API or installs patches.
 type MicrodnfRemediateCmd struct {
-	DryRun bool     `default:"true" help:"Preview changes without applying them"`
-	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	DryRun     bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore     []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	ReleaseVer string   `help:"Override the repo release version (e.g. 'latest'). Needed for images (e.g. Amazon Linux 2023) that pin a stale release snapshot." name:"releasever"`
 }
 
 // Run executes the microdnf remediate command
@@ -152,7 +155,7 @@ func (cmd *MicrodnfRemediateCmd) Run(ctx context.Context, _ *config.Config, logg
 	logger.InfoContext(ctx, "Starting microdnf remediation", slog.Bool("dry_run", cmd.DryRun))
 
 	ignoreSet := common.LoadIgnoreList(".rootioignore", cmd.Ignore)
-	app := rpm.NewApp(rpm.MicrodnfManager(), cmd.DryRun, ignoreSet, logger)
+	app := rpm.NewApp(rpm.MicrodnfManager(cmd.ReleaseVer), cmd.DryRun, ignoreSet, logger)
 	return app.Run(ctx)
 }
 

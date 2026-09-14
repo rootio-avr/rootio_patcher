@@ -11,7 +11,7 @@ func TestApp_Run_NoPackagesFound(t *testing.T) {
 		return nil, nil
 	}}
 	runner := &MockRunner{}
-	app := NewAppWithServices(YumManager(), false, nil, testLogger(), scanner, NewExecutor(YumManager(), testLogger(), runner))
+	app := NewAppWithServices(YumManager(""), false, nil, testLogger(), scanner, NewExecutor(YumManager(""), testLogger(), runner))
 
 	if err := app.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -25,7 +25,7 @@ func TestApp_Run_ScanError(t *testing.T) {
 	scanner := &MockScanner{ListPackagesFunc: func(ctx context.Context) ([]InstalledPackage, error) {
 		return nil, errors.New("boom")
 	}}
-	app := NewAppWithServices(YumManager(), false, nil, testLogger(), scanner, NewExecutor(YumManager(), testLogger(), &MockRunner{}))
+	app := NewAppWithServices(YumManager(""), false, nil, testLogger(), scanner, NewExecutor(YumManager(""), testLogger(), &MockRunner{}))
 
 	if err := app.Run(context.Background()); err == nil {
 		t.Fatal("expected error, got nil")
@@ -37,7 +37,7 @@ func TestApp_Run_DryRunDoesNotExecute(t *testing.T) {
 		return []InstalledPackage{{Name: "curl", Version: "8.5.0"}}, nil
 	}}
 	runner := &MockRunner{}
-	app := NewAppWithServices(DnfManager(), true, nil, testLogger(), scanner, NewExecutor(DnfManager(), testLogger(), runner))
+	app := NewAppWithServices(DnfManager(""), true, nil, testLogger(), scanner, NewExecutor(DnfManager(""), testLogger(), runner))
 
 	if err := app.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -55,7 +55,7 @@ func TestApp_Run_UpgradesAllInstalledPackages(t *testing.T) {
 		}, nil
 	}}
 	runner := &MockRunner{}
-	app := NewAppWithServices(YumManager(), false, nil, testLogger(), scanner, NewExecutor(YumManager(), testLogger(), runner))
+	app := NewAppWithServices(YumManager(""), false, nil, testLogger(), scanner, NewExecutor(YumManager(""), testLogger(), runner))
 
 	if err := app.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -92,7 +92,7 @@ func TestApp_Run_IgnoredPackagesExcluded(t *testing.T) {
 	}}
 	runner := &MockRunner{}
 	ignoreSet := map[string]struct{}{"bash": {}}
-	app := NewAppWithServices(YumManager(), false, ignoreSet, testLogger(), scanner, NewExecutor(YumManager(), testLogger(), runner))
+	app := NewAppWithServices(YumManager(""), false, ignoreSet, testLogger(), scanner, NewExecutor(YumManager(""), testLogger(), runner))
 
 	if err := app.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -112,7 +112,7 @@ func TestApp_Run_AllPackagesIgnoredSkipsExecution(t *testing.T) {
 	}}
 	runner := &MockRunner{}
 	ignoreSet := map[string]struct{}{"curl": {}}
-	app := NewAppWithServices(YumManager(), false, ignoreSet, testLogger(), scanner, NewExecutor(YumManager(), testLogger(), runner))
+	app := NewAppWithServices(YumManager(""), false, ignoreSet, testLogger(), scanner, NewExecutor(YumManager(""), testLogger(), runner))
 
 	if err := app.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -131,7 +131,7 @@ func TestApp_Run_IgnoreByExactVersionKey(t *testing.T) {
 	}}
 	runner := &MockRunner{}
 	ignoreSet := map[string]struct{}{"curl@8.5.0": {}}
-	app := NewAppWithServices(YumManager(), false, ignoreSet, testLogger(), scanner, NewExecutor(YumManager(), testLogger(), runner))
+	app := NewAppWithServices(YumManager(""), false, ignoreSet, testLogger(), scanner, NewExecutor(YumManager(""), testLogger(), runner))
 
 	if err := app.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -155,7 +155,7 @@ func TestApp_Run_UpgradeErrorPropagates(t *testing.T) {
 		}
 		return nil
 	}}
-	app := NewAppWithServices(YumManager(), false, nil, testLogger(), scanner, NewExecutor(YumManager(), testLogger(), runner))
+	app := NewAppWithServices(YumManager(""), false, nil, testLogger(), scanner, NewExecutor(YumManager(""), testLogger(), runner))
 
 	if err := app.Run(context.Background()); err == nil {
 		t.Fatal("expected error, got nil")
