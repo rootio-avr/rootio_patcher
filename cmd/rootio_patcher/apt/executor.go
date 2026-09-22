@@ -117,10 +117,18 @@ func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patch
 	if !useAlias {
 		var names []string
 		for _, p := range patches {
+			// Skip a candidate that's not actually newer (Root.io's build can lag a distro point release).
+			if e.candidateIsDowngrade(ctx, p.Version, p.Patch.Version) {
+				e.logf("→ skipping %s: candidate %s is older than installed %s", p.PackageName, p.Patch.Version, p.Version)
+				continue
+			}
 			names = append(names, p.Patch.Name)
 			e.logf("→ installing non-aliased %s", p.Patch.Name)
 		}
-		args := append([]string{"-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades"}, names...)
+		if len(names) == 0 {
+			return nil
+		}
+		args := append([]string{"-o", "Dpkg::Options::=--force-overwrite", "install", "-y"}, names...)
 		return e.runner.Run(ctx, "apt-get", args...)
 	}
 
@@ -250,6 +258,11 @@ func (e *Executor) blockOriginalFromRegistry(ctx context.Context, pkgName, regis
 		pkgName, host, prefsDir,
 	)
 	return e.runner.Run(ctx, "sh", "-c", script)
+}
+
+// candidateIsDowngrade reports whether candidate is older than installed, per dpkg.
+func (e *Executor) candidateIsDowngrade(ctx context.Context, installed, candidate string) bool {
+	return e.runner.Run(ctx, "dpkg", "--compare-versions", candidate, "lt", installed) == nil
 }
 
 func (e *Executor) IndexUpdate(ctx context.Context) error {
