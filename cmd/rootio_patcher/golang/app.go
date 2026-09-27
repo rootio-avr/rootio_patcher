@@ -15,10 +15,6 @@ import (
 	"rootio_patcher/pkg/rootio"
 )
 
-// aliasedModuleHost is the module path prefix used for all Root.io aliased packages,
-// regardless of which proxy environment (prod, dev, etc.) is configured.
-const aliasedModuleHost = "pkg.root.io"
-
 // CommandRunner runs external commands in a given directory with optional extra environment variables.
 type CommandRunner interface {
 	Run(ctx context.Context, dir string, env []string, name string, args ...string) error
@@ -47,7 +43,6 @@ type App struct {
 	goModPath  string
 	reportPath string // set by WithReport; empty disables the report
 	dryRun     bool
-	useAlias   bool
 	ignoreSet  map[string]struct{}
 	logger     *slog.Logger
 	parser     GoModParser
@@ -58,7 +53,7 @@ type App struct {
 // NewApp creates a new App with injected services.
 func NewApp(
 	apiKey, apiURL, pkgURL, goModPath string,
-	dryRun, useAlias bool,
+	dryRun bool,
 	ignoreEntries []string,
 	logger *slog.Logger,
 	parser GoModParser,
@@ -72,7 +67,6 @@ func NewApp(
 		pkgURL:    pkgURL,
 		goModPath: goModPath,
 		dryRun:    dryRun,
-		useAlias:  useAlias,
 		ignoreSet: common.LoadIgnoreList(ignoreFilePath, ignoreEntries),
 		logger:    logger,
 		parser:    parser,
@@ -110,8 +104,7 @@ func (a *App) buildGoEnv(noSumDB string) []string {
 func (a *App) Run(ctx context.Context) error {
 	a.logger.DebugContext(ctx, "Starting golang remediation",
 		slog.String("go_mod", a.goModPath),
-		slog.Bool("dry_run", a.dryRun),
-		slog.Bool("use_alias", a.useAlias))
+		slog.Bool("dry_run", a.dryRun))
 
 	// 1. Check go.mod exists
 	if _, err := os.Stat(a.goModPath); err != nil {
@@ -173,8 +166,7 @@ func (a *App) Run(ctx context.Context) error {
 	goModDir := filepath.Dir(a.goModPath)
 	goEnv := a.goEnv(response.Patches)
 
-	// 7. Write replace directives: pointing to pkg.root.io/... in aliased mode, or to the
-	// same module path at the patched version in non-aliased mode.
+	// 7. Write replace directives, pointing each module at the patched version.
 	updates := make([]GoModUpdate, len(response.Patches))
 	for i, patch := range response.Patches {
 		name, version := a.replaceTarget(patch)
@@ -293,13 +285,9 @@ func (a *App) applyGoModUpdates(ctx context.Context, updates []GoModUpdate) erro
 	return nil
 }
 
-// goEnv returns env vars for the `go mod tidy`/`go mod vendor` step. In aliased mode GONOSUMDB
-// covers the fixed aliased module host; in non-aliased mode it's scoped to just the patched
-// module paths so all other modules still get checksum-verified.
+// goEnv returns env vars for the `go mod tidy`/`go mod vendor` step. GONOSUMDB is scoped to
+// just the patched module paths so all other modules still get checksum-verified.
 func (a *App) goEnv(patches []rootio.PackagePatch) []string {
-	if a.useAlias {
-		return a.buildGoEnv(aliasedModuleHost)
-	}
 	moduleNames := make([]string, len(patches))
 	for i, patch := range patches {
 		moduleNames[i] = patch.PackageName
@@ -308,11 +296,7 @@ func (a *App) goEnv(patches []rootio.PackagePatch) []string {
 }
 
 // replaceTarget returns the module path and version a require should be redirected to for a
-// given patch: the aliased module under pkg.root.io/... in aliased mode, or the same module
-// path at the patched version in non-aliased mode.
+// given patch: the same module path at the patched version.
 func (a *App) replaceTarget(patch rootio.PackagePatch) (name, version string) {
-	if a.useAlias {
-		return patch.PatchAlias.Name, patch.PatchAlias.Version
-	}
 	return patch.PackageName, patch.Patch.Version
 }
