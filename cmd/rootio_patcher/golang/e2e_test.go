@@ -82,6 +82,59 @@ require (
 	assert.Contains(t, cmdRunner.Calls[0].Env, "GONOSUMDB=pkg.root.io")
 }
 
+// TestGoLangApp_E2E_AikidoVersionFlavor verifies that an "aikido"-flavored patched version
+// (as opposed to "rootio") is written to the replace directive exactly as returned by the
+// API: the version string is opaque data, never parsed or pattern-matched by this tool.
+func TestGoLangApp_E2E_AikidoVersionFlavor(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	dir := t.TempDir()
+	goModPath := writeGoMod(t, dir, `module example.com/myapp
+
+go 1.21
+
+require github.com/google/uuid v1.3.0
+`)
+	cmdRunner := &MockCommandRunner{}
+
+	app := NewApp(
+		"test-key",
+		"https://api.root.io",
+		"https://pkg.root.io",
+		goModPath,
+		false,
+		true,
+		nil,
+		logger,
+		NewGoModParser(logger), // real parser
+		&MockAPIClient{
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+				return &rootio.AnalyzePackagesResponse{
+					Patches: []rootio.PackagePatch{
+						{
+							PackageName: "github.com/google/uuid",
+							Version:     "v1.3.0",
+							Patch:       rootio.PatchInfo{Name: "github.com/google/uuid", Version: "v1.3.0-aikido.1"},
+							PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-aikido.1"},
+						},
+					},
+				}, nil
+			},
+		},
+		cmdRunner,
+	)
+
+	require.NoError(t, app.Run(ctx))
+
+	content, err := os.ReadFile(goModPath)
+	require.NoError(t, err)
+	got := string(content)
+
+	assert.True(t, containsLine(got, "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-aikido.1"))
+	assert.True(t, strings.Contains(got, "github.com/google/uuid v1.3.0"))
+}
+
 // TestGoLangApp_E2E_PreservesNonRootioReplaceDirective verifies that a pre-existing replace
 // directive unrelated to Root.io patches is preserved after remediation.
 func TestGoLangApp_E2E_PreservesNonRootioReplaceDirective(t *testing.T) {
