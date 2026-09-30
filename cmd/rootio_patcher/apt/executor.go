@@ -46,13 +46,6 @@ const (
 	authConfDir    = "/etc/apt/auth.conf.d"
 )
 
-// lowLevelPackages require dpkg install to bypass apt's conflict resolver.
-// Keep in sync with backend/.../os/debian.go lowLevelPackages.
-var lowLevelPackages = map[string]bool{
-	"rootio-util-linux": true,
-	"rootio-libc6":      true,
-}
-
 // CommandRunner is an alias for common.CommandRunner
 type CommandRunner = common.CommandRunner
 
@@ -106,50 +99,57 @@ func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 }
 
 // InstallPatches installs Root.io packages.
-// When useAlias is true the rootio-* aliased package is installed (aliased path).
-// When useAlias is false the original package name is installed from the Root.io registry
-// at pin-priority 1001, which APT already prefers over the upstream repo (non-aliased path).
+// By default the original package name is installed from the Root.io registry
+// at pin-priority 1001, which APT already prefers over the upstream repo.
+// Deprecated: when useAlias is true, patches with a distinct rootio-* alias are
+// installed under that alias and the original is removed. Patches whose alias
+// equals the original name (aliases are retired server-side) always take the
+// original-name path, since the alias dance would pin-block and then remove it.
 func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patches []rootio.PackagePatch, useAlias bool) error {
-	if len(patches) == 0 {
-		return nil
+	var plain, aliased []rootio.PackagePatch
+	for _, p := range patches {
+		if useAlias && p.PatchAlias.Name != "" && p.PatchAlias.Name != p.Patch.Name && p.PatchAlias.Name != p.PackageName {
+			aliased = append(aliased, p)
+		} else {
+			plain = append(plain, p)
+		}
 	}
 
-	if !useAlias {
+	if len(plain) > 0 {
 		var names []string
-		for _, p := range patches {
+		for _, p := range plain {
 			names = append(names, p.Patch.Name)
 			e.logf("→ installing non-aliased %s", p.Patch.Name)
 		}
 		args := append([]string{"-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades"}, names...)
-		return e.runner.Run(ctx, "apt-get", args...)
+		if err := e.runner.Run(ctx, "apt-get", args...); err != nil {
+			return err
+		}
+	}
+
+	if len(aliased) == 0 {
+		return nil
 	}
 
 	// Block original packages from being pulled in from the Root.io registry
-	for _, p := range patches {
+	for _, p := range aliased {
 		if err := e.blockOriginalFromRegistry(ctx, p.PackageName, registryURL); err != nil {
 			return err
 		}
 	}
 
 	var originals []string
-	for _, p := range patches {
+	for _, p := range aliased {
 		alias := p.PatchAlias.Name
 		e.logf("→ installing alias %s", alias)
-
-		if lowLevelPackages[alias] {
-			if err := e.installLowLevel(ctx, alias, p.PackageName); err != nil {
-				return err
-			}
-		} else {
-			if err := e.runner.Run(ctx, "apt-get",
-				"-o", "Dpkg::Options::=--force-overwrite",
-				"install", "--allow-remove-essential", "--no-install-recommends", "-y",
-				alias,
-			); err != nil {
-				return fmt.Errorf("install %s: %w", alias, err)
-			}
-			originals = append(originals, p.PackageName)
+		if err := e.runner.Run(ctx, "apt-get",
+			"-o", "Dpkg::Options::=--force-overwrite",
+			"install", "--allow-remove-essential", "--no-install-recommends", "-y",
+			alias,
+		); err != nil {
+			return fmt.Errorf("install %s: %w", alias, err)
 		}
+		originals = append(originals, p.PackageName)
 	}
 
 	if len(originals) > 0 {
@@ -259,23 +259,6 @@ func (e *Executor) IndexUpdate(ctx context.Context) error {
 // PostUpgradesOnly clears apt caches when only official upgrades were applied (no Root.io repo)
 func (e *Executor) PostUpgradesOnly(ctx context.Context) error {
 	return e.ClearAptCaches(ctx)
-}
-
-// installLowLevel uses dpkg to install a package that conflicts with apt's resolver
-func (e *Executor) installLowLevel(ctx context.Context, alias, original string) error {
-	steps := [][]string{
-		{"apt-get", "download", alias},
-		{"sh", "-c", fmt.Sprintf("dpkg -i --force-conflicts --force-overwrite %s_*.deb", alias)},
-		{"dpkg", "--force-remove-essential", "--purge", original},
-		{"apt-get", "install", "-f", "-y"},
-		{"sh", "-c", fmt.Sprintf("rm %s_*.deb", alias)},
-	}
-	for _, s := range steps {
-		if err := e.runner.Run(ctx, s[0], s[1:]...); err != nil {
-			return fmt.Errorf("low-level install %s step %v: %w", alias, s, err)
-		}
-	}
-	return nil
 }
 
 // ClearAptCaches removes only the apt lists cache (no repo files)

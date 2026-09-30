@@ -267,41 +267,33 @@ func indexOfCall(calls []CommandCall, name string, args ...string) int {
 	return -1
 }
 
-// --- Apply: low-level package uses dpkg path ---
+// --- Aliased mode with retired aliases (patch_alias == patch) falls back to original names ---
 
-func TestApp_Run_LowLevelPackage_UsesDpkg(t *testing.T) {
+func TestApp_Run_UseAlias_AliasEqualsOriginal_InstallsOriginal(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
 			return &rootio.OsAnalyzeResponse{
 				Patches: []rootio.PackagePatch{
 					{
-						PackageName: "util-linux",
-						Version:     "2.38.1-5",
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-util-linux", Version: "2.38.1-5.root.io.1"},
+						PackageName: "libc6",
+						Version:     "2.36-9",
+						Patch:       rootio.PatchInfo{Name: "libc6", Version: "2.36-9+deb12u1.root.io.1"},
+						PatchAlias:  rootio.PatchInfo{Name: "libc6", Version: "2.36-9+deb12u1.root.io.1"},
 					},
 				},
 			}, nil
 		},
 	}
-	app := newTestApp(debianScanner(), apiClient, runner, false)
+	app := newTestApp(debianScanner(), apiClient, runner, false) // useAlias=true
 	require.NoError(t, app.Run(context.Background()))
 
-	// Must call apt-get download (not apt-get install) for the low-level package
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "download", "rootio-util-linux"))
-	// Must use dpkg -i
-	dpkgFound := false
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "libc6"))
 	for _, c := range runner.Calls {
-		if c.Name == "sh" && len(c.Args) >= 2 && strings.Contains(strings.Join(c.Args, " "), "dpkg -i") {
-			dpkgFound = true
-			break
-		}
-	}
-	assert.True(t, dpkgFound, "dpkg -i must be used for low-level packages")
-	// Must NOT call normal apt-get install for this package
-	for _, c := range runner.Calls {
-		if c.Name == "apt-get" && len(c.Args) > 0 && c.Args[0] == "install" {
-			assert.NotContains(t, c.Args, "rootio-util-linux", "low-level package must not go through apt-get install")
+		joined := strings.Join(c.Args, " ")
+		assert.NotContains(t, joined, "Pin-Priority: -1", "original must not be pin-blocked")
+		if c.Name == "env" {
+			assert.NotContains(t, c.Args, "remove", "original must not be removed")
 		}
 	}
 }
