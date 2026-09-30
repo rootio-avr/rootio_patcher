@@ -52,7 +52,7 @@ type AptCmd struct {
 // AptRemediateCmd remediates installed APT packages
 type AptRemediateCmd struct {
 	DryRun       bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias     bool     `default:"true" help:"Use Root.io aliased packages (rootio-*); set false to install under original names"`
+	UseAlias     bool     `default:"false" help:"Deprecated: install Root.io aliased packages (rootio-*). Aliases are being retired; the default installs original names"`
 	Verbose      bool     `default:"false" help:"Print each remediation step"`
 	SkipUpgrades bool     `default:"false" help:"Skip the broad upstream upgrade; apply Root patches only"`
 	Ignore       []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
@@ -75,7 +75,7 @@ type ApkCmd struct {
 // ApkRemediateCmd remediates installed APK packages
 type ApkRemediateCmd struct {
 	DryRun       bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias     bool     `default:"true" help:"Use Root.io aliased packages (rootio-*); set false to install under original names"`
+	UseAlias     bool     `default:"false" help:"Deprecated: install Root.io aliased packages (rootio-*). Aliases are being retired; the default installs original names"`
 	Verbose      bool     `default:"false" help:"Print each remediation step"`
 	SkipUpgrades bool     `default:"false" help:"Skip the broad upstream upgrade; apply Root patches only"`
 	Ignore       []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
@@ -213,7 +213,7 @@ type MavenCmd struct {
 type MavenRemediateCmd struct {
 	File     string   `default:"pom.xml" help:"Path to pom.xml"`
 	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"true" help:"Use Root.io aliased packages (io.root.io.*); set false to keep original groupId"`
+	UseAlias bool     `default:"false" help:"Deprecated: rewrite to Root.io aliased groupIds (io.root.io.*). Aliases are being retired; the default keeps the original groupId"`
 	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
@@ -321,7 +321,7 @@ type GoCmd struct {
 type GoRemediateCmd struct {
 	GoMod    string   `default:"go.mod" help:"Path to go.mod"`
 	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"false" help:"Use Root.io aliased modules (pkg.root.io/*); set false to use original module paths"`
+	UseAlias bool     `default:"false" help:"Deprecated: use Root.io aliased modules (pkg.root.io/*). Aliases are being retired; the default uses original module paths"`
 	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 	Report   string   `help:"Write a JSON report of the remediated modules and the CVEs they fix to this path."`
 }
@@ -349,7 +349,7 @@ type NuGetRemediateCmd struct {
 	File      string   `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
 	Directory string   `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
 	DryRun    bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias  bool     `default:"true" help:"Use Root.io aliased packages; set false to keep original package names"`
+	UseAlias  bool     `default:"false" help:"Deprecated: rewrite to Root.io aliased packages. Aliases are being retired; the default keeps original package names"`
 	Ignore    []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
@@ -362,7 +362,7 @@ type ComposerCmd struct {
 type ComposerRemediateCmd struct {
 	File     string   `default:"composer.json" help:"Path to composer.json"`
 	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"false" help:"Use Root.io aliased packages"`
+	UseAlias bool     `default:"false" help:"Deprecated: use Root.io aliased packages. Aliases are being retired; the default keeps original package names"`
 	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 

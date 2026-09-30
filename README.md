@@ -181,6 +181,7 @@ rootio_patcher maven remediate [FLAGS]
 **Flags:**
 - `--file` - Path to pom.xml (default: `pom.xml`)
 - `--dry-run` - Preview changes without applying (default: `true`)
+- `--use-alias` - **Deprecated.** Rewrite to Root.io aliased groupIds (`io.root.io.*`) instead of keeping the original groupId (default: `false`)
 
 **How it works:** Pre-install patching - updates version numbers in `pom.xml`. After running, execute `mvn clean install` to apply patches.
 
@@ -193,12 +194,12 @@ rootio_patcher go remediate [FLAGS]
 **Flags:**
 - `--go-mod` - Path to go.mod (default: `go.mod`)
 - `--dry-run` - Preview changes without applying (default: `true`)
-- `--use-alias` - Use Root.io aliased modules (`pkg.root.io/*`); set `false` to use original module paths (default: `true`)
+- `--use-alias` - **Deprecated.** Use Root.io aliased modules (`pkg.root.io/*`) instead of original module paths (default: `false`)
 - `--report` - Write a JSON report of the remediated modules and the CVEs they fix to this path
 
 **How it works:** Pre-build patching — adds a version-pinned `replace` directive for each patched module, in one of two modes controlled by `--use-alias`:
-- `--use-alias=true` (default): `replace <module> <version> => pkg.root.io/golang/<module> <patched-version>` — redirects to the aliased module under `pkg.root.io/...`.
-- `--use-alias=false`: `replace <module> <version> => <module> <patched-version>` — same module path on both sides, only the version is redirected. `go.mod`'s `require` line stays untouched; only a `replace` line is added.
+- `--use-alias=false` (default): `replace <module> <version> => <module> <patched-version>` — same module path on both sides, only the version is redirected. `go.mod`'s `require` line stays untouched; only a `replace` line is added.
+- `--use-alias=true` (deprecated): `replace <module> <version> => pkg.root.io/golang/<module> <patched-version>` — redirects to the aliased module under `pkg.root.io/...`.
 
 In both modes, the tool automatically runs `go mod tidy` afterwards (using the Root.io `GOPROXY`), and `go mod vendor` if a vendor directory is present. After running, execute `go build ./...` to build with patched modules.
 
@@ -234,8 +235,8 @@ rootio_patcher apt remediate [FLAGS]
 **How it works:** Post-install patching — scans installed packages via `dpkg-query`, calls the Root.io API, then applies fixes in two ways:
 - **Upgrades**: packages patched via the official Debian/Ubuntu repository are upgraded with `apt-get install`
 - **Root.io patches**: packages requiring Root.io patches are installed from the Root.io APT repository, in one of two modes controlled by `--use-alias`:
-  - `--use-alias=true` (default): installs the aliased package (e.g. `rootio-curl` replaces `curl`)
-  - `--use-alias=false`: installs under the original package name (e.g. `curl`) from the Root.io repository, which is pinned at priority 1001 so APT prefers it over the upstream version
+  - `--use-alias=false` (default): installs under the original package name (e.g. `curl`) from the Root.io repository, which is pinned at priority 1001 so APT prefers it over the upstream version
+  - `--use-alias=true` (deprecated): installs the aliased package (e.g. `rootio-curl` replaces `curl`)
 
 Requires `root`/`sudo` — intended to run inside containers or as part of a privileged build step.
 
@@ -253,8 +254,8 @@ rootio_patcher apk remediate [FLAGS]
 **How it works:** Post-install patching — scans installed packages via `apk info -v`, calls the Root.io API, then applies fixes in two ways:
 - **Upgrades**: packages patched via the official Alpine repository are upgraded with `apk add --upgrade`
 - **Root.io patches**: packages requiring Root.io patches are installed from the Root.io APK repository, in one of two modes controlled by `--use-alias`:
-  - `--use-alias=true` (default): installs the aliased package (e.g. `rootio-curl`); APK handles replacement of the original via the `provides` mechanism
-  - `--use-alias=false`: installs under the original package name (e.g. `curl`) directly from the Root.io repository
+  - `--use-alias=false` (default): installs under the original package name (e.g. `curl`) directly from the Root.io repository
+  - `--use-alias=true` (deprecated): installs the aliased package (e.g. `rootio-curl`); APK handles replacement of the original via the `provides` mechanism
 
 Requires `root` — intended to run inside containers or as part of a privileged build step.
 
@@ -298,25 +299,19 @@ Set to `false` to actually apply patches:
 rootio_patcher pip remediate --dry-run=false
 ```
 
-#### `--use-alias` Flag (apt, apk)
+#### `--use-alias` Flag (apt, apk, maven, nuget, go, composer) — deprecated
 
-Root.io publishes each security patch under **two** package names: the original name (e.g. `curl`, `openssl`) and an aliased name with a `rootio-` prefix (e.g. `rootio-curl`, `rootio-openssl`). The `--use-alias` flag controls which variant the patcher installs.
+Root.io is retiring aliased packages (`rootio-curl`, `io.root.io.*`, `pkg.root.io/*`, …). Patches are installed under the **original** package name by default: the Root.io registry is still used — it is configured at a higher priority than the upstream repo so the patched version wins — but the installed package name stays `curl`, `openssl`, etc.
 
-- **Aliased packages** (`--use-alias=true`, the default): Installs the `rootio-*` package name. The original package is replaced by the aliased one, which carries the patched binaries.
-
-- **Non-aliased packages** (`--use-alias=false`): Installs the patch under the **original** package name. The Root.io registry is still used — it is configured at a higher priority than the upstream repo so the patched version wins — but the installed package name stays `curl`, `openssl`, etc.
-
-The non-aliased mode is useful when downstream tooling checks for the presence of the original package name, or when you want the package manifest to look unchanged after patching.
+`--use-alias=true` is still accepted for backwards compatibility and installs the aliased name where the API still returns a distinct one. Once the API returns `patch_alias` equal to `patch`, it behaves the same as the default.
 
 ```bash
-# APT: non-aliased (original names, Root.io registry)
-rootio_patcher apt remediate --dry-run=false --use-alias=false
-
-# APK: non-aliased
-rootio_patcher apk remediate --dry-run=false --use-alias=false
+# Default: original names, Root.io registry
+rootio_patcher apt remediate --dry-run=false
+rootio_patcher apk remediate --dry-run=false
 ```
 
-**Deprecated for `pip` and `npm`:** these ecosystems no longer publish aliased packages, so patches are always installed under their original names. `--use-alias` is still accepted there for backwards compatibility — it is ignored, and passing it logs a warning instead of failing.
+**Removed for `pip` and `npm`:** patches are always installed under their original names. `--use-alias` is still accepted there for backwards compatibility — it is ignored, and passing it logs a warning instead of failing.
 
 #### `--python-path` Flag (pip only)
 
@@ -740,7 +735,7 @@ rootio_patcher composer remediate --file=./subproject/composer.json --dry-run=fa
 
 The Maven patcher implements a comprehensive strategy to eliminate duplicate dependencies:
 
-1. **Direct dependencies**: Updates vulnerable packages to use Root.io aliased versions (e.g., `io.netty:netty-codec-http2` → `io.root.io.netty:netty-codec-http2`)
+1. **Direct dependencies**: Updates vulnerable packages to the Root.io patched version, keeping the original groupId (with the deprecated `--use-alias=true`, rewrites to the aliased groupId, e.g. `io.netty:netty-codec-http2` → `io.root.io.netty:netty-codec-http2`)
 
 2. **Transitive dependencies**: Explicitly adds Root.io patched versions for packages that are transitively included
 
@@ -1335,7 +1330,7 @@ A reusable composite action is included in this repository. It wraps the vulnera
 | `package-manager` | No | `npm` | *(npm)* `npm`, `yarn`, or `pnpm` |
 | `directory` | No | `.` | *(npm)* Project directory containing the lock file |
 | `python-path` | No | `python` | *(pip)* Path to Python interpreter |
-| `use-alias` | No | `true` | *(apt, apk)* Install Root.io aliased packages (`rootio-*`); set `false` to install under original names |
+| `use-alias` | No | `false` | *(apt, apk)* **Deprecated.** Install Root.io aliased packages (`rootio-*`) instead of original names |
 | `file` | No | `pom.xml` | *(maven)* Path to pom.xml; *(composer)* Path to composer.json |
 
 Advanced settings (`ROOTIO_API_URL`, `ROOTIO_PKG_URL`, `ROOTIO_PIP_INDEX_URL`, `LOG_LEVEL`) are not inputs — pass them as environment variables on the calling step instead:

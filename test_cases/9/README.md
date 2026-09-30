@@ -70,7 +70,7 @@ ROOTIO_API_KEY=your-key \
 rootio_patcher composer remediate --file=test_cases/9/composer.json --dry-run=false
 ```
 
-With aliased packages:
+With aliased packages (deprecated):
 
 ```bash
 ROOTIO_API_KEY=your-key \

@@ -106,3 +106,30 @@ func TestDeprecatedUseAliasHiddenFromHelp(t *testing.T) {
 		t.Errorf("help output mentions the deprecated flag:\n%s", out.String())
 	}
 }
+
+// Aliases are retired: every command that still accepts --use-alias must
+// default to original names.
+func TestUseAliasDefaultsFalse(t *testing.T) {
+	cases := []struct {
+		args []string
+		get  func(*CLI) bool
+	}{
+		{[]string{"apt", "remediate"}, func(c *CLI) bool { return c.Apt.Remediate.UseAlias }},
+		{[]string{"apk", "remediate"}, func(c *CLI) bool { return c.Apk.Remediate.UseAlias }},
+		{[]string{"maven", "remediate"}, func(c *CLI) bool { return c.Maven.Remediate.UseAlias }},
+		{[]string{"nuget", "remediate"}, func(c *CLI) bool { return c.Nuget.Remediate.UseAlias }},
+		{[]string{"go", "remediate"}, func(c *CLI) bool { return c.Go.Remediate.UseAlias }},
+		{[]string{"composer", "remediate"}, func(c *CLI) bool { return c.Composer.Remediate.UseAlias }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.args[0], func(t *testing.T) {
+			cli, _, err := parseCLI(t, tc.args...)
+			if err != nil {
+				t.Fatalf("parsing %v: %v", tc.args, err)
+			}
+			if tc.get(cli) {
+				t.Errorf("%s: UseAlias defaults to true, want false", tc.args[0])
+			}
+		})
+	}
+}
