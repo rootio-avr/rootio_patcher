@@ -50,10 +50,6 @@ func TestNpmApp_RealAPIResponse(t *testing.T) {
 							Name:    "@babel/helpers",
 							Version: "7.26.0-root.io.2",
 						},
-						PatchAlias: rootio.PatchInfo{
-							Name:    "@rootio/babel__helpers", // Note: double underscore replaces slash
-							Version: "7.26.0-root.io.2",
-						},
 						CVEIDs: []string{"CVE-2025-27789"},
 					},
 				},

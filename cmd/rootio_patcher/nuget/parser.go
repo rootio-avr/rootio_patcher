@@ -214,7 +214,7 @@ func (p *NuGetParser) parseCsproj(filePath string) ([]common.PackageInfo, error)
 }
 
 // Update rewrites package references in a NuGet manifest file.
-// The updates map is: original package name -> "aliasName:aliasVersion".
+// The updates map is: original package name -> "newName:newVersion".
 // Both the package name (Include/id attribute) and version are rewritten.
 // Returns the updated file content as a string.
 func (p *NuGetParser) Update(ctx context.Context, filePath string, updates map[string]string) (string, error) {
@@ -235,9 +235,9 @@ func (p *NuGetParser) Update(ctx context.Context, filePath string, updates map[s
 	return "", fmt.Errorf("unsupported file type: %s", base)
 }
 
-// parseUpdateValue splits "aliasName:aliasVersion" into its parts.
+// parseUpdateValue splits "newName:newVersion" into its parts.
 // If the value has no colon, the original name is kept and the whole value is the version.
-func parseUpdateValue(originalName, updateValue string) (aliasName, aliasVersion string) {
+func parseUpdateValue(originalName, updateValue string) (newName, newVersion string) {
 	if idx := strings.LastIndex(updateValue, ":"); idx >= 0 {
 		return updateValue[:idx], updateValue[idx+1:]
 	}
@@ -248,16 +248,16 @@ func parseUpdateValue(originalName, updateValue string) (aliasName, aliasVersion
 // Handles both attribute style and child element style.
 func (p *NuGetParser) updateCsproj(ctx context.Context, content string, updates map[string]string) string {
 	for pkgName, updateValue := range updates {
-		aliasName, aliasVersion := parseUpdateValue(pkgName, updateValue)
+		newName, newVersion := parseUpdateValue(pkgName, updateValue)
 
 		// Attribute style: <PackageReference Include="PkgName" ... Version="old" ... />
 		attrPattern := regexp.MustCompile(
 			`(?i)(<PackageReference\s[^>]*Include\s*=\s*")` + regexp.QuoteMeta(pkgName) + `("[^>]*\s)Version\s*=\s*"[^"]*"`,
 		)
 		if attrPattern.MatchString(content) {
-			content = attrPattern.ReplaceAllString(content, `${1}`+aliasName+`${2}Version="`+aliasVersion+`"`)
+			content = attrPattern.ReplaceAllString(content, `${1}`+newName+`${2}Version="`+newVersion+`"`)
 			p.logger.DebugContext(ctx, "updated csproj attribute reference",
-				slog.String("package", pkgName), slog.String("alias", aliasName), slog.String("version", aliasVersion))
+				slog.String("package", pkgName), slog.String("name", newName), slog.String("version", newVersion))
 			continue
 		}
 
@@ -266,9 +266,9 @@ func (p *NuGetParser) updateCsproj(ctx context.Context, content string, updates 
 			`(?is)(<PackageReference\s[^>]*Include\s*=\s*")` + regexp.QuoteMeta(pkgName) + `("[^>]*>.*?<Version>)[^<]*(</Version>)`,
 		)
 		if elemPattern.MatchString(content) {
-			content = elemPattern.ReplaceAllString(content, `${1}`+aliasName+`${2}`+aliasVersion+`${3}`)
+			content = elemPattern.ReplaceAllString(content, `${1}`+newName+`${2}`+newVersion+`${3}`)
 			p.logger.DebugContext(ctx, "updated csproj element reference",
-				slog.String("package", pkgName), slog.String("alias", aliasName), slog.String("version", aliasVersion))
+				slog.String("package", pkgName), slog.String("name", newName), slog.String("version", newVersion))
 			continue
 		}
 
@@ -280,15 +280,15 @@ func (p *NuGetParser) updateCsproj(ctx context.Context, content string, updates 
 // updatePackagesConfig replaces package id and version in a packages.config file.
 func (p *NuGetParser) updatePackagesConfig(ctx context.Context, content string, updates map[string]string) string {
 	for pkgName, updateValue := range updates {
-		aliasName, aliasVersion := parseUpdateValue(pkgName, updateValue)
+		newName, newVersion := parseUpdateValue(pkgName, updateValue)
 
 		pattern := regexp.MustCompile(
 			`(?i)(<package\s[^>]*id\s*=\s*")` + regexp.QuoteMeta(pkgName) + `("[^>]*\s)version\s*=\s*"[^"]*"`,
 		)
 		if pattern.MatchString(content) {
-			content = pattern.ReplaceAllString(content, `${1}`+aliasName+`${2}version="`+aliasVersion+`"`)
+			content = pattern.ReplaceAllString(content, `${1}`+newName+`${2}version="`+newVersion+`"`)
 			p.logger.DebugContext(ctx, "updated packages.config reference",
-				slog.String("package", pkgName), slog.String("alias", aliasName), slog.String("version", aliasVersion))
+				slog.String("package", pkgName), slog.String("name", newName), slog.String("version", newVersion))
 		} else {
 			p.logger.WarnContext(ctx, "package not found in packages.config, skipping", slog.String("package", pkgName))
 		}

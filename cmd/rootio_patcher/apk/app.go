@@ -17,15 +17,15 @@ type App struct {
 	inner *common.OsApp[OSInfo]
 }
 
-func NewApp(apiKey, apiURL, pkgURL string, dryRun, useAlias, verbose, skipUpgrades bool, ignoreSet map[string]struct{}, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, pkgURL string, dryRun, verbose, skipUpgrades bool, ignoreSet map[string]struct{}, logger *slog.Logger) *App {
 	client := rootio.NewClient(apiURL, apiKey)
 	executor := NewExecutor(apiKey, pkgURL, logger, NewRealRunner())
-	return NewAppWithServices(apiKey, pkgURL, dryRun, useAlias, verbose, skipUpgrades, ignoreSet, logger, NewScanner(), client, executor)
+	return NewAppWithServices(apiKey, pkgURL, dryRun, verbose, skipUpgrades, ignoreSet, logger, NewScanner(), client, executor)
 }
 
 func NewAppWithServices(
 	apiKey, pkgURL string,
-	dryRun, useAlias, verbose, skipUpgrades bool,
+	dryRun, verbose, skipUpgrades bool,
 	ignoreSet map[string]struct{},
 	logger *slog.Logger,
 	scanner Scanner,
@@ -33,7 +33,7 @@ func NewAppWithServices(
 	executor *Executor,
 ) *App {
 	return &App{inner: common.NewOsApp(
-		pkgURL, dryRun, useAlias, skipUpgrades, ignoreSet, logger,
+		pkgURL, dryRun, skipUpgrades, ignoreSet, logger,
 		scanner, apiClient, executor,
 		apkConfig(),
 	)}

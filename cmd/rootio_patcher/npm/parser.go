@@ -111,12 +111,12 @@ type npmParser interface {
 	// IsDirectVulnerable reports whether the user's package.json declares
 	// packageName as a direct dependency that resolves to the given
 	// vulnerable version. The caller uses this to decide whether to rewrite
-	// the dependencies entry to an alias.
+	// the dependencies entry to the patched version.
 	IsDirectVulnerable(ctx context.Context, lockFilePath, packageJSONPath, packageName, version string) (bool, error)
 	// UpdatePackageJSON writes the given overrides to package.json using the
 	// appropriate ecosystem-specific override shape. When ScopedOverride
 	// has RewriteDirect=true it also rewrites the dependencies/devDependencies
-	// entry for that package to the alias value.
+	// entry for that package to the patched version.
 	UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error
 }
 

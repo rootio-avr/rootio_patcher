@@ -31,14 +31,14 @@ func debianScanner() *MockScanner {
 }
 
 func newTestApp(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun bool) *App {
-	return newTestAppFull(scanner, apiClient, runner, dryRun, true, false, nil)
+	return newTestAppFull(scanner, apiClient, runner, dryRun, false, nil)
 }
 
-func newTestAppFull(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, useAlias, skipUpgrades bool, ignoreSet map[string]struct{}) *App {
+func newTestAppFull(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, skipUpgrades bool, ignoreSet map[string]struct{}) *App {
 	executor := NewExecutor("test-api-key", "https://pkg.root.io", false, runner)
 	return NewAppWithServices(
 		"test-api-key", "https://pkg.root.io",
-		dryRun, useAlias, false, skipUpgrades, ignoreSet,
+		dryRun, false, skipUpgrades, ignoreSet,
 		logger(),
 		scanner, apiClient, executor,
 	)
@@ -104,7 +104,7 @@ func TestApp_Run_NoPatches(t *testing.T) {
 		},
 	}
 	// SkipUpgrades=true so that with no patches there is genuinely nothing to do.
-	app := newTestAppFull(debianScanner(), apiClient, runner, false, true, true, nil)
+	app := newTestAppFull(debianScanner(), apiClient, runner, false, true, nil)
 	require.NoError(t, app.Run(context.Background()))
 	assert.Empty(t, runner.Calls, "no commands should run when there is nothing to patch")
 }
@@ -145,7 +145,7 @@ func TestApp_Run_DryRun_NoCommands(t *testing.T) {
 					{
 						PackageName: "curl",
 						Version:     "7.88.1-10+deb12u5",
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
+						Patch:       rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u5.root.io.1"},
 						CVEIDs:      []string{"CVE-2024-1234"},
 					},
 				},
@@ -195,7 +195,7 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 					{
 						PackageName: "curl",
 						Version:     "7.88.1-10+deb12u5",
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
+						Patch:       rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u5.root.io.1"},
 					},
 				},
 			}, nil
@@ -208,10 +208,8 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 	assert.True(t, runner.calledWith("sh"), "GPG key write via sh -c must run")
 	// apt-get update must run
 	assert.True(t, runner.calledWith("apt-get", "apt-get", "update"), "apt-get update must run")
-	// alias must be installed
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "--allow-remove-essential", "--no-install-recommends", "-y", "rootio-curl"))
-	// original curl must be removed
-	assert.True(t, runner.calledWith("env"), "original package removal must run")
+	// patch must be installed under its original name
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "curl"))
 	// broad upgrade runs by name (curl is patched, so only openssl remains)
 	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "openssl"), "broad upgrade must install non-patched packages")
 	// repo source list + pin AND the remaining Root.io files must all be removed
@@ -267,40 +265,9 @@ func indexOfCall(calls []CommandCall, name string, args ...string) int {
 	return -1
 }
 
-// --- Aliased mode with retired aliases (patch_alias == patch) falls back to original names ---
+// --- Patches install under original names ---
 
-func TestApp_Run_UseAlias_AliasEqualsOriginal_InstallsOriginal(t *testing.T) {
-	runner := &MockRunner{}
-	apiClient := &MockAPIClient{
-		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
-			return &rootio.OsAnalyzeResponse{
-				Patches: []rootio.PackagePatch{
-					{
-						PackageName: "libc6",
-						Version:     "2.36-9",
-						Patch:       rootio.PatchInfo{Name: "libc6", Version: "2.36-9+deb12u1.root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "libc6", Version: "2.36-9+deb12u1.root.io.1"},
-					},
-				},
-			}, nil
-		},
-	}
-	app := newTestApp(debianScanner(), apiClient, runner, false) // useAlias=true
-	require.NoError(t, app.Run(context.Background()))
-
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "libc6"))
-	for _, c := range runner.Calls {
-		joined := strings.Join(c.Args, " ")
-		assert.NotContains(t, joined, "Pin-Priority: -1", "original must not be pin-blocked")
-		if c.Name == "env" {
-			assert.NotContains(t, c.Args, "remove", "original must not be removed")
-		}
-	}
-}
-
-// --- Non-aliased: installs original names, no alias dance ---
-
-func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
+func TestApp_Run_InstallsOriginalNames(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
@@ -310,19 +277,17 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 						PackageName: "curl",
 						Version:     "7.88.1-10+deb12u5",
 						Patch:       rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u5+root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
 					},
 					{
 						PackageName: "openssl",
 						Version:     "3.0.11-1",
 						Patch:       rootio.PatchInfo{Name: "openssl", Version: "3.0.11-1+root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-openssl", Version: "3.0.11-1.root.io.1"},
 					},
 				},
 			}, nil
 		},
 	}
-	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, false, nil)
+	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 
 	// Must install under original names, with --force-overwrite (two Root.io
@@ -332,22 +297,16 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 	// rootio package wins, and avoids epoch-mismatch failures for packages like
 	// bsdutils/login where the API omits the epoch from Patch.Version.
 	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "curl", "openssl"),
-		"non-aliased must install by name only, relying on pin-priority 1001")
+		"must install by name only, relying on pin-priority 1001")
 
-	// Must NOT install any rootio-* aliased name
 	for _, c := range runner.Calls {
 		for _, a := range c.Args {
-			assert.False(t, strings.HasPrefix(a, "rootio-"), "non-aliased mode must not use rootio-* package names, got %q", a)
+			assert.False(t, strings.HasPrefix(a, "rootio-"), "must not use rootio-* package names, got %q", a)
 		}
 	}
 }
 
-// TestApp_Run_NonAliased_ForceOverwriteMatchesAliasedPath is a regression test:
-// the original (non-aliased) install path must set the same
-// Dpkg::Options::=--force-overwrite flag as the aliased path, since Root.io
-// patched packages can collide on a shared file (e.g. ROOT-SECURITY-RELEASE.md)
-// regardless of which naming flavor is installed.
-func TestApp_Run_NonAliased_ForceOverwriteMatchesAliasedPath(t *testing.T) {
+func TestApp_Run_DoesNotRemoveOriginals(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
@@ -357,56 +316,23 @@ func TestApp_Run_NonAliased_ForceOverwriteMatchesAliasedPath(t *testing.T) {
 						PackageName: "curl",
 						Version:     "7.88.1-10+deb12u5",
 						Patch:       rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u5+root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
 					},
 				},
 			}, nil
 		},
 	}
-	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, false, nil)
+	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 
-	found := false
-	for _, c := range runner.Calls {
-		if c.Name == "apt-get" && len(c.Args) > 0 && c.Args[0] == "-o" {
-			require.GreaterOrEqual(t, len(c.Args), 2)
-			assert.Equal(t, "Dpkg::Options::=--force-overwrite", c.Args[1],
-				"original install path must set the same --force-overwrite dpkg option as the aliased path")
-			found = true
-		}
-	}
-	assert.True(t, found, "expected an apt-get install call with -o Dpkg::Options::=--force-overwrite on the non-aliased path")
-}
-
-func TestApp_Run_NonAliased_NoRemoveOriginals(t *testing.T) {
-	runner := &MockRunner{}
-	apiClient := &MockAPIClient{
-		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
-			return &rootio.OsAnalyzeResponse{
-				Patches: []rootio.PackagePatch{
-					{
-						PackageName: "curl",
-						Version:     "7.88.1-10+deb12u5",
-						Patch:       rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u5+root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
-					},
-				},
-			}, nil
-		},
-	}
-	app := newTestAppFull(debianScanner(), apiClient, runner, false, false, false, nil)
-	require.NoError(t, app.Run(context.Background()))
-
-	// Non-aliased path must not remove originals (they are the installed packages)
 	for _, c := range runner.Calls {
 		if c.Name == "env" {
 			joined := strings.Join(c.Args, " ")
-			assert.NotContains(t, joined, "remove", "non-aliased path must not remove original packages")
+			assert.NotContains(t, joined, "remove", "must not remove original packages")
 		}
 	}
 }
 
-func TestApp_Run_NonAliased_DryRun_ShowsOriginalNames(t *testing.T) {
+func TestApp_Run_DryRun_WithPatches_NoCommands(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
@@ -416,13 +342,12 @@ func TestApp_Run_NonAliased_DryRun_ShowsOriginalNames(t *testing.T) {
 						PackageName: "curl",
 						Version:     "7.88.1-10+deb12u5",
 						Patch:       rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u5+root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "7.88.1-10+deb12u5.root.io.1"},
 					},
 				},
 			}, nil
 		},
 	}
-	app := newTestAppFull(debianScanner(), apiClient, runner, true, false, false, nil)
+	app := newTestAppFull(debianScanner(), apiClient, runner, true, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 	assert.Empty(t, runner.Calls, "dry-run must not execute any commands")
 }

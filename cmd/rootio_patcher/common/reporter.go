@@ -23,7 +23,7 @@ func NewReporter(pkgURL string, logger *slog.Logger) *Reporter {
 }
 
 // ReportDryRun shows what would be done in dry-run mode
-func (r *Reporter) ReportDryRun(patches []rootio.PackagePatch, useAlias bool) {
+func (r *Reporter) ReportDryRun(patches []rootio.PackagePatch) {
 	fmt.Println("\n=== DRY-RUN MODE ===")
 	fmt.Println("The following operations would be performed:")
 	fmt.Println()
@@ -40,19 +40,10 @@ func (r *Reporter) ReportDryRun(patches []rootio.PackagePatch, useAlias bool) {
 	}
 
 	for i, patch := range patches {
-		// Select patch based on useAlias flag
-		var patchInfo rootio.PatchInfo
-		var patchType string
-		if useAlias {
-			patchInfo = patch.PatchAlias
-			patchType = "Aliased"
-		} else {
-			patchInfo = patch.Patch
-			patchType = "Non-Aliased"
-		}
+		patchInfo := patch.Patch
 
 		fmt.Printf("%d. Package: %s @ %s\n", i+1, patch.PackageName, patch.Version)
-		fmt.Printf("   Patch (%s): %s @ %s\n", patchType, patchInfo.Name, patchInfo.Version)
+		fmt.Printf("   Patch: %s @ %s\n", patchInfo.Name, patchInfo.Version)
 		fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
 		fmt.Printf("   Commands:\n")
 		fmt.Printf("     pip uninstall -y %s\n", patch.PackageName)
@@ -61,9 +52,4 @@ func (r *Reporter) ReportDryRun(patches []rootio.PackagePatch, useAlias bool) {
 	}
 
 	fmt.Println("To apply these patches, run with --dry-run=false")
-	if useAlias {
-		fmt.Println("To use original package names instead of aliases, add --use-alias=false")
-	} else {
-		fmt.Println("To use aliased package names (recommended), add --use-alias=true")
-	}
 }

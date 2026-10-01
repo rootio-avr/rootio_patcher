@@ -11,8 +11,7 @@ import (
 // filteredPatches are the patches that will actually be applied (ignore list already applied),
 // and upgradeNames are the package names that will be offered for a broad upstream upgrade.
 // cmd is the full apply command shown to the user, e.g. "rootio_patcher apt remediate --dry-run=false".
-// useAlias controls whether the aliased (rootio-*) or original package name is shown.
-func ReportOsDryRun(response *rootio.OsAnalyzeResponse, filteredPatches []rootio.PackagePatch, upgradeNames []string, cmd string, useAlias bool) {
+func ReportOsDryRun(response *rootio.OsAnalyzeResponse, filteredPatches []rootio.PackagePatch, upgradeNames []string, cmd string) {
 	fmt.Println("\n=== DRY-RUN MODE ===")
 
 	if len(upgradeNames) > 0 {
@@ -23,20 +22,15 @@ func ReportOsDryRun(response *rootio.OsAnalyzeResponse, filteredPatches []rootio
 	}
 
 	if len(filteredPatches) > 0 {
-		label := "Root.io alias"
-		if !useAlias {
-			label = "Root.io non-aliased"
-		}
-		fmt.Printf("\n%d package(s) patchable via %s:\n", len(filteredPatches), label)
+		fmt.Printf("\n%d package(s) patchable via Root.io:\n", len(filteredPatches))
 		for _, p := range filteredPatches {
 			cves := ""
 			if len(p.CVEIDs) > 0 {
 				cves = " (fixes: " + strings.Join(p.CVEIDs, ", ") + ")"
 			}
-			patchInfo := GetPatchInfo(p, useAlias)
 			fmt.Printf("  • %s %s → %s %s%s\n",
 				p.PackageName, p.Version,
-				patchInfo.Name, patchInfo.Version,
+				p.Patch.Name, p.Patch.Version,
 				cves)
 		}
 	}

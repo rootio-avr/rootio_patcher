@@ -98,69 +98,19 @@ func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 	return e.runner.Run(ctx, "apt-get", args...)
 }
 
-// InstallPatches installs Root.io packages.
-// By default the original package name is installed from the Root.io registry
-// at pin-priority 1001, which APT already prefers over the upstream repo.
-// Deprecated: when useAlias is true, patches with a distinct rootio-* alias are
-// installed under that alias and the original is removed. Patches whose alias
-// equals the original name (aliases are retired server-side) always take the
-// original-name path, since the alias dance would pin-block and then remove it.
-func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patches []rootio.PackagePatch, useAlias bool) error {
-	var plain, aliased []rootio.PackagePatch
-	for _, p := range patches {
-		if useAlias && p.PatchAlias.Name != "" && p.PatchAlias.Name != p.Patch.Name && p.PatchAlias.Name != p.PackageName {
-			aliased = append(aliased, p)
-		} else {
-			plain = append(plain, p)
-		}
-	}
-
-	if len(plain) > 0 {
-		var names []string
-		for _, p := range plain {
-			names = append(names, p.Patch.Name)
-			e.logf("→ installing non-aliased %s", p.Patch.Name)
-		}
-		args := append([]string{"-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades"}, names...)
-		if err := e.runner.Run(ctx, "apt-get", args...); err != nil {
-			return err
-		}
-	}
-
-	if len(aliased) == 0 {
+// InstallPatches installs Root.io packages under their original names. The
+// Root.io registry is pinned at priority 1001, so APT prefers it over upstream.
+func (e *Executor) InstallPatches(ctx context.Context, _ string, patches []rootio.PackagePatch) error {
+	if len(patches) == 0 {
 		return nil
 	}
-
-	// Block original packages from being pulled in from the Root.io registry
-	for _, p := range aliased {
-		if err := e.blockOriginalFromRegistry(ctx, p.PackageName, registryURL); err != nil {
-			return err
-		}
+	var names []string
+	for _, p := range patches {
+		names = append(names, p.Patch.Name)
+		e.logf("→ installing %s", p.Patch.Name)
 	}
-
-	var originals []string
-	for _, p := range aliased {
-		alias := p.PatchAlias.Name
-		e.logf("→ installing alias %s", alias)
-		if err := e.runner.Run(ctx, "apt-get",
-			"-o", "Dpkg::Options::=--force-overwrite",
-			"install", "--allow-remove-essential", "--no-install-recommends", "-y",
-			alias,
-		); err != nil {
-			return fmt.Errorf("install %s: %w", alias, err)
-		}
-		originals = append(originals, p.PackageName)
-	}
-
-	if len(originals) > 0 {
-		e.logf("→ removing replaced originals: %s", strings.Join(originals, " "))
-		args := append([]string{"remove", "-y", "--allow-remove-essential"}, originals...)
-		if err := e.runner.Run(ctx, "env", append([]string{"SUDO_FORCE_REMOVE=yes", "apt-get"}, args...)...); err != nil {
-			return fmt.Errorf("remove originals: %w", err)
-		}
-	}
-
-	return nil
+	args := append([]string{"-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades"}, names...)
+	return e.runner.Run(ctx, "apt-get", args...)
 }
 
 // RemoveRootioRepo removes the Root.io APT source list and pin preferences, then
@@ -238,16 +188,6 @@ func (e *Executor) setPinPriority(ctx context.Context, registryURL string) error
 	script := fmt.Sprintf(
 		`echo 'Package: *\nPin: origin %s\nPin-Priority: 1001' > %s/rootio`,
 		host, prefsDir,
-	)
-	return e.runner.Run(ctx, "sh", "-c", script)
-}
-
-// blockOriginalFromRegistry adds a -1 pin so the original package is never pulled from the Root.io registry
-func (e *Executor) blockOriginalFromRegistry(ctx context.Context, pkgName, registryURL string) error {
-	host := hostFromURL(registryURL)
-	script := fmt.Sprintf(
-		`echo 'Package: %s\nPin: origin %s\nPin-Priority: -1' >> %s/rootio`,
-		pkgName, host, prefsDir,
 	)
 	return e.runner.Run(ctx, "sh", "-c", script)
 }

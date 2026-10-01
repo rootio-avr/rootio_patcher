@@ -95,7 +95,7 @@ type composerJSON struct {
 }
 
 // Update rewrites composer.json with patched versions.
-// updates map: original package name -> "aliasName:newVersion"
+// updates map: package name -> "name:newVersion"
 // Direct deps are updated in place; transitive deps are added to require.
 // Also injects a repositories entry for pkg.root.io if not already present.
 func (p *ComposerParser) Update(ctx context.Context, filePath string, updates map[string]string) (string, error) {
@@ -117,59 +117,32 @@ func (p *ComposerParser) Update(ctx context.Context, filePath string, updates ma
 
 	content := string(data)
 
-	for originalName, updateValue := range updates {
-		aliasName, newVersion := parseUpdateValue(originalName, updateValue)
+	for name, updateValue := range updates {
+		newVersion := parseUpdateVersion(updateValue)
 
 		switch {
-		case manifest.Require[originalName] != "":
-			if aliasName != originalName {
-				// swap: add alias, remove original
-				content, err = sjson.Set(content, "require."+aliasName, newVersion)
-				if err != nil {
-					return "", fmt.Errorf("failed to set require.%s: %w", aliasName, err)
-				}
-				content, err = sjson.Delete(content, "require."+originalName)
-				if err != nil {
-					return "", fmt.Errorf("failed to delete require.%s: %w", originalName, err)
-				}
-				p.logger.DebugContext(ctx, "swapped aliased package in require",
-					slog.String("original", originalName), slog.String("alias", aliasName), slog.String("version", newVersion))
-			} else {
-				content, err = sjson.Set(content, "require."+originalName, newVersion)
-				if err != nil {
-					return "", fmt.Errorf("failed to set require.%s: %w", originalName, err)
-				}
-				p.logger.DebugContext(ctx, "updated require", slog.String("package", originalName), slog.String("version", newVersion))
+		case manifest.Require[name] != "":
+			content, err = sjson.Set(content, "require."+name, newVersion)
+			if err != nil {
+				return "", fmt.Errorf("failed to set require.%s: %w", name, err)
 			}
+			p.logger.DebugContext(ctx, "updated require", slog.String("package", name), slog.String("version", newVersion))
 
-		case manifest.RequireDev[originalName] != "":
-			if aliasName != originalName {
-				content, err = sjson.Set(content, "require-dev."+aliasName, newVersion)
-				if err != nil {
-					return "", fmt.Errorf("failed to set require-dev.%s: %w", aliasName, err)
-				}
-				content, err = sjson.Delete(content, "require-dev."+originalName)
-				if err != nil {
-					return "", fmt.Errorf("failed to delete require-dev.%s: %w", originalName, err)
-				}
-				p.logger.DebugContext(ctx, "swapped aliased package in require-dev",
-					slog.String("original", originalName), slog.String("alias", aliasName), slog.String("version", newVersion))
-			} else {
-				content, err = sjson.Set(content, "require-dev."+originalName, newVersion)
-				if err != nil {
-					return "", fmt.Errorf("failed to set require-dev.%s: %w", originalName, err)
-				}
-				p.logger.DebugContext(ctx, "updated require-dev", slog.String("package", originalName), slog.String("version", newVersion))
+		case manifest.RequireDev[name] != "":
+			content, err = sjson.Set(content, "require-dev."+name, newVersion)
+			if err != nil {
+				return "", fmt.Errorf("failed to set require-dev.%s: %w", name, err)
 			}
+			p.logger.DebugContext(ctx, "updated require-dev", slog.String("package", name), slog.String("version", newVersion))
 
 		default:
 			// Transitive dependency — pin it in require
-			content, err = sjson.Set(content, "require."+aliasName, newVersion)
+			content, err = sjson.Set(content, "require."+name, newVersion)
 			if err != nil {
-				return "", fmt.Errorf("failed to add transitive dep require.%s: %w", aliasName, err)
+				return "", fmt.Errorf("failed to add transitive dep require.%s: %w", name, err)
 			}
 			p.logger.DebugContext(ctx, "pinned transitive dep in require",
-				slog.String("package", aliasName), slog.String("version", newVersion))
+				slog.String("package", name), slog.String("version", newVersion))
 		}
 	}
 
@@ -209,13 +182,13 @@ func (p *ComposerParser) injectRepository(content string) (string, error) {
 	return updated, nil
 }
 
-// parseUpdateValue splits "aliasName:newVersion" into its parts.
-// If no colon is present, the original name is kept.
-func parseUpdateValue(originalName, updateValue string) (aliasName, newVersion string) {
+// parseUpdateVersion returns the version from a "name:version" update value.
+// If no colon is present, the whole value is the version.
+func parseUpdateVersion(updateValue string) string {
 	if idx := strings.LastIndex(updateValue, ":"); idx >= 0 {
-		return updateValue[:idx], updateValue[idx+1:]
+		return updateValue[idx+1:]
 	}
-	return originalName, updateValue
+	return updateValue
 }
 
 // Validate checks that content is valid JSON.

@@ -52,7 +52,6 @@ type AptCmd struct {
 // AptRemediateCmd remediates installed APT packages
 type AptRemediateCmd struct {
 	DryRun       bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias     bool     `default:"false" help:"Deprecated: install Root.io aliased packages (rootio-*). Aliases are being retired; the default installs original names"`
 	Verbose      bool     `default:"false" help:"Print each remediation step"`
 	SkipUpgrades bool     `default:"false" help:"Skip the broad upstream upgrade; apply Root patches only"`
 	Ignore       []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
@@ -60,10 +59,10 @@ type AptRemediateCmd struct {
 
 // Run executes the apt remediate command
 func (cmd *AptRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
-	logger.InfoContext(ctx, "Starting apt remediation", slog.Bool("dry_run", cmd.DryRun), slog.Bool("use_alias", cmd.UseAlias))
+	logger.InfoContext(ctx, "Starting apt remediation", slog.Bool("dry_run", cmd.DryRun))
 
 	ignoreSet := common.LoadIgnoreList(".rootioignore", cmd.Ignore)
-	app := apt.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.UseAlias, cmd.Verbose, cmd.SkipUpgrades, ignoreSet, logger)
+	app := apt.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.Verbose, cmd.SkipUpgrades, ignoreSet, logger)
 	return app.Run(ctx)
 }
 
@@ -75,7 +74,6 @@ type ApkCmd struct {
 // ApkRemediateCmd remediates installed APK packages
 type ApkRemediateCmd struct {
 	DryRun       bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias     bool     `default:"false" help:"Deprecated: install Root.io aliased packages (rootio-*). Aliases are being retired; the default installs original names"`
 	Verbose      bool     `default:"false" help:"Print each remediation step"`
 	SkipUpgrades bool     `default:"false" help:"Skip the broad upstream upgrade; apply Root patches only"`
 	Ignore       []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
@@ -83,10 +81,10 @@ type ApkRemediateCmd struct {
 
 // Run executes the apk remediate command
 func (cmd *ApkRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
-	logger.InfoContext(ctx, "Starting apk remediation", slog.Bool("dry_run", cmd.DryRun), slog.Bool("use_alias", cmd.UseAlias))
+	logger.InfoContext(ctx, "Starting apk remediation", slog.Bool("dry_run", cmd.DryRun))
 
 	ignoreSet := common.LoadIgnoreList(".rootioignore", cmd.Ignore)
-	app := apk.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.UseAlias, cmd.Verbose, cmd.SkipUpgrades, ignoreSet, logger)
+	app := apk.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.DryRun, cmd.Verbose, cmd.SkipUpgrades, ignoreSet, logger)
 	return app.Run(ctx)
 }
 
@@ -159,22 +157,6 @@ func (cmd *MicrodnfRemediateCmd) Run(ctx context.Context, _ *config.Config, logg
 	return app.Run(ctx)
 }
 
-// deprecatedUseAlias accepts and ignores --use-alias on commands that dropped alias mode.
-type deprecatedUseAlias struct {
-	UseAlias *bool `help:"Deprecated and ignored; patches are always installed under their original names." hidden:""`
-}
-
-// warnUseAliasIgnored tells the caller their --use-alias was accepted but had no
-// effect. No-op when the flag was not passed.
-func (d deprecatedUseAlias) warnUseAliasIgnored(ctx context.Context, logger *slog.Logger, ecosystem string) {
-	if d.UseAlias == nil {
-		return
-	}
-	logger.WarnContext(ctx, "--use-alias is deprecated and ignored; patches are always installed under their original names",
-		slog.String("ecosystem", ecosystem),
-		slog.Bool("value", *d.UseAlias))
-}
-
 // PipCmd handles pip-related commands
 type PipCmd struct {
 	Remediate PipRemediateCmd `cmd:"" help:"Remediate Python packages (post-install patching)"`
@@ -182,8 +164,6 @@ type PipCmd struct {
 
 // PipRemediateCmd remediates installed Python packages
 type PipRemediateCmd struct {
-	deprecatedUseAlias
-
 	PythonPath string   `default:"python" help:"Path to Python interpreter"`
 	DryRun     bool     `default:"true" help:"Preview changes without applying them"`
 	Ignore     []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
@@ -196,8 +176,6 @@ type NpmCmd struct {
 
 // NpmRemediateCmd remediates npm packages by patching lock file and package.json
 type NpmRemediateCmd struct {
-	deprecatedUseAlias
-
 	PackageManager string   `default:"npm" enum:"npm,yarn,pnpm" help:"Package manager to use (npm, yarn, or pnpm)"`
 	Directory      string   `default:"." short:"C" help:"Project directory containing the lock file and package.json (defaults to current directory)"`
 	DryRun         bool     `default:"true" help:"Preview changes without applying them"`
@@ -211,10 +189,9 @@ type MavenCmd struct {
 
 // MavenRemediateCmd remediates Maven packages by patching pom.xml
 type MavenRemediateCmd struct {
-	File     string   `default:"pom.xml" help:"Path to pom.xml"`
-	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"false" help:"Deprecated: rewrite to Root.io aliased groupIds (io.root.io.*). Aliases are being retired; the default keeps the original groupId"`
-	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	File   string   `default:"pom.xml" help:"Path to pom.xml"`
+	DryRun bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 func main() {
@@ -283,7 +260,6 @@ func createLogger(logLevelStr string) *slog.Logger {
 // Run executes the pip remediate command
 func (cmd *PipRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting pip remediation")
-	cmd.warnUseAliasIgnored(ctx, logger, "pip")
 
 	app := pip.NewApp(cfg, cmd.PythonPath, cmd.DryRun, cmd.Ignore, logger)
 	return app.Run(ctx)
@@ -293,7 +269,6 @@ func (cmd *PipRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 func (cmd *NpmRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting npm remediation",
 		slog.String("package_manager", cmd.PackageManager))
-	cmd.warnUseAliasIgnored(ctx, logger, "npm")
 
 	dir, err := filepath.Abs(cmd.Directory)
 	if err != nil {
@@ -306,9 +281,9 @@ func (cmd *NpmRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 
 // Run executes the maven remediate command
 func (cmd *MavenRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
-	logger.InfoContext(ctx, "Starting Maven remediation", slog.String("file", cmd.File), slog.Bool("use_alias", cmd.UseAlias))
+	logger.InfoContext(ctx, "Starting Maven remediation", slog.String("file", cmd.File))
 
-	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cmd.File, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
+	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cmd.File, cmd.DryRun, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
 
@@ -319,19 +294,18 @@ type GoCmd struct {
 
 // GoRemediateCmd remediates Go modules by adding replace directives to go.mod
 type GoRemediateCmd struct {
-	GoMod    string   `default:"go.mod" help:"Path to go.mod"`
-	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"false" help:"Deprecated: use Root.io aliased modules (pkg.root.io/*). Aliases are being retired; the default uses original module paths"`
-	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
-	Report   string   `help:"Write a JSON report of the remediated modules and the CVEs they fix to this path."`
+	GoMod  string   `default:"go.mod" help:"Path to go.mod"`
+	DryRun bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	Report string   `help:"Write a JSON report of the remediated modules and the CVEs they fix to this path."`
 }
 
 // Run executes the go remediate command
 func (cmd *GoRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
-	logger.InfoContext(ctx, "Starting Go module remediation", slog.String("go_mod", cmd.GoMod), slog.Bool("use_alias", cmd.UseAlias))
+	logger.InfoContext(ctx, "Starting Go module remediation", slog.String("go_mod", cmd.GoMod))
 
 	app := golang.NewApp(
-		cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.GoMod, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger,
+		cfg.APIKey, cfg.APIURL, cfg.PKGURL, cmd.GoMod, cmd.DryRun, cmd.Ignore, logger,
 		golang.NewGoModParser(logger),
 		rootio.NewClient(cfg.APIURL, cfg.APIKey),
 		golang.NewRealCommandRunner(),
@@ -349,7 +323,6 @@ type NuGetRemediateCmd struct {
 	File      string   `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
 	Directory string   `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
 	DryRun    bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias  bool     `default:"false" help:"Deprecated: rewrite to Root.io aliased packages. Aliases are being retired; the default keeps original package names"`
 	Ignore    []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
@@ -360,10 +333,9 @@ type ComposerCmd struct {
 
 // ComposerRemediateCmd remediates Composer packages by patching composer.json
 type ComposerRemediateCmd struct {
-	File     string   `default:"composer.json" help:"Path to composer.json"`
-	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"false" help:"Deprecated: use Root.io aliased packages. Aliases are being retired; the default keeps original package names"`
-	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	File   string   `default:"composer.json" help:"Path to composer.json"`
+	DryRun bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // Run executes the composer remediate command
@@ -375,13 +347,13 @@ func (cmd *ComposerRemediateCmd) Run(ctx context.Context, cfg *config.Config, lo
 		return fmt.Errorf("invalid file path: %w", err)
 	}
 
-	app := composer.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, filePath, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
+	app := composer.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, filePath, cmd.DryRun, cmd.Ignore, logger)
 	return app.Run(ctx)
 }
 
 // Run executes the nuget remediate command
 func (cmd *NuGetRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
-	logger.InfoContext(ctx, "Starting NuGet remediation", slog.Bool("use_alias", cmd.UseAlias))
+	logger.InfoContext(ctx, "Starting NuGet remediation")
 
 	var path string
 	var err error
@@ -397,6 +369,6 @@ func (cmd *NuGetRemediateCmd) Run(ctx context.Context, cfg *config.Config, logge
 		}
 	}
 
-	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, path, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
+	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, path, cmd.DryRun, cmd.Ignore, logger)
 	return app.Run(ctx)
 }

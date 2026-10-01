@@ -41,7 +41,6 @@ type App struct {
 	pkgURL    string
 	filePath  string
 	dryRun    bool
-	useAlias  bool
 	ignoreSet map[string]struct{}
 	logger    *slog.Logger
 	parser    common.Parser
@@ -50,9 +49,9 @@ type App struct {
 }
 
 // NewApp creates a new App with default injected services.
-func NewApp(apiKey, apiURL, pkgURL, filePath string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
+func NewApp(apiKey, apiURL, pkgURL, filePath string, dryRun bool, ignoreEntries []string, logger *slog.Logger) *App {
 	return NewAppWithServices(
-		apiKey, apiURL, pkgURL, filePath, dryRun, useAlias, ignoreEntries, logger,
+		apiKey, apiURL, pkgURL, filePath, dryRun, ignoreEntries, logger,
 		NewParser(logger, pkgURL),
 		rootio.NewClient(apiURL, apiKey),
 		NewRealCommandRunner(),
@@ -62,7 +61,7 @@ func NewApp(apiKey, apiURL, pkgURL, filePath string, dryRun, useAlias bool, igno
 // NewAppWithServices creates a new App with injected services (for testing).
 func NewAppWithServices(
 	apiKey, apiURL, pkgURL, filePath string,
-	dryRun, useAlias bool,
+	dryRun bool,
 	ignoreEntries []string,
 	logger *slog.Logger,
 	parser common.Parser,
@@ -76,7 +75,6 @@ func NewAppWithServices(
 		pkgURL:    pkgURL,
 		filePath:  filePath,
 		dryRun:    dryRun,
-		useAlias:  useAlias,
 		ignoreSet: common.LoadIgnoreList(ignoreFilePath, ignoreEntries),
 		logger:    logger,
 		parser:    parser,
@@ -89,8 +87,7 @@ func NewAppWithServices(
 func (a *App) Run(ctx context.Context) error {
 	a.logger.DebugContext(ctx, "Starting Composer remediation",
 		slog.String("file", a.filePath),
-		slog.Bool("dry_run", a.dryRun),
-		slog.Bool("use_alias", a.useAlias))
+		slog.Bool("dry_run", a.dryRun))
 
 	if _, err := os.Stat(a.filePath); err != nil {
 		return fmt.Errorf("file not found: %s", a.filePath)
@@ -154,12 +151,7 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 	affectedPackages := make([]string, 0, len(patches))
 
 	for _, patch := range patches {
-		var patchInfo rootio.PatchInfo
-		if a.useAlias {
-			patchInfo = patch.PatchAlias
-		} else {
-			patchInfo = patch.Patch
-		}
+		patchInfo := patch.Patch
 
 		updates[patch.PackageName] = patchInfo.Name + ":" + patchInfo.Version
 		affectedPackages = append(affectedPackages, patchInfo.Name)
@@ -223,20 +215,11 @@ func (a *App) reportDryRun(patches []rootio.PackagePatch) {
 	fmt.Printf("The following packages in %s would be updated:\n\n", a.filePath)
 
 	for i, patch := range patches {
-		var patchInfo rootio.PatchInfo
-		if a.useAlias {
-			patchInfo = patch.PatchAlias
-		} else {
-			patchInfo = patch.Patch
-		}
+		patchInfo := patch.Patch
 
 		fmt.Printf("%d. Package: %s\n", i+1, patch.PackageName)
 		fmt.Printf("   Current version: %s\n", patch.Version)
-		if a.useAlias && patchInfo.Name != patch.PackageName {
-			fmt.Printf("   Aliased package: %s @ %s\n", patchInfo.Name, patchInfo.Version)
-		} else {
-			fmt.Printf("   Patched version: %s\n", patchInfo.Version)
-		}
+		fmt.Printf("   Patched version: %s\n", patchInfo.Version)
 		if len(patch.CVEIDs) > 0 {
 			fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
 		}
