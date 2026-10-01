@@ -21,8 +21,7 @@ type OsExecutor interface {
 	InstallUpgrades(ctx context.Context, names []string) error
 	// InstallPatches installs Root.io packages.
 	// registryURL is provided for executors that need it for pinning (e.g. apt); others ignore it.
-	// useAlias controls whether the aliased (rootio-*) or original package name is installed.
-	InstallPatches(ctx context.Context, registryURL string, patches []rootio.PackagePatch, useAlias bool) error
+	InstallPatches(ctx context.Context, registryURL string, patches []rootio.PackagePatch) error
 	// RemoveRootioRepo removes the Root.io repository (and apt pin) and refreshes the index,
 	// so subsequent upgrades resolve only against the official distro repo. Called exactly
 	// once, after patches are installed.
@@ -62,7 +61,6 @@ type OsAppConfig[T any] struct {
 type OsApp[T any] struct {
 	pkgURL       string
 	dryRun       bool
-	useAlias     bool
 	skipUpgrades bool
 	ignoreSet    map[string]struct{}
 	logger       *slog.Logger
@@ -75,7 +73,6 @@ type OsApp[T any] struct {
 func NewOsApp[T any](
 	pkgURL string,
 	dryRun bool,
-	useAlias bool,
 	skipUpgrades bool,
 	ignoreSet map[string]struct{},
 	logger *slog.Logger,
@@ -87,7 +84,6 @@ func NewOsApp[T any](
 	return &OsApp[T]{
 		pkgURL:       pkgURL,
 		dryRun:       dryRun,
-		useAlias:     useAlias,
 		skipUpgrades: skipUpgrades,
 		ignoreSet:    ignoreSet,
 		logger:       logger,
@@ -101,7 +97,7 @@ func NewOsApp[T any](
 // Run executes the OS remediation workflow
 func (a *OsApp[T]) Run(ctx context.Context) error {
 	cfg := a.config
-	a.logger.DebugContext(ctx, "Starting "+cfg.Name+" remediation", slog.Bool("dry_run", a.dryRun), slog.Bool("use_alias", a.useAlias))
+	a.logger.DebugContext(ctx, "Starting "+cfg.Name+" remediation", slog.Bool("dry_run", a.dryRun))
 
 	// 1. Detect OS
 	osInfo, err := a.scanner.DetectOS(ctx)
@@ -166,7 +162,7 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 
 	// 6. Dry-run: print what would be done
 	if a.dryRun {
-		ReportOsDryRun(response, patches, upgradeNames, "rootio_patcher "+cfg.Name+" remediate --dry-run=false", a.useAlias)
+		ReportOsDryRun(response, patches, upgradeNames, "rootio_patcher "+cfg.Name+" remediate --dry-run=false")
 		return nil
 	}
 
@@ -180,7 +176,7 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 		}
 
 		fmt.Printf("\nInstalling %d Root.io patch(es)...\n", len(patches))
-		if err := a.executor.InstallPatches(ctx, registryURL, patches, a.useAlias); err != nil {
+		if err := a.executor.InstallPatches(ctx, registryURL, patches); err != nil {
 			return fmt.Errorf("patches failed: %w", err)
 		}
 

@@ -48,7 +48,6 @@ func TestNpmApp_UpdatePackageJSON_Npm(t *testing.T) {
 						PackageName: "lodash",
 						Version:     "4.17.20",
 						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21-root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21-root.io.1"},
 					},
 				},
 			}, nil
@@ -151,7 +150,6 @@ func TestNpmApp_UpdatePackageJSON_Yarn(t *testing.T) {
 						PackageName: "express",
 						Version:     "4.18.0",
 						Patch:       rootio.PatchInfo{Name: "express", Version: "4.18.2-root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/express", Version: "4.18.2-root.io.1"},
 					},
 				},
 			}, nil
@@ -249,7 +247,6 @@ func TestNpmApp_UpdatePackageJSON_Pnpm(t *testing.T) {
 						PackageName: "jest",
 						Version:     "29.0.0",
 						Patch:       rootio.PatchInfo{Name: "jest", Version: "29.5.0-root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/jest", Version: "29.5.0-root.io.1"},
 					},
 				},
 			}, nil
@@ -361,7 +358,6 @@ func TestNpmApp_AddOverrides_NoExistingOverrides(t *testing.T) {
 						PackageName: "lodash",
 						Version:     "4.17.20",
 						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21-root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21-root.io.1"},
 					},
 				},
 			}, nil
@@ -496,13 +492,11 @@ func TestNpmApp_AddOverrides_WithExistingOverrides(t *testing.T) {
 						PackageName: "lodash",
 						Version:     "4.17.20",
 						Patch:       rootio.PatchInfo{Name: "lodash", Version: "4.17.21-root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/lodash", Version: "4.17.21-root.io.1"},
 					},
 					{
 						PackageName: "express",
 						Version:     "4.18.0",
 						Patch:       rootio.PatchInfo{Name: "express", Version: "4.18.2-root.io.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/express", Version: "4.18.2-root.io.1"},
 					},
 				},
 			}, nil

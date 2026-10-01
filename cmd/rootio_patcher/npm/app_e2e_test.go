@@ -98,7 +98,6 @@ func runNonAliasedAxiosScenario(t *testing.T, packageManager, pkgName, version s
 						PackageName: pkgName,
 						Version:     version,
 						Patch:       axiosPatch,
-						PatchAlias:  rootio.PatchInfo{Name: "@rootio/axios", Version: axiosPatch.Version},
 					},
 				},
 			}, nil

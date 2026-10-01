@@ -23,7 +23,6 @@ type PackagePatch struct {
 	PackageName string    `json:"package_name"` // Currently installed package name
 	Version     string    `json:"version"`      // Currently installed version
 	Patch       PatchInfo `json:"patch"`        // Patch details
-	PatchAlias  PatchInfo `json:"patch_alias"`  // Root.io aliased package details
 	CVEIDs      []string  `json:"cve_ids"`      // Fixed CVEs
 }
 

@@ -16,7 +16,6 @@
 - 🔧 **One-Command Patching** - Applies security fixes with a single command
 - 🌍 **Cross-Platform** - Works on Linux, macOS, and Windows
 - 🔒 **Secure by Default** - Dry-run mode enabled by default to preview changes
-- 📦 **Alias Support** - Option to use Root.io aliased packages or direct patches
 - 🚀 **Zero Dependencies** - Single binary with no runtime dependencies
 - 🔬 **Detailed Reporting** - Clear output showing which vulnerabilities are fixed
 
@@ -107,7 +106,6 @@ rootio_patcher --help
 | Variable | Description | Default | Valid Values |
 |----------|-------------|---------|--------------|
 | `DRY_RUN` | Preview changes without applying them | `true` | `true`, `false` |
-| `USE_ALIAS` | Use Root.io aliased packages instead of direct patches | `true` | `true`, `false` |
 | `ROOTIO_API_URL` | Root.io API endpoint | `https://api.root.io` | Any URL |
 | `ROOTIO_PKG_URL` | Root.io package repository URL | `https://pkg.root.io` | Any URL |
 | `PYTHON_PATH` | Path to Python interpreter | `python` | `python`, `python3`, `/usr/bin/python3` |
@@ -127,16 +125,6 @@ Set to `false` to actually apply patches:
 ```bash
 DRY_RUN=false rootio_patcher
 ```
-
-#### `USE_ALIAS`
-
-Root.io provides two types of patches:
-
-- **Aliased Packages** (`USE_ALIAS=true`, default): Root.io maintains patched versions under a different package name (e.g., `rootio-django` instead of `django`). This allows for better tracking and rollback.
-
-- **Direct Patches** (`USE_ALIAS=false`): Patches are applied directly to the original package name.
-
-Most users should use the default aliased packages.
 
 #### `PYTHON_PATH`
 
@@ -271,15 +259,6 @@ Applying 2 patches...
   ✓ Successfully patched requests
 
 ✓ Successfully patched 2 packages!
-```
-
-### Use Direct Patches (No Aliases)
-
-Install patches using original package names:
-
-```bash
-export ROOTIO_API_KEY="your-api-key"
-DRY_RUN=false USE_ALIAS=false rootio_patcher
 ```
 
 ### Target Specific Python Environment

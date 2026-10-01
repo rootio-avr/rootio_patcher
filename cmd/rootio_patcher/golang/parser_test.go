@@ -138,12 +138,11 @@ require github.com/google/uuid v1.3.0
 		{
 			Module:         "github.com/google/uuid",
 			CurrentVersion: "v1.3.0",
-			AliasName:      "pkg.root.io/golang/github.com/google/uuid",
-			AliasVersion:   "v1.3.0-rootio.1",
+			NewVersion:     "v1.3.0-rootio.1",
 		},
 	})
 	require.NoError(t, err)
-	assert.True(t, containsLine(result, "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"))
+	assert.True(t, containsLine(result, "replace github.com/google/uuid v1.3.0 => github.com/google/uuid v1.3.0-rootio.1"))
 }
 
 func TestGoModParser_Patch_OverwritesExistingStandaloneReplace(t *testing.T) {
@@ -162,12 +161,11 @@ replace github.com/google/uuid v1.3.0 => old/replacement v1.3.0-old
 		{
 			Module:         "github.com/google/uuid",
 			CurrentVersion: "v1.3.0",
-			AliasName:      "pkg.root.io/golang/github.com/google/uuid",
-			AliasVersion:   "v1.3.0-rootio.1",
+			NewVersion:     "v1.3.0-rootio.1",
 		},
 	})
 	require.NoError(t, err)
-	assert.True(t, containsLine(result, "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"))
+	assert.True(t, containsLine(result, "replace github.com/google/uuid v1.3.0 => github.com/google/uuid v1.3.0-rootio.1"))
 	assert.False(t, containsLine(result, "replace github.com/google/uuid v1.3.0 => old/replacement v1.3.0-old"))
 }
 
@@ -189,12 +187,11 @@ replace (
 		{
 			Module:         "github.com/google/uuid",
 			CurrentVersion: "v1.3.0",
-			AliasName:      "pkg.root.io/golang/github.com/google/uuid",
-			AliasVersion:   "v1.3.0-rootio.1",
+			NewVersion:     "v1.3.0-rootio.1",
 		},
 	})
 	require.NoError(t, err)
-	assert.True(t, containsLine(result, "\tgithub.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"))
+	assert.True(t, containsLine(result, "\tgithub.com/google/uuid v1.3.0 => github.com/google/uuid v1.3.0-rootio.1"))
 	assert.False(t, strings.Contains(result, "old/replacement"))
 }
 
@@ -217,12 +214,11 @@ replace github.com/pkg/errors v0.9.1 => github.com/pkg/errors-fork v0.9.1
 		{
 			Module:         "github.com/google/uuid",
 			CurrentVersion: "v1.3.0",
-			AliasName:      "pkg.root.io/golang/github.com/google/uuid",
-			AliasVersion:   "v1.3.0-rootio.1",
+			NewVersion:     "v1.3.0-rootio.1",
 		},
 	})
 	require.NoError(t, err)
-	assert.True(t, containsLine(result, "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1"))
+	assert.True(t, containsLine(result, "replace github.com/google/uuid v1.3.0 => github.com/google/uuid v1.3.0-rootio.1"))
 	assert.True(t, containsLine(result, "replace github.com/pkg/errors v0.9.1 => github.com/pkg/errors-fork v0.9.1"))
 }
 

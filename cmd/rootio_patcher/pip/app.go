@@ -98,7 +98,7 @@ func (a *App) Run(ctx context.Context) error {
 	// 5. Execute or dry-run patches
 	if a.dryRun {
 		a.logger.DebugContext(ctx, "DRY-RUN MODE: No changes will be made")
-		a.reporter.ReportDryRun(response.Patches, false)
+		a.reporter.ReportDryRun(response.Patches)
 		return common.ErrPatchesAvailable
 	}
 

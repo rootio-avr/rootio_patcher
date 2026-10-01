@@ -32,15 +32,15 @@ func alpineScanner() *MockScanner {
 }
 
 func newTestApp(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun bool) *App {
-	return newTestAppFull(scanner, apiClient, runner, dryRun, true, false, nil)
+	return newTestAppFull(scanner, apiClient, runner, dryRun, false, nil)
 }
 
-func newTestAppFull(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, useAlias, skipUpgrades bool, ignoreSet map[string]struct{}) *App {
+func newTestAppFull(scanner *MockScanner, apiClient *MockAPIClient, runner *MockRunner, dryRun, skipUpgrades bool, ignoreSet map[string]struct{}) *App {
 	executor := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
 	executor.fs = mockFS{}
 	return NewAppWithServices(
 		"test-api-key", "https://pkg.root.io",
-		dryRun, useAlias, false, skipUpgrades, ignoreSet,
+		dryRun, false, skipUpgrades, ignoreSet,
 		logger(),
 		scanner, apiClient, executor,
 	)
@@ -122,7 +122,7 @@ func TestApp_Run_NoPatches(t *testing.T) {
 		},
 	}
 	// SkipUpgrades=true so that with no patches there is genuinely nothing to do.
-	app := newTestAppFull(alpineScanner(), apiClient, runner, false, true, true, nil)
+	app := newTestAppFull(alpineScanner(), apiClient, runner, false, true, nil)
 	require.NoError(t, app.Run(context.Background()))
 	assert.Empty(t, runner.Calls, "no commands should run when there is nothing to patch")
 }
@@ -157,7 +157,7 @@ func TestApp_Run_DryRun_NoCommands(t *testing.T) {
 					{
 						PackageName: "curl",
 						Version:     "8.5.0-r0",
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "8.5.0-r0.rootio.1"},
+						Patch:       rootio.PatchInfo{Name: "curl", Version: "8.5.0-r007"},
 						CVEIDs:      []string{"CVE-2024-1234"},
 					},
 				},
@@ -185,7 +185,7 @@ func TestApp_Run_OnlyUpgrades(t *testing.T) {
 	}
 	executor := NewExecutor("test-api-key", "https://pkg.root.io", logger(), runner)
 	executor.fs = spy
-	app := NewAppWithServices("test-api-key", "https://pkg.root.io", false, true, false, false, nil, logger(), alpineScanner(), apiClient, executor)
+	app := NewAppWithServices("test-api-key", "https://pkg.root.io", false, false, false, nil, logger(), alpineScanner(), apiClient, executor)
 	require.NoError(t, app.Run(context.Background()))
 
 	assert.True(t, runner.calledWith("apk", "apk", "update"), "apk update must run")
@@ -206,7 +206,7 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 					{
 						PackageName: "curl",
 						Version:     "8.5.0-r0",
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "8.5.0-r0.rootio.1"},
+						Patch:       rootio.PatchInfo{Name: "curl", Version: "8.5.0-r007"},
 					},
 				},
 			}, nil
@@ -217,8 +217,8 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 
 	// apk update must run
 	assert.True(t, runner.calledWith("apk", "apk", "update"), "apk update must run")
-	// alias must be installed via apk add --upgrade
-	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "rootio-curl"), "alias must be installed")
+	// patch must be installed under its original name via apk add --upgrade
+	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "curl"), "patch must be installed")
 	// broad upgrade runs by name (curl is patched, so only openssl remains)
 	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "openssl"), "non-patched package must be upgraded")
 }
@@ -258,9 +258,9 @@ func TestApp_Run_BlacklistedPackageSkipped(t *testing.T) {
 	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "openssl"), "non-blacklisted upgrade must still run")
 }
 
-// --- Non-aliased: installs original names ---
+// --- Patches install under original names ---
 
-func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
+func TestApp_Run_InstallsOriginalNames(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
@@ -270,34 +270,31 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 						PackageName: "curl",
 						Version:     "8.5.0-r0",
 						Patch:       rootio.PatchInfo{Name: "curl", Version: "8.5.0-r007"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "8.5.0-r007"},
 					},
 					{
 						PackageName: "openssl",
 						Version:     "3.1.4-r5",
 						Patch:       rootio.PatchInfo{Name: "openssl", Version: "3.1.4-r5007"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-openssl", Version: "3.1.4-r5007"},
 					},
 				},
 			}, nil
 		},
 	}
-	app := newTestAppFull(alpineScanner(), apiClient, runner, false, false, false, nil)
+	app := newTestAppFull(alpineScanner(), apiClient, runner, false, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 
 	// Must install under original names
 	assert.True(t, runner.calledWith("apk", "apk", "add", "--upgrade", "curl", "openssl"),
-		"non-aliased must install original package names")
+		"must install original package names")
 
-	// Must NOT install any rootio-* aliased name
 	for _, c := range runner.Calls {
 		for _, a := range c.Args {
-			assert.False(t, strings.HasPrefix(a, "rootio-"), "non-aliased mode must not use rootio-* package names, got %q", a)
+			assert.False(t, strings.HasPrefix(a, "rootio-"), "must not use rootio-* package names, got %q", a)
 		}
 	}
 }
 
-func TestApp_Run_NonAliased_DryRun_NoCommands(t *testing.T) {
+func TestApp_Run_DryRun_WithPatch_NoCommands(t *testing.T) {
 	runner := &MockRunner{}
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
@@ -307,13 +304,12 @@ func TestApp_Run_NonAliased_DryRun_NoCommands(t *testing.T) {
 						PackageName: "curl",
 						Version:     "8.5.0-r0",
 						Patch:       rootio.PatchInfo{Name: "curl", Version: "8.5.0-r007"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-curl", Version: "8.5.0-r007"},
 					},
 				},
 			}, nil
 		},
 	}
-	app := newTestAppFull(alpineScanner(), apiClient, runner, true, false, false, nil)
+	app := newTestAppFull(alpineScanner(), apiClient, runner, true, false, nil)
 	require.NoError(t, app.Run(context.Background()))
 	assert.Empty(t, runner.Calls, "dry-run must not execute any commands")
 }

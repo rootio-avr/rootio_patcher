@@ -181,7 +181,6 @@ rootio_patcher maven remediate [FLAGS]
 **Flags:**
 - `--file` - Path to pom.xml (default: `pom.xml`)
 - `--dry-run` - Preview changes without applying (default: `true`)
-- `--use-alias` - **Deprecated.** Rewrite to Root.io aliased groupIds (`io.root.io.*`) instead of keeping the original groupId (default: `false`)
 
 **How it works:** Pre-install patching - updates version numbers in `pom.xml`. After running, execute `mvn clean install` to apply patches.
 
@@ -194,14 +193,11 @@ rootio_patcher go remediate [FLAGS]
 **Flags:**
 - `--go-mod` - Path to go.mod (default: `go.mod`)
 - `--dry-run` - Preview changes without applying (default: `true`)
-- `--use-alias` - **Deprecated.** Use Root.io aliased modules (`pkg.root.io/*`) instead of original module paths (default: `false`)
 - `--report` - Write a JSON report of the remediated modules and the CVEs they fix to this path
 
-**How it works:** Pre-build patching — adds a version-pinned `replace` directive for each patched module, in one of two modes controlled by `--use-alias`:
-- `--use-alias=false` (default): `replace <module> <version> => <module> <patched-version>` — same module path on both sides, only the version is redirected. `go.mod`'s `require` line stays untouched; only a `replace` line is added.
-- `--use-alias=true` (deprecated): `replace <module> <version> => pkg.root.io/golang/<module> <patched-version>` — redirects to the aliased module under `pkg.root.io/...`.
+**How it works:** Pre-build patching — adds a version-pinned `replace <module> <version> => <module> <patched-version>` directive for each patched module. The module path is the same on both sides; only the version is redirected. `go.mod`'s `require` line stays untouched; only a `replace` line is added.
 
-In both modes, the tool automatically runs `go mod tidy` afterwards (using the Root.io `GOPROXY`), and `go mod vendor` if a vendor directory is present. After running, execute `go build ./...` to build with patched modules.
+The tool automatically runs `go mod tidy` afterwards (using the Root.io `GOPROXY`), and `go mod vendor` if a vendor directory is present. After running, execute `go build ./...` to build with patched modules.
 
 > **Note:** Only modules with pinned semver versions (e.g. `v1.2.3`) are analyzed. Modules using pseudo-versions are skipped.
 
@@ -229,14 +225,11 @@ rootio_patcher apt remediate [FLAGS]
 
 **Flags:**
 - `--dry-run` - Preview changes without applying (default: `true`)
-- `--use-alias` - Install Root.io aliased packages (`rootio-*`) or the original package names (default: `true`)
 - `--verbose` - Print each remediation step (default: `false`)
 
 **How it works:** Post-install patching — scans installed packages via `dpkg-query`, calls the Root.io API, then applies fixes in two ways:
 - **Upgrades**: packages patched via the official Debian/Ubuntu repository are upgraded with `apt-get install`
-- **Root.io patches**: packages requiring Root.io patches are installed from the Root.io APT repository, in one of two modes controlled by `--use-alias`:
-  - `--use-alias=false` (default): installs under the original package name (e.g. `curl`) from the Root.io repository, which is pinned at priority 1001 so APT prefers it over the upstream version
-  - `--use-alias=true` (deprecated): installs the aliased package (e.g. `rootio-curl` replaces `curl`)
+- **Root.io patches**: packages requiring Root.io patches are installed under their original name (e.g. `curl`) from the Root.io APT repository, which is pinned at priority 1001 so APT prefers it over the upstream version
 
 Requires `root`/`sudo` — intended to run inside containers or as part of a privileged build step.
 
@@ -248,14 +241,11 @@ rootio_patcher apk remediate [FLAGS]
 
 **Flags:**
 - `--dry-run` - Preview changes without applying (default: `true`)
-- `--use-alias` - Install Root.io aliased packages (`rootio-*`) or the original package names (default: `true`)
 - `--verbose` - Print each remediation step (default: `false`)
 
 **How it works:** Post-install patching — scans installed packages via `apk info -v`, calls the Root.io API, then applies fixes in two ways:
 - **Upgrades**: packages patched via the official Alpine repository are upgraded with `apk add --upgrade`
-- **Root.io patches**: packages requiring Root.io patches are installed from the Root.io APK repository, in one of two modes controlled by `--use-alias`:
-  - `--use-alias=false` (default): installs under the original package name (e.g. `curl`) directly from the Root.io repository
-  - `--use-alias=true` (deprecated): installs the aliased package (e.g. `rootio-curl`); APK handles replacement of the original via the `provides` mechanism
+- **Root.io patches**: packages requiring Root.io patches are installed under their original name (e.g. `curl`) directly from the Root.io APK repository
 
 Requires `root` — intended to run inside containers or as part of a privileged build step.
 
@@ -273,7 +263,7 @@ rootio_patcher microdnf remediate [FLAGS]
 - `--dry-run` - Preview changes without applying (default: `true`)
 - `--ignore` - Ignore package@version, or a bare package name to always skip (repeatable, comma-separated). Also merged with `.rootioignore` file.
 
-**How it works:** Root.io does not publish targeted patches for yum/dnf/microdnf, so these three commands never call the Root.io API and take no `ROOTIO_API_KEY`/`--use-alias` — they only scan installed packages (via `rpm -qa`) and upgrade every one of them to the latest version available from your configured repositories:
+**How it works:** Root.io does not publish targeted patches for yum/dnf/microdnf, so these three commands never call the Root.io API and take no `ROOTIO_API_KEY` — they only scan installed packages (via `rpm -qa`) and upgrade every one of them to the latest version available from your configured repositories:
 - `yum remediate` refreshes the metadata cache (`yum makecache`) then runs `yum update -y <names>`
 - `dnf remediate` refreshes the metadata cache (`dnf makecache`) then runs `dnf upgrade -y <names>`
 - `microdnf remediate` runs `microdnf upgrade -y --refresh <names>` (microdnf has no separate cache-refresh command, so `--refresh` is passed on the upgrade itself)
@@ -299,19 +289,9 @@ Set to `false` to actually apply patches:
 rootio_patcher pip remediate --dry-run=false
 ```
 
-#### `--use-alias` Flag (apt, apk, maven, nuget, go, composer) — deprecated
+#### Package names
 
-Root.io is retiring aliased packages (`rootio-curl`, `io.root.io.*`, `pkg.root.io/*`, …). Patches are installed under the **original** package name by default: the Root.io registry is still used — it is configured at a higher priority than the upstream repo so the patched version wins — but the installed package name stays `curl`, `openssl`, etc.
-
-`--use-alias=true` is still accepted for backwards compatibility and installs the aliased name where the API still returns a distinct one. Once the API returns `patch_alias` equal to `patch`, it behaves the same as the default.
-
-```bash
-# Default: original names, Root.io registry
-rootio_patcher apt remediate --dry-run=false
-rootio_patcher apk remediate --dry-run=false
-```
-
-**Removed for `pip` and `npm`:** patches are always installed under their original names. `--use-alias` is still accepted there for backwards compatibility — it is ignored, and passing it logs a warning instead of failing.
+Patches are always installed under the **original** package name (`curl`, `express`, `io.netty:netty-codec-http2`, …). The Root.io registry is configured at a higher priority than the upstream repo so the patched version wins. Root.io aliased packages (`rootio-curl`, `@rootio/*`, `io.root.io.*`, `pkg.root.io/*`, …) are retired, and the `--use-alias` flag has been removed: passing it fails with an unknown-flag error.
 
 #### `--python-path` Flag (pip only)
 
@@ -418,10 +398,10 @@ DRY-RUN MODE: No changes will be made
 
 The following packages can be patched:
 
-  Package: django 4.2.0 → 4.2.1 (rootio-django)
+  Package: django 4.2.0 → 4.2.1
     Fixes: CVE-2023-12345, CVE-2023-67890
 
-  Package: requests 2.28.0 → 2.28.2 (rootio-requests)
+  Package: requests 2.28.0 → 2.28.2
     Fixes: CVE-2023-11111
 
 Run with --dry-run=false to apply these patches.
@@ -475,12 +455,12 @@ The following overrides would be added to package.json:
 
 1. Package: express
    Current version: 4.17.1
-   Aliased package: npm:@rootio/express@4.17.3
+   Patched package: express@4.17.3
    CVEs Fixed: [CVE-2024-12345]
 
 2. Package: lodash
    Current version: 4.17.20
-   Aliased package: npm:@rootio/lodash@4.17.21
+   Patched package: lodash@4.17.21
    CVEs Fixed: [CVE-2024-67890]
 
 These will be added to package.json under "overrides" field
@@ -499,8 +479,8 @@ rootio_patcher npm remediate --package-manager=npm --dry-run=false
 ```
 Applying 2 patches to package.json...
 
-  - express: 4.17.1 → @rootio/express@4.17.3
-  - lodash: 4.17.20 → @rootio/lodash@4.17.21
+  - express@4.17.1 → express@4.17.3
+  - lodash@4.17.20 → lodash@4.17.21
 
 ✓ Successfully updated package.json with 2 overrides!
 
@@ -610,10 +590,10 @@ rootio_patcher go remediate
 === DRY-RUN MODE ===
 The following replace directives would be added to go.mod:
 
-1. replace golang.org/x/net v0.17.0 => rootio/golang.org/x/net v0.17.1
+1. replace golang.org/x/net v0.17.0 => golang.org/x/net v0.17.1
    CVEs Fixed: [CVE-2024-12345]
 
-2. replace github.com/golang-jwt/jwt/v4 v4.5.0 => rootio/github.com/golang-jwt/jwt/v4 v4.5.1
+2. replace github.com/golang-jwt/jwt/v4 v4.5.0 => github.com/golang-jwt/jwt/v4 v4.5.1
    CVEs Fixed: [CVE-2024-67890]
 
 To apply these patches:
@@ -631,8 +611,8 @@ rootio_patcher go remediate --dry-run=false
 ```
 Applying 2 patch(es) to go.mod...
 
-  - replace golang.org/x/net v0.17.0 => rootio/golang.org/x/net v0.17.1
-  - replace github.com/golang-jwt/jwt/v4 v4.5.0 => rootio/github.com/golang-jwt/jwt/v4 v4.5.1
+  - replace golang.org/x/net v0.17.0 => golang.org/x/net v0.17.1
+  - replace github.com/golang-jwt/jwt/v4 v4.5.0 => github.com/golang-jwt/jwt/v4 v4.5.1
 
 ✓ Successfully patched go.mod with 2 replace directive(s)!
 
@@ -646,29 +626,6 @@ Next steps:
 
 ```bash
 rootio_patcher go remediate --go-mod=./submodule/go.mod --dry-run=false
-```
-
-#### Non-Aliased Go Module Patching
-
-Preview and apply patches under the original module paths — `require` stays untouched, only a same-path `replace` directive is added:
-
-```bash
-rootio_patcher go remediate --use-alias=false
-rootio_patcher go remediate --use-alias=false --dry-run=false
-```
-
-**Output (apply):**
-```
-Adding 1 replace directive(s) to go.mod...
-
-  - replace github.com/google/uuid v1.3.0 => github.com/google/uuid v1.3.0-root.io.1
-
-✓ Successfully patched go.mod with 1 replace directive(s)!
-
-Next steps:
-  1. Review the changes in your go.mod
-  2. Run: go build ./...
-  3. Test your application
 ```
 
 ### Composer (PHP) Examples
@@ -735,7 +692,7 @@ rootio_patcher composer remediate --file=./subproject/composer.json --dry-run=fa
 
 The Maven patcher implements a comprehensive strategy to eliminate duplicate dependencies:
 
-1. **Direct dependencies**: Updates vulnerable packages to the Root.io patched version, keeping the original groupId (with the deprecated `--use-alias=true`, rewrites to the aliased groupId, e.g. `io.netty:netty-codec-http2` → `io.root.io.netty:netty-codec-http2`)
+1. **Direct dependencies**: Updates vulnerable packages to the Root.io patched version, keeping the original groupId
 
 2. **Transitive dependencies**: Explicitly adds Root.io patched versions for packages that are transitively included
 
@@ -909,7 +866,7 @@ jobs:
           go build ./...
 ```
 
-**Non-aliased mode:** add `--use-alias=false` to the `remediate` step in either option above. `go.mod`'s `require` lines stay unchanged; the patcher adds a same-path `replace` directive per patched module instead. `GOPROXY`/credentials must still be present when `go remediate` and the subsequent `go build`/`go mod tidy` run, since that's when the patched bytes are actually fetched and verified.
+`go.mod`'s `require` lines stay unchanged; the patcher adds a same-path `replace` directive per patched module. `GOPROXY`/credentials must still be present when `go remediate` and the subsequent `go build`/`go mod tidy` run, since that's when the patched bytes are actually fetched and verified.
 
 #### Maven Project
 
@@ -1330,7 +1287,6 @@ A reusable composite action is included in this repository. It wraps the vulnera
 | `package-manager` | No | `npm` | *(npm)* `npm`, `yarn`, or `pnpm` |
 | `directory` | No | `.` | *(npm)* Project directory containing the lock file |
 | `python-path` | No | `python` | *(pip)* Path to Python interpreter |
-| `use-alias` | No | `false` | *(apt, apk)* **Deprecated.** Install Root.io aliased packages (`rootio-*`) instead of original names |
 | `file` | No | `pom.xml` | *(maven)* Path to pom.xml; *(composer)* Path to composer.json |
 
 Advanced settings (`ROOTIO_API_URL`, `ROOTIO_PKG_URL`, `ROOTIO_PIP_INDEX_URL`, `LOG_LEVEL`) are not inputs — pass them as environment variables on the calling step instead:
@@ -1586,7 +1542,7 @@ Then contact Root.io support with the package details that caused the issue.
 1. **Discovery**: Parses lock file (`package-lock.json`, `yarn.lock`, or `pnpm-lock.yaml`) to identify dependencies
 2. **Analysis**: Sends package list to Root.io API to check for known vulnerabilities
 3. **Reporting**: Displays available patches with CVE information
-4. **Patching**: Updates `package.json` with overrides/resolutions pointing to Root.io aliased packages
+4. **Patching**: Updates `package.json` with overrides/resolutions pinning the Root.io patched versions
 5. **Installation**: User runs `npm/yarn/pnpm install` to apply the overrides
 
 ### Maven - Pre-Install Patching
@@ -1602,7 +1558,7 @@ Then contact Root.io support with the package details that caused the issue.
 1. **Discovery**: Parses `go.mod` to identify all required modules with pinned semver versions (pseudo-versions are skipped)
 2. **Analysis**: Sends the module list to Root.io API to check for known vulnerabilities
 3. **Reporting**: Displays `replace` directives that would be added with CVE information
-4. **Patching**: Adds `replace` directives to `go.mod` pointing to Root.io patched module aliases
+4. **Patching**: Adds `replace` directives to `go.mod` pinning each module to its Root.io patched version
 5. **Tidy**: Automatically runs `go mod tidy` (and `go mod vendor` if a vendor directory exists)
 6. **Build**: User runs `go build ./...` to compile with the patched modules
 
@@ -1623,7 +1579,7 @@ Then contact Root.io support with the package details that caused the issue.
 4. **Reporting**: Displays available upgrades and Root.io patches with CVE information
 5. **Patching**: Applies fixes in two steps:
    - Upgrades packages available via the official repository (`apt-get install`)
-   - Installs Root.io patches from the Root.io APT repository — either as aliased packages (e.g. `rootio-wget`) or under the original name (e.g. `wget`) depending on `--use-alias`
+   - Installs Root.io patches under the original name (e.g. `wget`) from the Root.io APT repository
 6. **Cleanup**: Removes the Root.io APT repository and clears apt caches
 
 ### APK (Alpine Linux) - Post-Install Patching
@@ -1634,7 +1590,7 @@ Then contact Root.io support with the package details that caused the issue.
 4. **Reporting**: Displays available upgrades and Root.io patches with CVE information
 5. **Patching**: Applies fixes in two steps:
    - Upgrades packages available via the official Alpine repository (`apk add --upgrade`)
-   - Installs Root.io patches from the Root.io APK repository — either as aliased packages (e.g. `rootio-curl`; APK handles replacement via `provides`) or under the original name (e.g. `curl`) depending on `--use-alias`
+   - Installs Root.io patches under the original name (e.g. `curl`) from the Root.io APK repository
 6. **Cleanup**: Removes the Root.io APK repository entry and public key
 
 ### yum / dnf / microdnf (RHEL/Fedora family) - Upgrade-Only

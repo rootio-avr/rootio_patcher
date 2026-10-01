@@ -70,22 +70,17 @@ func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 }
 
 // InstallPatches installs Root.io packages via `apk add --upgrade`.
-// When useAlias is true, rootio-* aliased packages are installed (APK replaces the originals via `provides`).
-// When useAlias is false, the original package name is installed from the Root.io registry (non-aliased path).
+// The original package name is installed from the Root.io registry.
 // registryURL is accepted to satisfy the OsExecutor interface but is unused by APK.
-func (e *Executor) InstallPatches(ctx context.Context, _ string, patches []rootio.PackagePatch, useAlias bool) error {
+func (e *Executor) InstallPatches(ctx context.Context, _ string, patches []rootio.PackagePatch) error {
 	if len(patches) == 0 {
 		return nil
 	}
 	var names []string
 	for _, p := range patches {
-		names = append(names, common.GetPatchInfo(p, useAlias).Name)
+		names = append(names, p.Patch.Name)
 	}
-	if useAlias {
-		e.logf("installing patch aliases", "packages", strings.Join(names, " "))
-	} else {
-		e.logf("installing non-aliased patches", "packages", strings.Join(names, " "))
-	}
+	e.logf("installing patches", "packages", strings.Join(names, " "))
 	args := append([]string{"add", "--upgrade"}, names...)
 	return e.runner.Run(ctx, "apk", args...)
 }

@@ -22,7 +22,6 @@ func TestMavenApp_Run_FileNotFound(t *testing.T) {
 		"https://api.root.io",
 		"/nonexistent/pom.xml",
 		true,
-		true,
 		nil,
 		logger,
 		&MockParser{},
@@ -58,7 +57,6 @@ func TestMavenApp_Run_NoPackages(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		pomFile,
-		true,
 		true,
 		nil,
 		logger,
@@ -112,7 +110,6 @@ func TestMavenApp_Run_APIError(t *testing.T) {
 		"https://api.root.io",
 		pomFile,
 		true,
-		true,
 		nil,
 		logger,
 		mockParser,
@@ -160,7 +157,6 @@ func TestMavenApp_Run_NoPatches(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		pomFile,
-		true,
 		true,
 		nil,
 		logger,
@@ -213,7 +209,6 @@ func TestMavenApp_Run_DryRun(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		pomFile,
-		true, // dry-run
 		true,
 		nil,
 		logger,
@@ -264,7 +259,6 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 						PackageName: "junit:junit",
 						Version:     "4.12",
 						Patch:       rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
-						PatchAlias:  rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
 						CVEIDs:      []string{"CVE-2020-15250"},
 					},
 				},
@@ -286,8 +280,7 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		pomFile,
-		false, // NOT dry-run
-		true,
+		false,
 		nil,
 		logger,
 		mockParser,
@@ -312,7 +305,7 @@ func TestMavenApp_Run_ApplyPatches(t *testing.T) {
 	}
 }
 
-func TestMavenApp_Run_ApplyPatches_UseAliasFalse(t *testing.T) {
+func TestMavenApp_Run_ApplyPatches_KeepsOriginalGroupID(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -340,7 +333,6 @@ func TestMavenApp_Run_ApplyPatches_UseAliasFalse(t *testing.T) {
 						PackageName: "junit:junit",
 						Version:     "4.12",
 						Patch:       rootio.PatchInfo{Name: "junit:junit", Version: "4.13.2"},
-						PatchAlias:  rootio.PatchInfo{Name: "io.root.io.junit:junit", Version: "4.13.2"},
 						CVEIDs:      []string{"CVE-2020-15250"},
 					},
 				},
@@ -362,8 +354,7 @@ func TestMavenApp_Run_ApplyPatches_UseAliasFalse(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		pomFile,
-		false, // NOT dry-run
-		false, // useAlias=false: keep original groupId
+		false,
 		nil,
 		logger,
 		mockParser,
@@ -375,16 +366,13 @@ func TestMavenApp_Run_ApplyPatches_UseAliasFalse(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	// Verify file was modified with the original groupId, not the alias
+	// Verify file was modified with the original groupId
 	updatedContent, err := os.ReadFile(pomFile)
 	if err != nil {
 		t.Fatalf("Failed to read file: %v", err)
 	}
 	if !strings.Contains(string(updatedContent), "<groupId>junit</groupId>") {
-		t.Error("File should keep original groupId 'junit' when useAlias=false")
-	}
-	if strings.Contains(string(updatedContent), "io.root.io.junit") {
-		t.Error("File should not contain aliased groupId when useAlias=false")
+		t.Error("File should keep original groupId 'junit'")
 	}
 	if !strings.Contains(string(updatedContent), "4.13.2") {
 		t.Error("File should contain patched version 4.13.2")
@@ -422,7 +410,6 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 						PackageName: "org.apache.logging.log4j:log4j-core",
 						Version:     "2.17.0",
 						Patch:       rootio.PatchInfo{Name: "org.apache.logging.log4j:log4j-core", Version: "2.17.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "org.apache.logging.log4j:log4j-core", Version: "2.17.1"},
 						CVEIDs:      []string{"CVE-2021-44832"},
 					},
 				},
@@ -444,8 +431,7 @@ func TestMavenApp_Run_ApplyPatchesWithProperties(t *testing.T) {
 		"test-key",
 		"https://api.root.io",
 		pomFile,
-		false, // NOT dry-run
-		true,
+		false,
 		nil,
 		logger,
 		mockParser,

@@ -143,7 +143,6 @@ func TestPipApp_Run_DryRunWithPatches(t *testing.T) {
 						PackageName: "django",
 						Version:     "4.0.0",
 						Patch:       rootio.PatchInfo{Name: "django", Version: "4.0.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-django", Version: "4.0.1"},
 						CVEIDs:      []string{"CVE-2023-1234"},
 					},
 				},
@@ -191,7 +190,6 @@ func TestPipApp_Run_ApplyPatches(t *testing.T) {
 						PackageName: "django",
 						Version:     "4.0.0",
 						Patch:       rootio.PatchInfo{Name: "django", Version: "4.0.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-django", Version: "4.0.1"},
 						CVEIDs:      []string{"CVE-2023-1234"},
 					},
 				},
@@ -237,7 +235,6 @@ func TestPipApp_Run_ApplyPatchError(t *testing.T) {
 						PackageName: "django",
 						Version:     "4.0.0",
 						Patch:       rootio.PatchInfo{Name: "django", Version: "4.0.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-django", Version: "4.0.1"},
 					},
 				},
 			}, nil
@@ -283,7 +280,6 @@ func TestPipApp_Run_PipPackageUsesSpecialHandler(t *testing.T) {
 						PackageName: "pip",
 						Version:     "21.0.0",
 						Patch:       rootio.PatchInfo{Name: "pip", Version: "21.3.0"},
-						PatchAlias:  rootio.PatchInfo{Name: "pip", Version: "21.3.0"},
 					},
 				},
 			}, nil
@@ -330,13 +326,11 @@ func TestPipApp_Run_MultiplePatches(t *testing.T) {
 						PackageName: "django",
 						Version:     "4.0.0",
 						Patch:       rootio.PatchInfo{Name: "django", Version: "4.0.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-django", Version: "4.0.1"},
 					},
 					{
 						PackageName: "flask",
 						Version:     "2.0.0",
 						Patch:       rootio.PatchInfo{Name: "flask", Version: "2.0.1"},
-						PatchAlias:  rootio.PatchInfo{Name: "rootio-flask", Version: "2.0.1"},
 					},
 				},
 			}, nil

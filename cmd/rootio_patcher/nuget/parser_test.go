@@ -175,7 +175,7 @@ func TestNuGetParser_UpdateCsproj(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Format: "aliasName:aliasVersion" — both name and version are rewritten
+	// Format: "newName:newVersion" — both name and version are rewritten
 	updates := map[string]string{
 		"Newtonsoft.Json": "Rootio.Newtonsoft.Json:13.0.1",
 	}
@@ -186,7 +186,7 @@ func TestNuGetParser_UpdateCsproj(t *testing.T) {
 	}
 
 	if !strings.Contains(result, `Include="Rootio.Newtonsoft.Json"`) {
-		t.Error("expected alias name Rootio.Newtonsoft.Json in result")
+		t.Error("expected new name Rootio.Newtonsoft.Json in result")
 	}
 	if !strings.Contains(result, `Version="13.0.1"`) {
 		t.Error("expected updated version 13.0.1 in result")
@@ -230,7 +230,7 @@ func TestNuGetParser_UpdateCsproj_ChildElement(t *testing.T) {
 	}
 
 	if !strings.Contains(result, `Include="Rootio.Newtonsoft.Json"`) {
-		t.Error("expected alias name in result")
+		t.Error("expected new name in result")
 	}
 	if !strings.Contains(result, `<Version>13.0.1</Version>`) {
 		t.Error("expected updated version in child element")
@@ -252,7 +252,7 @@ func TestNuGetParser_UpdatePackagesConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Format: "aliasName:aliasVersion" — both id and version are rewritten
+	// Format: "newName:newVersion" — both id and version are rewritten
 	updates := map[string]string{
 		"Newtonsoft.Json": "Rootio.Newtonsoft.Json:13.0.1",
 	}
@@ -263,7 +263,7 @@ func TestNuGetParser_UpdatePackagesConfig(t *testing.T) {
 	}
 
 	if !strings.Contains(result, `id="Rootio.Newtonsoft.Json"`) {
-		t.Error("expected alias name Rootio.Newtonsoft.Json in result")
+		t.Error("expected new name Rootio.Newtonsoft.Json in result")
 	}
 	if !strings.Contains(result, `version="13.0.1"`) {
 		t.Error("expected updated version 13.0.1 in result")

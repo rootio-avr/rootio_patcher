@@ -16,8 +16,7 @@ import (
 type GoModUpdate struct {
 	Module         string
 	CurrentVersion string
-	AliasName      string
-	AliasVersion   string
+	NewVersion     string
 }
 
 var (
@@ -96,10 +95,10 @@ func (p *goModParser) Patch(ctx context.Context, filePath string, updates []GoMo
 	}
 
 	for _, u := range updates {
-		if err := f.AddReplace(u.Module, u.CurrentVersion, u.AliasName, u.AliasVersion); err != nil {
+		if err := f.AddReplace(u.Module, u.CurrentVersion, u.Module, u.NewVersion); err != nil {
 			return "", fmt.Errorf("add replace for %s %s: %w", u.Module, u.CurrentVersion, err)
 		}
-		fmt.Printf("  - replace %s %s => %s %s\n", u.Module, u.CurrentVersion, u.AliasName, u.AliasVersion)
+		fmt.Printf("  - replace %s %s => %s %s\n", u.Module, u.CurrentVersion, u.Module, u.NewVersion)
 	}
 
 	out := modfile.Format(f.Syntax)

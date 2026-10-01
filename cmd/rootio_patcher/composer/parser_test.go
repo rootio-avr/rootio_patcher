@@ -153,26 +153,6 @@ func TestComposerParser_Update_TransitiveDep(t *testing.T) {
 	assert.Equal(t, "^1.0", req["vendor/direct"]) // untouched
 }
 
-func TestComposerParser_Update_AliasedPackage(t *testing.T) {
-	dir := t.TempDir()
-	writeFiles(t, dir, map[string]string{
-		"composer.json": `{"require":{"vendor/pkg":"^2.1.0"}}`,
-	})
-
-	p := newTestParser()
-	updated, err := p.Update(context.Background(), filepath.Join(dir, "composer.json"), map[string]string{
-		"vendor/pkg": "rootio/vendor-pkg:2.1.4-rootio",
-	})
-	require.NoError(t, err)
-
-	var result map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(updated), &result))
-	req := result["require"].(map[string]interface{})
-	assert.Equal(t, "2.1.4-rootio", req["rootio/vendor-pkg"])
-	_, originalStillPresent := req["vendor/pkg"]
-	assert.False(t, originalStillPresent)
-}
-
 func TestComposerParser_Update_InjectsRepository(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
