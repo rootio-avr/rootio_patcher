@@ -193,12 +193,12 @@ rootio_patcher go remediate [FLAGS]
 **Flags:**
 - `--go-mod` - Path to go.mod (default: `go.mod`)
 - `--dry-run` - Preview changes without applying (default: `true`)
-- `--use-alias` - Use Root.io aliased modules (`pkg.root.io/*`); set `false` to use original module paths (default: `true`)
+- `--use-alias` - Use Root.io aliased modules (`pkg.root.io/*`); set `false` to use original module paths (default: `false`)
 - `--report` - Write a JSON report of the remediated modules and the CVEs they fix to this path
 
 **How it works:** Pre-build patching — adds a version-pinned `replace` directive for each patched module, in one of two modes controlled by `--use-alias`:
-- `--use-alias=true` (default): `replace <module> <version> => pkg.root.io/golang/<module> <patched-version>` — redirects to the aliased module under `pkg.root.io/...`.
-- `--use-alias=false`: `replace <module> <version> => <module> <patched-version>` — same module path on both sides, only the version is redirected. `go.mod`'s `require` line stays untouched; only a `replace` line is added.
+- `--use-alias=true`: `replace <module> <version> => pkg.root.io/golang/<module> <patched-version>` — redirects to the aliased module under `pkg.root.io/...`.
+- `--use-alias=false` (default): `replace <module> <version> => <module> <patched-version>` — same module path on both sides, only the version is redirected. `go.mod`'s `require` line stays untouched; only a `replace` line is added.
 
 In both modes, the tool automatically runs `go mod tidy` afterwards (using the Root.io `GOPROXY`), and `go mod vendor` if a vendor directory is present. After running, execute `go build ./...` to build with patched modules.
 
@@ -228,14 +228,14 @@ rootio_patcher apt remediate [FLAGS]
 
 **Flags:**
 - `--dry-run` - Preview changes without applying (default: `true`)
-- `--use-alias` - Install Root.io aliased packages (`rootio-*`) or the original package names (default: `true`)
+- `--use-alias` - Install Root.io aliased packages (`rootio-*`) or the original package names (default: `false`)
 - `--verbose` - Print each remediation step (default: `false`)
 
 **How it works:** Post-install patching — scans installed packages via `dpkg-query`, calls the Root.io API, then applies fixes in two ways:
 - **Upgrades**: packages patched via the official Debian/Ubuntu repository are upgraded with `apt-get install`
 - **Root.io patches**: packages requiring Root.io patches are installed from the Root.io APT repository, in one of two modes controlled by `--use-alias`:
-  - `--use-alias=true` (default): installs the aliased package (e.g. `rootio-curl` replaces `curl`)
-  - `--use-alias=false`: installs under the original package name (e.g. `curl`) from the Root.io repository, which is pinned at priority 1001 so APT prefers it over the upstream version
+  - `--use-alias=true`: installs the aliased package (e.g. `rootio-curl` replaces `curl`)
+  - `--use-alias=false` (default): installs under the original package name (e.g. `curl`) from the Root.io repository, which is pinned at priority 1001 so APT prefers it over the upstream version
 
 Requires `root`/`sudo` — intended to run inside containers or as part of a privileged build step.
 
@@ -247,14 +247,14 @@ rootio_patcher apk remediate [FLAGS]
 
 **Flags:**
 - `--dry-run` - Preview changes without applying (default: `true`)
-- `--use-alias` - Install Root.io aliased packages (`rootio-*`) or the original package names (default: `true`)
+- `--use-alias` - Install Root.io aliased packages (`rootio-*`) or the original package names (default: `false`)
 - `--verbose` - Print each remediation step (default: `false`)
 
 **How it works:** Post-install patching — scans installed packages via `apk info -v`, calls the Root.io API, then applies fixes in two ways:
 - **Upgrades**: packages patched via the official Alpine repository are upgraded with `apk add --upgrade`
 - **Root.io patches**: packages requiring Root.io patches are installed from the Root.io APK repository, in one of two modes controlled by `--use-alias`:
-  - `--use-alias=true` (default): installs the aliased package (e.g. `rootio-curl`); APK handles replacement of the original via the `provides` mechanism
-  - `--use-alias=false`: installs under the original package name (e.g. `curl`) directly from the Root.io repository
+  - `--use-alias=true`: installs the aliased package (e.g. `rootio-curl`); APK handles replacement of the original via the `provides` mechanism
+  - `--use-alias=false` (default): installs under the original package name (e.g. `curl`) directly from the Root.io repository
 
 Requires `root` — intended to run inside containers or as part of a privileged build step.
 
@@ -302,9 +302,9 @@ rootio_patcher pip remediate --dry-run=false
 
 Root.io publishes each security patch under **two** package names: the original name (e.g. `curl`, `openssl`) and an aliased name with a `rootio-` prefix (e.g. `rootio-curl`, `rootio-openssl`). The `--use-alias` flag controls which variant the patcher installs.
 
-- **Aliased packages** (`--use-alias=true`, the default): Installs the `rootio-*` package name. The original package is replaced by the aliased one, which carries the patched binaries.
+- **Aliased packages** (`--use-alias=true`): Installs the `rootio-*` package name. The original package is replaced by the aliased one, which carries the patched binaries.
 
-- **Non-aliased packages** (`--use-alias=false`): Installs the patch under the **original** package name. The Root.io registry is still used — it is configured at a higher priority than the upstream repo so the patched version wins — but the installed package name stays `curl`, `openssl`, etc.
+- **Non-aliased packages** (`--use-alias=false`, the default): Installs the patch under the **original** package name. The Root.io registry is still used — it is configured at a higher priority than the upstream repo so the patched version wins — but the installed package name stays `curl`, `openssl`, etc.
 
 The non-aliased mode is useful when downstream tooling checks for the presence of the original package name, or when you want the package manifest to look unchanged after patching.
 
