@@ -309,7 +309,7 @@ func TestApp_Run_LowLevelPackage_UsesDpkg(t *testing.T) {
 // --- Non-aliased: installs original names, no alias dance ---
 
 func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
-	runner := &MockRunner{}
+	runner := &MockRunner{RunFunc: dpkgAlwaysNewer}
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
 			return &rootio.OsAnalyzeResponse{
@@ -335,11 +335,11 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 
 	// Must install under original names, with --force-overwrite (two Root.io
 	// patched packages can ship the same file, e.g. ROOT-SECURITY-RELEASE.md;
-	// without this flag dpkg aborts with a file-conflict error).
-	// No version pin: pin-priority 1001 for the rootio registry guarantees the
-	// rootio package wins, and avoids epoch-mismatch failures for packages like
-	// bsdutils/login where the API omits the epoch from Patch.Version.
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "curl", "openssl"),
+	// without this flag dpkg aborts with a file-conflict error). No
+	// --allow-downgrades: candidates that dpkg reports as older than the
+	// installed version are skipped client-side instead (see
+	// TestInstallPatches_NonAliased_SkipsDowngrade).
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "curl", "openssl"),
 		"non-aliased must install by name only, relying on pin-priority 1001")
 
 	// Must NOT install any rootio-* aliased name
@@ -356,7 +356,7 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 // patched packages can collide on a shared file (e.g. ROOT-SECURITY-RELEASE.md)
 // regardless of which naming flavor is installed.
 func TestApp_Run_NonAliased_ForceOverwriteMatchesAliasedPath(t *testing.T) {
-	runner := &MockRunner{}
+	runner := &MockRunner{RunFunc: dpkgAlwaysNewer}
 	apiClient := &MockAPIClient{
 		AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
 			return &rootio.OsAnalyzeResponse{
