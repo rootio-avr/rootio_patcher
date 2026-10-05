@@ -52,7 +52,7 @@ type AptCmd struct {
 // AptRemediateCmd remediates installed APT packages
 type AptRemediateCmd struct {
 	DryRun       bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias     bool     `default:"true" help:"Use Root.io aliased packages (rootio-*); set false to install under original names"`
+	UseAlias     bool     `default:"false" help:"Use Root.io aliased packages (rootio-*); set false to install under original names"`
 	Verbose      bool     `default:"false" help:"Print each remediation step"`
 	SkipUpgrades bool     `default:"false" help:"Skip the broad upstream upgrade; apply Root patches only"`
 	Ignore       []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
@@ -75,7 +75,7 @@ type ApkCmd struct {
 // ApkRemediateCmd remediates installed APK packages
 type ApkRemediateCmd struct {
 	DryRun       bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias     bool     `default:"true" help:"Use Root.io aliased packages (rootio-*); set false to install under original names"`
+	UseAlias     bool     `default:"false" help:"Use Root.io aliased packages (rootio-*); set false to install under original names"`
 	Verbose      bool     `default:"false" help:"Print each remediation step"`
 	SkipUpgrades bool     `default:"false" help:"Skip the broad upstream upgrade; apply Root patches only"`
 	Ignore       []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
@@ -213,7 +213,7 @@ type MavenCmd struct {
 type MavenRemediateCmd struct {
 	File     string   `default:"pom.xml" help:"Path to pom.xml"`
 	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"true" help:"Use Root.io aliased packages (io.root.io.*); set false to keep original groupId"`
+	UseAlias bool     `default:"false" help:"Use Root.io aliased packages (io.root.io.*); set false to keep original groupId"`
 	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
@@ -349,7 +349,7 @@ type NuGetRemediateCmd struct {
 	File      string   `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
 	Directory string   `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
 	DryRun    bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias  bool     `default:"true" help:"Use Root.io aliased packages; set false to keep original package names"`
+	UseAlias  bool     `default:"false" help:"Use Root.io aliased packages; set false to keep original package names"`
 	Ignore    []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
