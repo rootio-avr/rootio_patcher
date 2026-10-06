@@ -220,6 +220,22 @@ rootio_patcher composer remediate [FLAGS]
 
 > **CI/CD:** After patching, subsequent `composer install` runs in CI/CD require `COMPOSER_AUTH` to be set so Composer can authenticate with `pkg.root.io` to fetch patched packages. See the [Composer CI/CD example](#composer-php-project) below.
 
+#### Cargo (Rust)
+
+```bash
+rootio_patcher cargo remediate [FLAGS]
+```
+
+**Flags:**
+- `-C`, `--directory` - Workspace root containing `Cargo.toml` and `Cargo.lock` (default: `.`)
+- `--registry-url` - Base URL of the patched-crates registry (default: `$ROOTIO_PKG_URL/cargo`)
+- `--dry-run` - Preview changes without applying (default: `true`)
+- `--report` - Write a JSON report of the remediated crates and the CVEs they fix
+
+**How it works:** Pre-build patching — reads `Cargo.lock`, and for each crate with a Root.io patch (`X.Y.Z+aikido.N`) adds a `[patch.crates-io]` entry to the workspace-root `Cargo.toml` and a matching `[registries.<name>]` entry to `.cargo/config.toml`, then runs `cargo update -p <crate>@<version>`. Cargo ignores `+aikido.N` when resolving, so each patched revision is its own small registry. Direct and transitive dependencies are both covered.
+
+> **CI/CD:** cargo needs a token for each patched registry. The patcher prints the env vars to set, e.g. `CARGO_REGISTRIES_AIKIDO_ITOA_1_0_15_TOKEN="Basic $(printf 'root:%s' "$ROOTIO_API_KEY" | base64)"`. The token is never written to disk.
+
 #### APT (Debian/Ubuntu)
 
 ```bash

@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 
 	"github.com/alecthomas/kong"
 
 	"rootio_patcher/cmd/rootio_patcher/apk"
 	"rootio_patcher/cmd/rootio_patcher/apt"
+	"rootio_patcher/cmd/rootio_patcher/cargo"
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/cmd/rootio_patcher/composer"
 	"rootio_patcher/cmd/rootio_patcher/config"
@@ -37,6 +39,7 @@ type CLI struct {
 	Go       GoCmd       `cmd:"" help:"Go module remediation"`
 	Nuget    NuGetCmd    `cmd:"" help:"NuGet package remediation"`
 	Composer ComposerCmd `cmd:"" help:"Composer (PHP) package remediation"`
+	Cargo    CargoCmd    `cmd:"" help:"Cargo (Rust) crate remediation"`
 	Apt      AptCmd      `cmd:"" help:"APT (Debian/Ubuntu) OS-level package remediation"`
 	Apk      ApkCmd      `cmd:"" help:"APK (Alpine Linux) OS-level package remediation"`
 	Yum      YumCmd      `cmd:"" help:"yum (RHEL/CentOS) OS-level package upgrade"`
@@ -230,7 +233,7 @@ func run() int {
 	var cli CLI
 	kongCtx := kong.Parse(&cli,
 		kong.Name("rootio_patcher"),
-		kong.Description("Automated security patching for Python, npm, go, nuget and Maven packages with Root.io"),
+		kong.Description("Automated security patching for Python, npm, go, nuget, Maven, Composer and Cargo packages with Root.io"),
 		kong.UsageOnError(),
 		kong.Vars{"version": version},
 		kong.BindTo(ctx, (*context.Context)(nil)), // Bind context with interface type
@@ -376,6 +379,38 @@ func (cmd *ComposerRemediateCmd) Run(ctx context.Context, cfg *config.Config, lo
 	}
 
 	app := composer.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, filePath, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
+	return app.Run(ctx)
+}
+
+// CargoCmd handles Cargo-related commands
+type CargoCmd struct {
+	Remediate CargoRemediateCmd `cmd:"" help:"Remediate Rust crates (pre-build patching via [patch.crates-io])"`
+}
+
+// CargoRemediateCmd remediates Rust crates by patching Cargo.toml and .cargo/config.toml
+type CargoRemediateCmd struct {
+	Directory   string   `default:"." short:"C" help:"Workspace root containing Cargo.toml and Cargo.lock"`
+	RegistryURL string   `help:"Base URL of the patched-crates registry (default: $ROOTIO_PKG_URL/cargo)" name:"registry-url"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	Report      string   `help:"Write a JSON report of the remediated crates and the CVEs they fix to this path."`
+}
+
+// Run executes the cargo remediate command
+func (cmd *CargoRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	logger.InfoContext(ctx, "Starting Cargo remediation", slog.String("directory", cmd.Directory))
+
+	dir, err := filepath.Abs(cmd.Directory)
+	if err != nil {
+		return fmt.Errorf("invalid directory: %w", err)
+	}
+	registryURL := cmd.RegistryURL
+	if registryURL == "" {
+		registryURL = strings.TrimRight(cfg.PKGURL, "/") + "/cargo"
+	}
+
+	app := cargo.NewApp(cfg.APIKey, registryURL, dir, cmd.DryRun, cmd.Report, cmd.Ignore, logger,
+		rootio.NewClient(cfg.APIURL, cfg.APIKey), cargo.RealCommandRunner{})
 	return app.Run(ctx)
 }
 
