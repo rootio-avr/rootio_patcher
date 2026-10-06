@@ -267,6 +267,14 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 			return fmt.Errorf("failed to check direct dep for %s@%s: %w", patch.PackageName, patch.Version, err)
 		}
 
+		pin := false
+		if pp, ok := a.parser.(peerPinner); ok && !direct {
+			pin, err = pp.NeedsPeerPin(ctx, a.lockFilePath, patch.PackageName, patch.Version)
+			if err != nil {
+				return fmt.Errorf("failed to check peer consumers for %s@%s: %w", patch.PackageName, patch.Version, err)
+			}
+		}
+
 		overrides = append(overrides, ScopedOverride{
 			PackageName:   patch.PackageName,
 			Version:       patch.Version,
@@ -274,6 +282,7 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 			PatchInfo:     patch.Patch,
 			Parents:       parents,
 			RewriteDirect: direct,
+			PinDirect:     pin,
 		})
 		var scopes []string
 		if direct {
@@ -281,6 +290,9 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 		}
 		if len(parents) > 0 {
 			scopes = append(scopes, "under "+strings.Join(parents, ", "))
+		}
+		if pin {
+			scopes = append(scopes, "pinned direct: peer dependency")
 		}
 		if len(scopes) == 0 {
 			fmt.Printf("  - %s@%s → %s@%s\n", patch.PackageName, patch.Version, patch.Patch.Name, patch.Patch.Version)

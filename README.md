@@ -1594,6 +1594,8 @@ Then contact Root.io support with the package details that caused the issue.
 4. **Patching**: Updates `package.json` with overrides/resolutions pointing to Root.io aliased packages
 5. **Installation**: User runs `npm/yarn/pnpm install` to apply the overrides
 
+**npm peer-only consumers:** when the patched package is hoisted at the top level of `package-lock.json` and another package lists it as a (non-optional) `peerDependency`, the patcher also declares it as a direct dependency at the patched version. Without that, scoped overrides can leave only nested copies and the peer consumer fails with `Cannot find module`. An existing declaration in `package.json` is never overwritten.
+
 ### Maven - Pre-Install Patching
 
 1. **Discovery**: Parses `pom.xml` to identify dependencies
