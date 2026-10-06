@@ -42,6 +42,9 @@ type ScopedOverride struct {
 	PatchInfo     rootio.PatchInfo // Patch info for direct dep rewrites
 	Parents       []string
 	RewriteDirect bool
+	// PinDirect asks the parser to also declare the package as a direct
+	// dependency at Value, so a top-level copy survives for peer-only consumers.
+	PinDirect bool
 }
 
 // buildResolutionSetsWithDirect builds the sjson-path → value map for yarn
@@ -118,6 +121,12 @@ type npmParser interface {
 	// has RewriteDirect=true it also rewrites the dependencies/devDependencies
 	// entry for that package to the alias value.
 	UpdatePackageJSON(ctx context.Context, overrides []ScopedOverride, packageJSONPath string) error
+}
+
+// peerPinner is implemented by parsers whose lock file records peerDependencies
+// and where hoisting makes peer-only consumers fragile (npm).
+type peerPinner interface {
+	NeedsPeerPin(ctx context.Context, lockFilePath, packageName, version string) (bool, error)
 }
 
 // NewParser creates a default npm parser.

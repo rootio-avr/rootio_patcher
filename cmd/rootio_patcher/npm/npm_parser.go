@@ -57,6 +57,14 @@ type PackageLockEntry struct {
 	Dev             bool              `json:"dev,omitempty"`
 	Dependencies    map[string]string `json:"dependencies,omitempty"`
 	DevDependencies map[string]string `json:"devDependencies,omitempty"`
+
+	PeerDependencies     map[string]string      `json:"peerDependencies,omitempty"`
+	PeerDependenciesMeta map[string]PeerDepMeta `json:"peerDependenciesMeta,omitempty"`
+}
+
+// PeerDepMeta mirrors a peerDependenciesMeta entry.
+type PeerDepMeta struct {
+	Optional bool `json:"optional,omitempty"`
 }
 
 // DependencyEntry represents a dependency in the legacy "dependencies" section
@@ -264,6 +272,37 @@ func (p *NpmParser) FindParents(ctx context.Context, lockFilePath, packageName, 
 	return parents, nil
 }
 
+// NeedsPeerPin reports whether packageName@version is hoisted at the top level
+// and some package peer-depends on it (non-optionally). Peer dependencies are
+// not installed under --legacy-peer-deps, so such a consumer is only satisfied
+// by the hoisted copy. Scoped overrides make npm re-resolve the package as
+// nested copies and drop the hoisted one, leaving the consumer with
+// "Cannot find module" — the caller pins the package as a direct dependency to
+// keep a top-level copy.
+func (p *NpmParser) NeedsPeerPin(ctx context.Context, lockFilePath, packageName, version string) (bool, error) {
+	content, err := os.ReadFile(lockFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read file: %w", err)
+	}
+	var lockfile PackageLockJSON
+	if err := json.Unmarshal(content, &lockfile); err != nil {
+		return false, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+	topLevel, ok := lockfile.Packages["node_modules/"+packageName]
+	if !ok || topLevel.Version != version {
+		return false, nil
+	}
+	for pkgPath, pkgData := range lockfile.Packages {
+		if pkgPath == "" {
+			continue
+		}
+		if _, peers := pkgData.PeerDependencies[packageName]; peers && !pkgData.PeerDependenciesMeta[packageName].Optional {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // IsDirectVulnerable reports whether the root package declares packageName
 // as a direct dependency (in dependencies or devDependencies) AND the
 // resolved top-level copy is at the given version. The lock file's root
@@ -398,6 +437,13 @@ func buildNpmOverrideSets(overrides []ScopedOverride, packageJSONPath string) (m
 			sets[path] = ov.Value
 		}
 
+		// Keep a top-level copy for peer-only consumers (see NeedsPeerPin). Equal
+		// to the override value, so npm sees no EOVERRIDE conflict. An existing
+		// declaration of the package is never overwritten.
+		if ov.PinDirect && !declaresDirectly(pkgJsonContent, ov.PackageName) {
+			sets["dependencies."+escapeSjsonKey(ov.PackageName)] = ov.Value
+		}
+
 		if ov.RewriteDirect {
 			newPkgName := ov.PatchInfo.Name
 			newVersion := ov.PatchInfo.Version
@@ -492,4 +538,14 @@ func findNestedOverrideParents(pkgContent []byte, packageName, packageVersion st
 		return true
 	})
 	return result
+}
+
+// declaresDirectly reports whether package.json lists name in any dependency section.
+func declaresDirectly(pkgJSON []byte, name string) bool {
+	for _, field := range []string{"dependencies", "devDependencies", "optionalDependencies", "peerDependencies"} {
+		if gjsonGet(pkgJSON, field+"."+escapeSjsonKey(name)).Exists() {
+			return true
+		}
+	}
+	return false
 }
