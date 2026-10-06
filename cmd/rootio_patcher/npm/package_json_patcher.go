@@ -2,11 +2,13 @@ package npm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
 
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/pretty"
 	"github.com/tidwall/sjson"
 )
@@ -52,6 +54,13 @@ func (p *PackageJSONPatcher) Patch(ctx context.Context, opts PatchOptions) error
 		}
 	}
 
+	// A plain string override on a package ("router": "1.3.7") is a version pin. Adding a child
+	// override under it would make sjson replace the string with an object and lose the pin, so
+	// turn it into {".": "<pin>"} first. That is npm's syntax for "this package, plus these children".
+	for path := range opts.Sets {
+		content = keepStringOverridePins(content, path)
+	}
+
 	// Then apply sets
 	for path, value := range opts.Sets {
 		content, err = sjson.SetBytes(content, path, value)
@@ -91,4 +100,45 @@ func escapeSjsonKey(key string) string {
 	key = strings.ReplaceAll(key, `@`, `\@`)
 	key = strings.ReplaceAll(key, `.`, `\.`)
 	return key
+}
+
+// keepStringOverridePins rewrites every string override that sits on the way to path (below the
+// top-level "overrides" key) into {".": "<string>"}, so a nested set under it keeps the pin.
+func keepStringOverridePins(content []byte, path string) []byte {
+	segs := splitSjsonPath(path)
+	if len(segs) < 3 || segs[0] != npmOverridesPath {
+		return content
+	}
+	for n := 2; n < len(segs); n++ {
+		prefix := strings.Join(segs[:n], ".")
+		v := gjsonGet(content, prefix)
+		if v.Type != gjson.String {
+			continue
+		}
+		pin, err := json.Marshal(v.String())
+		if err != nil {
+			continue
+		}
+		if out, err := sjson.SetRawBytes(content, prefix, []byte(`{".":`+string(pin)+`}`)); err == nil {
+			content = out
+		}
+	}
+	return content
+}
+
+// splitSjsonPath splits an sjson path on its unescaped dots. Escapes stay in the segments, so
+// joining them with "." gives back a valid path.
+func splitSjsonPath(path string) []string {
+	var segs []string
+	start := 0
+	for i := 0; i < len(path); i++ {
+		switch path[i] {
+		case '\\':
+			i++
+		case '.':
+			segs = append(segs, path[start:i])
+			start = i + 1
+		}
+	}
+	return append(segs, path[start:])
 }
