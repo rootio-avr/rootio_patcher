@@ -41,6 +41,8 @@ func TestDeprecatedUseAliasIsAccepted(t *testing.T) {
 		{"npm bare", []string{"npm", "remediate", "--use-alias"}},
 		{"npm false", []string{"npm", "remediate", "--use-alias=false"}},
 		{"npm true", []string{"npm", "remediate", "--use-alias=true"}},
+		{"cargo bare", []string{"cargo", "remediate", "--use-alias"}},
+		{"cargo false", []string{"cargo", "remediate", "--use-alias=false"}},
 	}
 
 	for _, tc := range cases {

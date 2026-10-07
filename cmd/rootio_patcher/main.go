@@ -389,6 +389,7 @@ type CargoCmd struct {
 
 // CargoRemediateCmd remediates Rust crates by patching Cargo.toml and .cargo/config.toml
 type CargoRemediateCmd struct {
+	deprecatedUseAlias
 	Directory   string   `default:"." short:"C" help:"Workspace root containing Cargo.toml and Cargo.lock"`
 	RegistryURL string   `help:"Base URL of the patched-crates registry (default: $ROOTIO_PKG_URL/cargo)" name:"registry-url"`
 	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
