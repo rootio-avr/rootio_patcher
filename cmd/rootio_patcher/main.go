@@ -24,6 +24,7 @@ import (
 	"rootio_patcher/cmd/rootio_patcher/nuget"
 	"rootio_patcher/cmd/rootio_patcher/pip"
 	"rootio_patcher/cmd/rootio_patcher/rpm"
+	"rootio_patcher/cmd/rootio_patcher/ruby"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -40,6 +41,7 @@ type CLI struct {
 	Nuget    NuGetCmd    `cmd:"" help:"NuGet package remediation"`
 	Composer ComposerCmd `cmd:"" help:"Composer (PHP) package remediation"`
 	Cargo    CargoCmd    `cmd:"" help:"Cargo (Rust) crate remediation"`
+	Ruby     RubyCmd     `cmd:"" help:"RubyGems (Bundler) package remediation"`
 	Apt      AptCmd      `cmd:"" help:"APT (Debian/Ubuntu) OS-level package remediation"`
 	Apk      ApkCmd      `cmd:"" help:"APK (Alpine Linux) OS-level package remediation"`
 	Yum      YumCmd      `cmd:"" help:"yum (RHEL/CentOS) OS-level package upgrade"`
@@ -434,5 +436,34 @@ func (cmd *NuGetRemediateCmd) Run(ctx context.Context, cfg *config.Config, logge
 	}
 
 	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, path, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
+	return app.Run(ctx)
+}
+
+// RubyCmd handles RubyGems-related commands
+type RubyCmd struct {
+	Remediate RubyRemediateCmd `cmd:"" help:"Remediate RubyGems (patches Gemfile and runs bundle update)"`
+}
+
+// RubyRemediateCmd remediates gems by patching the Gemfile and Gemfile.lock
+type RubyRemediateCmd struct {
+	Directory string   `default:"." short:"C" help:"Project directory containing Gemfile and Gemfile.lock (defaults to current directory)"`
+	DryRun    bool     `default:"true" help:"Preview changes without applying them"`
+	Ignore    []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+}
+
+// Run executes the ruby remediate command
+func (cmd *RubyRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	logger.InfoContext(ctx, "Starting Ruby remediation")
+
+	dir, err := filepath.Abs(cmd.Directory)
+	if err != nil {
+		return fmt.Errorf("invalid directory: %w", err)
+	}
+
+	app := ruby.NewApp(
+		cfg.APIKey, cfg.PKGURL, dir, cmd.DryRun, cmd.Ignore, logger,
+		rootio.NewClient(cfg.APIURL, cfg.APIKey),
+		ruby.NewRealCommandRunner(),
+	)
 	return app.Run(ctx)
 }

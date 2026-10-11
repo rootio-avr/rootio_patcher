@@ -744,6 +744,31 @@ Next steps:
 rootio_patcher composer remediate --file=./subproject/composer.json --dry-run=false
 ```
 
+### Ruby (Bundler) Examples
+
+`ruby remediate` reads `Gemfile.lock`, asks Root.io which gems have patched builds, then edits the
+`Gemfile` and runs `bundle update <gems> --conservative`. Requires `bundle` on the PATH.
+
+```bash
+# Preview (exit code 2 when patches are available)
+rootio_patcher ruby remediate -C path/to/project
+
+# Apply
+rootio_patcher ruby remediate -C path/to/project --dry-run=false
+```
+
+Gems cannot be renamed, so patched builds keep the gem name and use a version with a reserved
+numeric marker (for example `1.2.4.41610.1`). Patched gems are pinned to `https://pkg.root.io/ruby`
+through an inline `source:` option. The Gemfile never contains credentials; Bundler reads them from
+the environment, so set this wherever you run `bundle install` afterwards:
+
+```bash
+export BUNDLE_PKG__ROOT__IO=root:<your_api_key>
+```
+
+If a gem's declaration can't be rewritten safely, or `bundle update` doesn't resolve the patched
+version, the command restores `Gemfile`/`Gemfile.lock` and exits with an error (no automatic fallback).
+
 ### Java (Maven) Support - Beta Status
 
 ⚠️ **Beta Notice**: Java support is currently in beta.

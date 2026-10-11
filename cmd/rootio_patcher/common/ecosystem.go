@@ -14,6 +14,7 @@ const (
 	EcosystemGolang   Ecosystem = "golang"
 	EcosystemNuGet    Ecosystem = "nuget"
 	EcosystemComposer Ecosystem = "composer"
+	EcosystemRuby     Ecosystem = "ruby"
 )
 
 // PackageInfo represents a package with its metadata
