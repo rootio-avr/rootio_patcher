@@ -206,6 +206,7 @@ type NpmRemediateCmd struct {
 	PackageManager string   `default:"npm" enum:"npm,yarn,pnpm" help:"Package manager to use (npm, yarn, or pnpm)"`
 	Directory      string   `default:"." short:"C" help:"Project directory containing the lock file and package.json (defaults to current directory)"`
 	DryRun         bool     `default:"true" help:"Preview changes without applying them"`
+	UpgradePlan    string   `name:"upgrade-plan" help:"JSON file of per-package upgrade or leave choices. When omitted, root-upgrade-plan.json in the project directory is used if present; a missing file keeps the Root API lookup."`
 	Ignore         []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
@@ -306,7 +307,7 @@ func (cmd *NpmRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 	}
 
 	app := npm.NewApp(cfg.APIKey, cfg.APIURL, cmd.PackageManager, dir, cmd.DryRun, cmd.Ignore, logger)
-	return app.Run(ctx)
+	return app.WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 }
 
 // Run executes the maven remediate command
