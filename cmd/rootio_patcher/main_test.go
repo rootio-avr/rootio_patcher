@@ -86,6 +86,19 @@ func TestUseAliasUnsetWhenOmitted(t *testing.T) {
 	}
 }
 
+func TestNpmUpgradePlanFlag(t *testing.T) {
+	cli, _, err := parseCLI(t, "npm", "remediate", "--upgrade-plan", "root-upgrade-plan.json", "--dry-run=false")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cli.Npm.Remediate.UpgradePlan; got != "root-upgrade-plan.json" {
+		t.Errorf("UpgradePlan = %q", got)
+	}
+	if cli.Npm.Remediate.DryRun {
+		t.Error("DryRun = true, want false")
+	}
+}
+
 // The deprecated flag should not be advertised in help output.
 func TestDeprecatedUseAliasHiddenFromHelp(t *testing.T) {
 	var cli CLI

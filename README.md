@@ -169,8 +169,20 @@ rootio_patcher npm remediate [FLAGS]
 - `--package-manager` - Package manager to use: `npm`, `yarn`, or `pnpm` (default: `npm`)
 - `--directory`, `-C` - Project directory containing the lock file and `package.json` (default: `.` — current directory)
 - `--dry-run` - Preview changes without applying (default: `true`)
+- `--upgrade-plan` - JSON file of final per-package choices. When omitted, `root-upgrade-plan.json` in the project directory is used if that file exists. A missing plan file keeps the Root API lookup.
 
 **How it works:** Pre-install patching - updates `package.json` with overrides/resolutions. After running, execute `npm install` to apply patches.
+
+When a plan file is present, npm remediate does not ask the Root API for a fix version. `action` `upgrade` installs `version`. `action` `leave` does not change the package. Entries for other ecosystems are ignored.
+
+```json
+{
+  "packages": [
+    {"ecosystem": "npm", "name": "lodash", "action": "upgrade", "version": "4.17.21", "reason": "no breaking API use found"},
+    {"ecosystem": "npm", "name": "left-pad", "action": "leave", "reason": "upgrade decision unknown"}
+  ]
+}
+```
 
 #### Maven
 
