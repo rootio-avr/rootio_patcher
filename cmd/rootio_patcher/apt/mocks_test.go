@@ -2,6 +2,7 @@ package apt
 
 import (
 	"context"
+	"errors"
 
 	"rootio_patcher/pkg/rootio"
 )
@@ -54,6 +55,17 @@ func (m *MockRunner) Run(ctx context.Context, name string, args ...string) error
 	m.Calls = append(m.Calls, CommandCall{Name: name, Args: args})
 	if m.RunFunc != nil {
 		return m.RunFunc(ctx, name, args...)
+	}
+	return nil
+}
+
+// dpkgAlwaysNewer is a MockRunner.RunFunc that reports every
+// `dpkg --compare-versions` probe as "not a downgrade" (candidate >= installed),
+// and no-ops every other command. Use in fixtures whose patch versions are
+// genuine upgrades, so the InstallPatches downgrade guard doesn't skip them.
+func dpkgAlwaysNewer(_ context.Context, name string, args ...string) error {
+	if name == "dpkg" && len(args) == 4 && args[0] == "--compare-versions" && args[2] == "lt" {
+		return errors.New("not older")
 	}
 	return nil
 }

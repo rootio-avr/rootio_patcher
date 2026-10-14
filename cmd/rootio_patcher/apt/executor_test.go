@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"rootio_patcher/pkg/rootio"
 )
 
 // errRunner always returns the configured error from Run.
@@ -17,8 +19,11 @@ type errRunner struct{ err error }
 func (r *errRunner) Run(_ context.Context, _ string, _ ...string) error { return r.err }
 
 // recordingRunner captures every command passed to Run for later assertion.
+// RunFunc, if set, overrides the default no-op-success behavior (used to stub
+// out real binaries like dpkg that aren't available on the test host).
 type recordingRunner struct {
-	cmds []recordedCmd
+	cmds    []recordedCmd
+	RunFunc func(ctx context.Context, name string, args ...string) error
 }
 
 type recordedCmd struct {
@@ -26,8 +31,11 @@ type recordedCmd struct {
 	args []string
 }
 
-func (r *recordingRunner) Run(_ context.Context, name string, args ...string) error {
+func (r *recordingRunner) Run(ctx context.Context, name string, args ...string) error {
 	r.cmds = append(r.cmds, recordedCmd{name: name, args: args})
+	if r.RunFunc != nil {
+		return r.RunFunc(ctx, name, args...)
+	}
 	return nil
 }
 
@@ -197,6 +205,74 @@ func TestHostFromURL(t *testing.T) {
 			t.Errorf("hostFromURL(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+// ---- InstallPatches (non-aliased) version-downgrade guard ----
+
+// stubDpkgCompare fakes `dpkg --compare-versions <a> lt <b>` using Go's own
+// string comparison on the fake test versions, so tests don't depend on dpkg
+// being installed on the test host.
+func stubDpkgCompare(olderVersions map[string]bool) func(ctx context.Context, name string, args ...string) error {
+	return func(_ context.Context, name string, args ...string) error {
+		if name == "dpkg" && len(args) == 4 && args[0] == "--compare-versions" && args[2] == "lt" {
+			if olderVersions[args[1]] {
+				return nil // exit 0: true, candidate is older
+			}
+			return errors.New("not older") // exit non-zero: false
+		}
+		return nil
+	}
+}
+
+// aptCmds filters out the dpkg --compare-versions probe calls, leaving only
+// the actual apt-get invocations for assertion.
+func aptCmds(cmds []recordedCmd) []recordedCmd {
+	var out []recordedCmd
+	for _, c := range cmds {
+		if c.name != "dpkg" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func TestInstallPatches_NonAliased_SkipsDowngrade(t *testing.T) {
+	rec := &recordingRunner{RunFunc: stubDpkgCompare(map[string]bool{
+		"3.5.6-1~deb13u2.aikido.2": true, // older than installed 3.5.7-1~deb13u2
+	})}
+	exec := NewExecutor("", "", false, rec)
+
+	patches := []rootio.PackagePatch{
+		// Installed is newer than the Root.io candidate: must be skipped.
+		{PackageName: "openssl", Version: "3.5.7-1~deb13u2", Patch: rootio.PatchInfo{Name: "openssl", Version: "3.5.6-1~deb13u2.aikido.2"}},
+		// Installed is older than the Root.io candidate: must be installed.
+		{PackageName: "gzip", Version: "1.13-1+deb13u1", Patch: rootio.PatchInfo{Name: "gzip", Version: "1.13-1.aikido.3"}},
+	}
+
+	err := exec.InstallPatches(context.Background(), "https://pkg.root.io/debian/trixie", patches, false)
+	require.NoError(t, err)
+
+	cmds := aptCmds(rec.cmds)
+	require.Len(t, cmds, 1, "expected exactly one apt-get invocation")
+	cmd := cmds[0].fullCmd()
+	assert.NotContains(t, cmd, "openssl", "downgrade candidate must not be installed")
+	assert.Contains(t, cmd, "gzip", "upgrade candidate must still be installed")
+	assert.NotContains(t, cmd, "--allow-downgrades", "guard makes --allow-downgrades unnecessary")
+}
+
+func TestInstallPatches_NonAliased_AllDowngrades_NoOp(t *testing.T) {
+	rec := &recordingRunner{RunFunc: stubDpkgCompare(map[string]bool{
+		"3.5.6-1~deb13u2.aikido.2": true,
+	})}
+	exec := NewExecutor("", "", false, rec)
+
+	patches := []rootio.PackagePatch{
+		{PackageName: "openssl", Version: "3.5.7-1~deb13u2", Patch: rootio.PatchInfo{Name: "openssl", Version: "3.5.6-1~deb13u2.aikido.2"}},
+	}
+
+	err := exec.InstallPatches(context.Background(), "https://pkg.root.io/debian/trixie", patches, false)
+	require.NoError(t, err)
+	assert.Empty(t, aptCmds(rec.cmds), "no apt-get call expected when every candidate is a downgrade")
 }
 
 func TestAuthMachine(t *testing.T) {
