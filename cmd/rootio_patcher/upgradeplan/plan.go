@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"rootio_patcher/pkg/rootio"
@@ -87,6 +88,7 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 	if err != nil {
 		return Selection{}, err
 	}
+	eco := strings.ToLower(strings.TrimSpace(ecosystem))
 	choices := make(map[entryKey]Entry, len(ordered))
 	for _, choice := range ordered {
 		choices[choice.key()] = choice
@@ -98,9 +100,10 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 	seen := make(map[string]struct{})
 	for _, pkg := range installed {
 		name := strings.TrimSpace(pkg.Name)
-		choice, ok := choices[entryKey{name: name, from: pkg.Version}]
+		normalized := normalizeName(eco, name)
+		choice, ok := choices[entryKey{name: normalized, from: pkg.Version}]
 		if !ok {
-			choice, ok = choices[entryKey{name: name}]
+			choice, ok = choices[entryKey{name: normalized}]
 		}
 		if !ok {
 			continue
@@ -137,7 +140,24 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 // entryKey identifies a plan entry. An empty from applies to every installed version of the name.
 type entryKey struct{ name, from string }
 
-func (e Entry) key() entryKey { return entryKey{name: e.Name, from: e.From} }
+func (e Entry) key() entryKey {
+	return entryKey{name: normalizeName(e.Ecosystem, e.Name), from: e.From}
+}
+
+// normalizeName reduces a package name to the form its ecosystem treats as identical.
+// pypi follows PEP 503; nuget and composer ignore case; npm, golang, maven and ruby are exact.
+func normalizeName(ecosystem, name string) string {
+	switch ecosystem {
+	case "pypi":
+		return pep503Separators.ReplaceAllString(strings.ToLower(name), "-")
+	case "nuget", "composer":
+		return strings.ToLower(name)
+	default:
+		return name
+	}
+}
+
+var pep503Separators = regexp.MustCompile(`[-_.]+`)
 
 // choicesFor returns the last plan entry per (name, from) for ecosystem.
 // Slice order is first-seen, so a later duplicate overrides the choice without moving it.

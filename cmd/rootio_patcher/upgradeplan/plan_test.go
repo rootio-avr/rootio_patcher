@@ -357,3 +357,71 @@ func TestLoad_FromField(t *testing.T) {
 		t.Fatalf("entry = %+v", plan.Packages[0])
 	}
 }
+
+func TestSplit_NamesMatchPerEcosystem(t *testing.T) {
+	cases := []struct {
+		ecosystem string
+		planName  string
+		installed string
+		matches   bool
+	}{
+		{"pypi", "jinja2", "Jinja2", true},
+		{"pypi", "Jinja2", "jinja2", true},
+		{"pypi", "typing_extensions", "typing-extensions", true},
+		{"pypi", "ruamel.yaml", "ruamel-yaml", true},
+		{"pypi", "a-_.b", "a--b", true},
+		{"pypi", "rootio_django", "rootio-django", true},
+		{"pypi", "jinja2", "jinja3", false},
+		{"nuget", "newtonsoft.json", "Newtonsoft.Json", true},
+		{"nuget", "Newtonsoft.Json", "Newtonsoft.Xml", false},
+		{"composer", "Monolog/Monolog", "monolog/monolog", true},
+		{"composer", "monolog/monolog", "monolog/other", false},
+		{"npm", "Lodash", "lodash", false},
+		{"npm", "lodash", "lodash", true},
+		{"golang", "github.com/Azure/go", "github.com/azure/go", false},
+		{"golang", "github.com/Azure/go", "github.com/Azure/go", true},
+		{"maven", "Junit:junit", "junit:junit", false},
+		{"maven", "junit:junit", "junit:junit", true},
+		{"ruby", "Rack", "rack", false},
+		{"ruby", "rack", "rack", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ecosystem+"/"+tc.planName+"/"+tc.installed, func(t *testing.T) {
+			plan := &Plan{Packages: []Entry{{Ecosystem: tc.ecosystem, Name: tc.planName, Action: "upgrade", Version: "9.9.9"}}}
+			got, err := plan.Split(tc.ecosystem, []Package{{Name: tc.installed, Version: "1.0.0"}})
+			if err != nil {
+				t.Fatalf("Split: %v", err)
+			}
+			if !tc.matches {
+				if len(got.Patches) != 0 || len(got.Ignore) != 0 {
+					t.Fatalf("result = %+v, want no match", got)
+				}
+				return
+			}
+			want := []rootio.PackagePatch{{
+				PackageName: tc.installed, Version: "1.0.0",
+				Patch: rootio.PatchInfo{Name: tc.installed, Version: "9.9.9"},
+			}}
+			if !reflect.DeepEqual(got.Patches, want) {
+				t.Fatalf("patches = %+v, want %+v (installed name emitted)", got.Patches, want)
+			}
+			if !reflect.DeepEqual(got.Ignore, []rootio.Package{{Name: tc.installed, Version: "1.0.0"}}) {
+				t.Fatalf("ignore = %+v, want installed name", got.Ignore)
+			}
+		})
+	}
+}
+
+func TestSplit_PipDuplicateEntriesUnderNormalizationLastWins(t *testing.T) {
+	plan := &Plan{Packages: []Entry{
+		{Ecosystem: "pypi", Name: "Jinja2", Action: "upgrade", Version: "3.1.3"},
+		{Ecosystem: "pypi", Name: "jinja2", Action: "upgrade", Version: "3.1.4"},
+	}}
+	got, err := plan.Split("pypi", []Package{{Name: "Jinja2", Version: "3.0.0"}})
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	if len(got.Patches) != 1 || got.Patches[0].Patch.Version != "3.1.4" {
+		t.Fatalf("patches = %+v, want the last entry", got.Patches)
+	}
+}
