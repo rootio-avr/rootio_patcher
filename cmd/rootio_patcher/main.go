@@ -368,10 +368,11 @@ type ComposerCmd struct {
 
 // ComposerRemediateCmd remediates Composer packages by patching composer.json
 type ComposerRemediateCmd struct {
-	File     string   `default:"composer.json" help:"Path to composer.json"`
-	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"false" help:"Use Root.io aliased packages"`
-	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	File        string   `default:"composer.json" help:"Path to composer.json"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias    bool     `default:"false" help:"Use Root.io aliased packages"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-package upgrades (action upgrade, exact version). Planned packages are patched to that version; all other packages use the Root API. When omitted, root-upgrade-plan.json next to composer.json is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // Run executes the composer remediate command
@@ -384,7 +385,7 @@ func (cmd *ComposerRemediateCmd) Run(ctx context.Context, cfg *config.Config, lo
 	}
 
 	app := composer.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, filePath, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
-	return app.Run(ctx)
+	return app.WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 }
 
 // CargoCmd handles Cargo-related commands
