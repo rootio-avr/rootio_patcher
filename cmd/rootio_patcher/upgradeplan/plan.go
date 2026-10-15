@@ -70,10 +70,23 @@ type Selection struct {
 	Patches []rootio.PackagePatch
 	// Ignore lists every planned installed package as name@installed so the Root API skips it.
 	Ignore []rootio.Package
-	// Absent names plan entries for this ecosystem whose package is not installed.
-	Absent []string
-	// Current names planned packages already installed at the plan version.
-	Current []string
+	// Skipped lists plan entries that change nothing: not installed, or already at the plan version.
+	Skipped []Skip
+}
+
+// Why a plan entry was skipped.
+const (
+	SkipNotInstalled     = "not installed"
+	SkipAlreadyAtVersion = "already at plan version"
+)
+
+// Skip is a plan entry that changes nothing. From is the installed version, or the entry's own
+// from (empty when the entry names none) when the package is not installed.
+type Skip struct {
+	Package string
+	From    string
+	To      string
+	Reason  string
 }
 
 // Split separates the installed packages the plan upgrades from the rest.
@@ -96,7 +109,6 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 
 	var sel Selection
 	matched := make(map[entryKey]struct{}, len(choices))
-	current := make(map[string]struct{})
 	seen := make(map[string]struct{})
 	for _, pkg := range installed {
 		name := strings.TrimSpace(pkg.Name)
@@ -117,10 +129,7 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 
 		sel.Ignore = append(sel.Ignore, rootio.Package{Name: name, Version: pkg.Version})
 		if pkg.Version == choice.Version {
-			if _, ok := current[name]; !ok {
-				current[name] = struct{}{}
-				sel.Current = append(sel.Current, name)
-			}
+			sel.Skipped = append(sel.Skipped, Skip{Package: name, From: pkg.Version, To: choice.Version, Reason: SkipAlreadyAtVersion})
 			continue
 		}
 		// The plan version is used verbatim under the installed name, so the alias form equals the patch form.
@@ -135,7 +144,7 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 	}
 	for _, choice := range ordered {
 		if _, ok := matched[choice.key()]; !ok {
-			sel.Absent = append(sel.Absent, choice.Name)
+			sel.Skipped = append(sel.Skipped, Skip{Package: choice.Name, From: choice.From, To: choice.Version, Reason: SkipNotInstalled})
 		}
 	}
 	return sel, nil
