@@ -115,6 +115,30 @@ func TestNpmApp_PlanForUninstalledPackageIsSkipped(t *testing.T) {
 	}
 }
 
+func TestNpmApp_LeaveActionIsRejected(t *testing.T) {
+	dir := t.TempDir()
+	lockFile := writeMinimalLock(t, dir)
+	writePlan(t, filepath.Join(dir, upgradeplan.DefaultFileName), `{
+	  "packages": [{"ecosystem": "npm", "name": "left-pad", "action": "leave"}]
+	}`)
+
+	app := newPlanApp(t, lockFile, true, &MockParser{
+		ParseFunc: func(context.Context, string) ([]common.PackageInfo, error) {
+			return []common.PackageInfo{{Name: "left-pad", Version: "1.3.0"}}, nil
+		},
+	}, &MockAPIClient{
+		AnalyzePackagesFunc: func(context.Context, []rootio.Package, []rootio.Package, string) (*rootio.AnalyzePackagesResponse, error) {
+			t.Error("AnalyzePackages called")
+			return &rootio.AnalyzePackagesResponse{}, nil
+		},
+	})
+
+	err := app.Run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), `action "leave"`) {
+		t.Fatalf("err = %v, want action leave error", err)
+	}
+}
+
 func TestNpmApp_MissingPlanKeepsAPI(t *testing.T) {
 	dir := t.TempDir()
 	lockFile := writeMinimalLock(t, dir)

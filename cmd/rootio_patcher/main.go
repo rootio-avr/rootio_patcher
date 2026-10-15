@@ -206,7 +206,7 @@ type NpmRemediateCmd struct {
 	PackageManager string   `default:"npm" enum:"npm,yarn,pnpm" help:"Package manager to use (npm, yarn, or pnpm)"`
 	Directory      string   `default:"." short:"C" help:"Project directory containing the lock file and package.json (defaults to current directory)"`
 	DryRun         bool     `default:"true" help:"Preview changes without applying them"`
-	UpgradePlan    string   `name:"upgrade-plan" help:"JSON file of per-package upgrade or leave choices. When omitted, root-upgrade-plan.json in the project directory is used if present; a missing file keeps the Root API lookup."`
+	UpgradePlan    string   `name:"upgrade-plan" help:"JSON file of per-package upgrades (action upgrade, exact version). Planned packages are patched to that version; all other packages use the Root API. When omitted, root-upgrade-plan.json in the project directory is used if present; a missing default file means no plan."`
 	Ignore         []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
