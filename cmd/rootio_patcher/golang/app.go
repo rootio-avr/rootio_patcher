@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
+	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -53,6 +54,8 @@ type App struct {
 	parser     GoModParser
 	apiClient  common.APIClient
 	cmdRunner  CommandRunner
+
+	upgradePlanPath string
 }
 
 // NewApp creates a new App with injected services.
@@ -85,6 +88,13 @@ func NewApp(
 // disables it.
 func (a *App) WithReport(path string) *App {
 	a.reportPath = path
+	return a
+}
+
+// WithUpgradePlan sets the upgrade plan file.
+// An empty path uses root-upgrade-plan.json next to go.mod when that file exists.
+func (a *App) WithUpgradePlan(path string) *App {
+	a.upgradePlanPath = path
 	return a
 }
 
@@ -140,11 +150,14 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
-	// 4. Call API
-	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "golang")
+	// 4. Planned upgrades plus Root API patches for everything else
+	plan, err := upgradeplan.Resolve(a.upgradePlanPath, filepath.Dir(a.goModPath))
 	if err != nil {
-		return fmt.Errorf("failed to analyze packages: %w", err)
+		return err
+	}
+	response, err := upgradeplan.Analyze(ctx, a.logger, a.apiClient, plan, "golang", sdkPackages, common.IgnoreListToPackages(a.ignoreSet))
+	if err != nil {
+		return err
 	}
 
 	a.logger.DebugContext(ctx, "Vulnerability analysis complete",
