@@ -452,9 +452,10 @@ type RubyCmd struct {
 
 // RubyRemediateCmd remediates gems by patching the Gemfile and Gemfile.lock
 type RubyRemediateCmd struct {
-	Directory string   `default:"." short:"C" help:"Project directory containing Gemfile and Gemfile.lock (defaults to current directory)"`
-	DryRun    bool     `default:"true" help:"Preview changes without applying them"`
-	Ignore    []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	Directory   string   `default:"." short:"C" help:"Project directory containing Gemfile and Gemfile.lock (defaults to current directory)"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-gem upgrades (action upgrade, exact version). Planned gems are patched to that version; all other gems use the Root API. When omitted, root-upgrade-plan.json in the project directory is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // Run executes the ruby remediate command
@@ -471,5 +472,5 @@ func (cmd *RubyRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger
 		rootio.NewClient(cfg.APIURL, cfg.APIKey),
 		ruby.NewRealCommandRunner(),
 	)
-	return app.Run(ctx)
+	return app.WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 }
