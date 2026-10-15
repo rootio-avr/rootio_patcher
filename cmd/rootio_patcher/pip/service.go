@@ -69,17 +69,6 @@ func (s *PipService) ListPackages(ctx context.Context) ([]common.InstalledPackag
 	return packages, nil
 }
 
-// packageSpec is the pip requirement that installs the patch version.
-// A planned patch uses PEP 440 arbitrary equality (===) so only that exact version string
-// matches: == 2.2.2 would also match the local version 2.2.2+root.io.1 and pip would pick the Root build.
-func packageSpec(patch rootio.PackagePatch) string {
-	operator := "=="
-	if patch.Planned {
-		operator = "==="
-	}
-	return patch.Patch.Name + operator + patch.Patch.Version
-}
-
 // ApplyPatch applies a single package patch (uninstall + install)
 func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) error {
 	// 1. Uninstall vulnerable package (original name)
@@ -97,7 +86,7 @@ func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) 
 		slog.String("version", patchInfo.Version))
 
 	indexURL := s.constructIndexURL()
-	packageSpec := packageSpec(patch)
+	packageSpec := common.PipRequirement(patch)
 
 	//nolint:gosec // Subprocess command is safe - using package names from our API
 	installCmd := exec.CommandContext(
@@ -123,7 +112,7 @@ func (s *PipService) ApplyPatchForPip(ctx context.Context, patch rootio.PackageP
 		slog.String("version", patchInfo.Version))
 
 	indexURL := s.constructIndexURL()
-	packageSpec := packageSpec(patch)
+	packageSpec := common.PipRequirement(patch)
 
 	//nolint:gosec // Subprocess command is safe - using package names from our API
 	installCmd := exec.CommandContext(
