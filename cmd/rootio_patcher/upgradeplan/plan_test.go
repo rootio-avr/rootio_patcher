@@ -233,3 +233,127 @@ func TestSplit_NilPlan(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestSplit_FromScopesEntryToInstalledVersion(t *testing.T) {
+	plan := &Plan{Packages: []Entry{
+		{Ecosystem: "npm", Name: "lodash", From: "4.17.15", Action: "upgrade", Version: "4.17.21"},
+	}}
+	installed := []Package{
+		{Name: "lodash", Version: "3.10.1"},
+		{Name: "lodash", Version: "4.17.15"},
+	}
+	got, err := plan.Split("npm", installed)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	wantPatches := []rootio.PackagePatch{
+		{PackageName: "lodash", Version: "4.17.15", Patch: rootio.PatchInfo{Name: "lodash", Version: "4.17.21"}},
+	}
+	if !reflect.DeepEqual(got.Patches, wantPatches) {
+		t.Fatalf("patches = %+v, want %+v", got.Patches, wantPatches)
+	}
+	if !reflect.DeepEqual(got.Ignore, []rootio.Package{{Name: "lodash", Version: "4.17.15"}}) {
+		t.Fatalf("ignore = %+v, want only the from version", got.Ignore)
+	}
+	if len(got.Absent) != 0 {
+		t.Fatalf("absent = %v, want none", got.Absent)
+	}
+}
+
+func TestSplit_FromNotInstalledIsAbsent(t *testing.T) {
+	plan := &Plan{Packages: []Entry{
+		{Ecosystem: "npm", Name: "lodash", From: "4.17.15", Action: "upgrade", Version: "4.17.21"},
+	}}
+	got, err := plan.Split("npm", []Package{{Name: "lodash", Version: "3.10.1"}})
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	if len(got.Patches) != 0 || len(got.Ignore) != 0 {
+		t.Fatalf("result = %+v, want nothing planned", got)
+	}
+	if !reflect.DeepEqual(got.Absent, []string{"lodash"}) {
+		t.Fatalf("absent = %v", got.Absent)
+	}
+}
+
+func TestSplit_SameNameDifferentFromAllApply(t *testing.T) {
+	plan := &Plan{Packages: []Entry{
+		{Ecosystem: "npm", Name: "lodash", From: "4.17.15", Action: "upgrade", Version: "4.17.21"},
+		{Ecosystem: "npm", Name: "lodash", From: "3.10.1", Action: "upgrade", Version: "3.10.2"},
+	}}
+	installed := []Package{
+		{Name: "lodash", Version: "3.10.1"},
+		{Name: "lodash", Version: "4.17.15"},
+		{Name: "lodash", Version: "2.0.0"},
+	}
+	got, err := plan.Split("npm", installed)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	wantPatches := []rootio.PackagePatch{
+		{PackageName: "lodash", Version: "3.10.1", Patch: rootio.PatchInfo{Name: "lodash", Version: "3.10.2"}},
+		{PackageName: "lodash", Version: "4.17.15", Patch: rootio.PatchInfo{Name: "lodash", Version: "4.17.21"}},
+	}
+	if !reflect.DeepEqual(got.Patches, wantPatches) {
+		t.Fatalf("patches = %+v, want %+v", got.Patches, wantPatches)
+	}
+	wantIgnore := []rootio.Package{{Name: "lodash", Version: "3.10.1"}, {Name: "lodash", Version: "4.17.15"}}
+	if !reflect.DeepEqual(got.Ignore, wantIgnore) {
+		t.Fatalf("ignore = %+v, want %+v", got.Ignore, wantIgnore)
+	}
+}
+
+func TestSplit_DuplicateNameAndFromLastWins(t *testing.T) {
+	plan := &Plan{Packages: []Entry{
+		{Ecosystem: "npm", Name: "lodash", From: "4.17.15", Action: "upgrade", Version: "4.17.20"},
+		{Ecosystem: "npm", Name: "lodash", From: "4.17.15", Action: "upgrade", Version: "4.17.21"},
+	}}
+	got, err := plan.Split("npm", []Package{{Name: "lodash", Version: "4.17.15"}})
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	if len(got.Patches) != 1 || got.Patches[0].Patch.Version != "4.17.21" {
+		t.Fatalf("patches = %+v, want the last entry", got.Patches)
+	}
+}
+
+func TestSplit_FromEntryBeatsAllVersionsEntry(t *testing.T) {
+	plan := &Plan{Packages: []Entry{
+		{Ecosystem: "npm", Name: "lodash", Action: "upgrade", Version: "4.17.21"},
+		{Ecosystem: "npm", Name: "lodash", From: "3.10.1", Action: "upgrade", Version: "3.10.2"},
+	}}
+	installed := []Package{{Name: "lodash", Version: "3.10.1"}, {Name: "lodash", Version: "4.17.15"}}
+	got, err := plan.Split("npm", installed)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	if len(got.Patches) != 2 || got.Patches[0].Patch.Version != "3.10.2" || got.Patches[1].Patch.Version != "4.17.21" {
+		t.Fatalf("patches = %+v", got.Patches)
+	}
+}
+
+func TestSplit_FromIsTrimmedAndEmptyFromAppliesToAll(t *testing.T) {
+	plan := &Plan{Packages: []Entry{{Ecosystem: "npm", Name: "lodash", From: " 4.17.15 ", Action: "upgrade", Version: "4.17.21"}}}
+	got, err := plan.Split("npm", []Package{{Name: "lodash", Version: "4.17.15"}})
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	if len(got.Patches) != 1 {
+		t.Fatalf("patches = %+v", got.Patches)
+	}
+}
+
+func TestLoad_FromField(t *testing.T) {
+	path := filepath.Join(t.TempDir(), DefaultFileName)
+	body := `{"packages":[{"ecosystem":"pypi","name":"ms","from":"2.0.0","action":"upgrade","version":"2.1.3"}]}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if plan.Packages[0].From != "2.0.0" {
+		t.Fatalf("entry = %+v", plan.Packages[0])
+	}
+}
