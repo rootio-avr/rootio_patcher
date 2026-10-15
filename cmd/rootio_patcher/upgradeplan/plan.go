@@ -123,10 +123,14 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 			}
 			continue
 		}
+		// The plan version is used verbatim under the installed name, so the alias form equals the patch form.
+		target := rootio.PatchInfo{Name: name, Version: choice.Version}
 		sel.Patches = append(sel.Patches, rootio.PackagePatch{
 			PackageName: name,
 			Version:     pkg.Version,
-			Patch:       rootio.PatchInfo{Name: name, Version: choice.Version},
+			Patch:       target,
+			PatchAlias:  target,
+			Planned:     true,
 		})
 	}
 	for _, choice := range ordered {
