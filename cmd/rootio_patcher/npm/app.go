@@ -2,7 +2,6 @@ package npm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -149,7 +148,7 @@ func (a *App) Run(ctx context.Context) error {
 		return nil
 	}
 
-	// 3. Use an upgrade plan when one is present. Otherwise ask the Root API.
+	// 3. Planned upgrades plus Root API patches for everything else.
 	response, err := a.analyze(ctx, packages)
 	if err != nil {
 		return err
@@ -189,81 +188,18 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
-// analyze returns patches from an upgrade plan when one is present.
-// A missing default plan file keeps the Root API lookup.
+// analyze merges the upgrade plan, when one is present, with the Root API lookup.
+// A missing default plan file keeps the Root API lookup alone.
 func (a *App) analyze(ctx context.Context, packages []common.PackageInfo) (*rootio.AnalyzePackagesResponse, error) {
-	plan, usingPlan, err := a.loadUpgradePlan()
+	plan, err := upgradeplan.Resolve(a.upgradePlanPath, filepath.Dir(a.lockFilePath))
 	if err != nil {
 		return nil, err
 	}
-	if !usingPlan {
-		sdkPackages := make([]rootio.Package, len(packages))
-		for i, pkg := range packages {
-			sdkPackages[i] = rootio.Package{
-				Name:    pkg.Name,
-				Version: pkg.Version,
-			}
-		}
-		a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-		response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "npm")
-		if err != nil {
-			return nil, fmt.Errorf("failed to analyze packages: %w", err)
-		}
-		return response, nil
-	}
-
-	installed := make([]upgradeplan.Package, len(packages))
+	sdkPackages := make([]rootio.Package, len(packages))
 	for i, pkg := range packages {
-		installed[i] = upgradeplan.Package{Name: pkg.Name, Version: pkg.Version}
+		sdkPackages[i] = rootio.Package{Name: pkg.Name, Version: pkg.Version}
 	}
-	decision, err := plan.Decide("npm", installed)
-	if err != nil {
-		return nil, err
-	}
-	a.logger.InfoContext(ctx, "Applying upgrade plan",
-		slog.String("path", a.resolvedUpgradePlanPath()),
-		slog.Int("upgrades", len(decision.Upgrades)),
-		slog.Int("leaves", len(decision.Leaves)),
-		slog.Int("ignored_ecosystems", len(decision.IgnoredEcosystems)),
-		slog.Any("ignored", decision.IgnoredEcosystems))
-	for _, upgrade := range decision.Upgrades {
-		a.logger.InfoContext(ctx, "Upgrade plan installs version",
-			slog.String("package", upgrade.Name),
-			slog.String("from", upgrade.InstalledVersion),
-			slog.String("version", upgrade.Version),
-			slog.String("reason", upgrade.Reason))
-	}
-	for _, leave := range decision.Leaves {
-		a.logger.InfoContext(ctx, "Upgrade plan leaves package unchanged",
-			slog.String("package", leave.Name),
-			slog.String("version", leave.InstalledVersion),
-			slog.String("reason", leave.Reason))
-	}
-	fmt.Printf("\nUsing upgrade plan (%d upgrade, %d leave); Root API not called\n", len(decision.Upgrades), len(decision.Leaves))
-	return decision.AnalyzeResponse(), nil
-}
-
-// loadUpgradePlan reads the plan when it is present.
-// The boolean is false only when the default file is absent.
-// An explicit --upgrade-plan path that is missing is an error.
-func (a *App) loadUpgradePlan() (*upgradeplan.Plan, bool, error) {
-	path := a.resolvedUpgradePlanPath()
-	explicit := a.upgradePlanPath != ""
-	plan, err := upgradeplan.Load(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) && !explicit {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("read upgrade plan %s: %w", path, err)
-	}
-	return plan, true, nil
-}
-
-func (a *App) resolvedUpgradePlanPath() string {
-	if a.upgradePlanPath != "" {
-		return a.upgradePlanPath
-	}
-	return filepath.Join(filepath.Dir(a.lockFilePath), upgradeplan.DefaultFileName)
+	return upgradeplan.Analyze(ctx, a.logger, a.apiClient, plan, "npm", sdkPackages, common.IgnoreListToPackages(a.ignoreSet))
 }
 
 // reportDryRun shows what would be changed without modifying files
