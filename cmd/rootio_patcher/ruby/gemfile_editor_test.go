@@ -107,3 +107,21 @@ func TestPatch_UnsupportedDeclarationErrors(t *testing.T) {
 	e := NewGemfileEditor("gem('rack', '~> 2.0')\n")
 	assert.Error(t, e.PatchDependency("rack", "2.2.4.41610.1"))
 }
+
+func TestPinDependency_ReplacesEveryConstraintWithAnExactPin(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"no declaration", "gem 'rails'\n", "gem 'rails'\n\ngem 'rack', '= 2.2.4'\n"},
+		{"no constraint", "gem 'rack'\n", "gem 'rack', '= 2.2.4'\n"},
+		{"loose", "gem 'rack', '>= 2.0'\n", "gem 'rack', '= 2.2.4'\n"},
+		{"pessimistic with upper", "gem 'rack', '~> 2.0', '< 3'\n", "gem 'rack', '= 2.2.4'\n"},
+		{"options kept", "gem 'rack', '~> 2.0', require: false\n", "gem 'rack', '= 2.2.4', require: false\n"},
+		{"git ref is not touched", "gem 'rack', git: 'https://github.com/rack/rack'\n", "gem 'rack', '= 2.2.4', git: 'https://github.com/rack/rack'\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := NewGemfileEditor(tc.in)
+			require.NoError(t, e.PinDependency("rack", "2.2.4"))
+			assert.Equal(t, tc.want, e.String())
+		})
+	}
+}
