@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
+	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -47,6 +48,8 @@ type App struct {
 	parser    common.Parser
 	apiClient common.APIClient
 	cmdRunner CommandRunner
+
+	upgradePlanPath string
 }
 
 // NewApp creates a new App with default injected services.
@@ -85,6 +88,13 @@ func NewAppWithServices(
 	}
 }
 
+// WithUpgradePlan sets the upgrade plan file.
+// An empty path uses root-upgrade-plan.json next to composer.json when that file exists.
+func (a *App) WithUpgradePlan(path string) *App {
+	a.upgradePlanPath = path
+	return a
+}
+
 // Run executes the Composer remediation workflow.
 func (a *App) Run(ctx context.Context) error {
 	a.logger.DebugContext(ctx, "Starting Composer remediation",
@@ -113,10 +123,13 @@ func (a *App) Run(ctx context.Context) error {
 		sdkPackages[i] = rootio.Package{Name: pkg.Name, Version: pkg.Version}
 	}
 
-	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "composer")
+	plan, err := upgradeplan.Resolve(a.upgradePlanPath, filepath.Dir(a.filePath))
 	if err != nil {
-		return fmt.Errorf("failed to analyze packages: %w", err)
+		return err
+	}
+	response, err := upgradeplan.Analyze(ctx, a.logger, a.apiClient, plan, "composer", sdkPackages, common.IgnoreListToPackages(a.ignoreSet))
+	if err != nil {
+		return err
 	}
 
 	a.logger.DebugContext(ctx, "Vulnerability analysis complete",

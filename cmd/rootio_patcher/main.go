@@ -189,9 +189,10 @@ type PipCmd struct {
 type PipRemediateCmd struct {
 	deprecatedUseAlias
 
-	PythonPath string   `default:"python" help:"Path to Python interpreter"`
-	DryRun     bool     `default:"true" help:"Preview changes without applying them"`
-	Ignore     []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	PythonPath  string   `default:"python" help:"Path to Python interpreter"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-package upgrades (action upgrade, exact version). Planned packages are installed at that exact version; all other packages use the Root API. When omitted, root-upgrade-plan.json in the current directory is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // NpmCmd handles npm-related commands
@@ -206,7 +207,7 @@ type NpmRemediateCmd struct {
 	PackageManager string   `default:"npm" enum:"npm,yarn,pnpm" help:"Package manager to use (npm, yarn, or pnpm)"`
 	Directory      string   `default:"." short:"C" help:"Project directory containing the lock file and package.json (defaults to current directory)"`
 	DryRun         bool     `default:"true" help:"Preview changes without applying them"`
-	UpgradePlan    string   `name:"upgrade-plan" help:"JSON file of per-package upgrade or leave choices. When omitted, root-upgrade-plan.json in the project directory is used if present; a missing file keeps the Root API lookup."`
+	UpgradePlan    string   `name:"upgrade-plan" help:"JSON file of per-package upgrades (action upgrade, exact version). Planned packages are patched to that version; all other packages use the Root API. When omitted, root-upgrade-plan.json in the project directory is used if present; a missing default file means no plan."`
 	Ignore         []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
@@ -217,10 +218,11 @@ type MavenCmd struct {
 
 // MavenRemediateCmd remediates Maven packages by patching pom.xml
 type MavenRemediateCmd struct {
-	File     string   `default:"pom.xml" help:"Path to pom.xml"`
-	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"false" help:"Use Root.io aliased packages (io.root.io.*); set false to keep original groupId"`
-	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	File        string   `default:"pom.xml" help:"Path to pom.xml"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias    bool     `default:"false" help:"Use Root.io aliased packages (io.root.io.*); set false to keep original groupId"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-package upgrades (action upgrade, exact version). Planned packages are patched to that version; all other packages use the Root API. When omitted, root-upgrade-plan.json next to the pom is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 func main() {
@@ -292,7 +294,7 @@ func (cmd *PipRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 	cmd.warnUseAliasIgnored(ctx, logger, "pip")
 
 	app := pip.NewApp(cfg, cmd.PythonPath, cmd.DryRun, cmd.Ignore, logger)
-	return app.Run(ctx)
+	return app.WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 }
 
 // Run executes the npm remediate command
@@ -315,7 +317,7 @@ func (cmd *MavenRemediateCmd) Run(ctx context.Context, cfg *config.Config, logge
 	logger.InfoContext(ctx, "Starting Maven remediation", slog.String("file", cmd.File), slog.Bool("use_alias", cmd.UseAlias))
 
 	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cmd.File, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
-	return app.Run(ctx)
+	return app.WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 }
 
 // GoCmd handles Go module commands
@@ -325,11 +327,12 @@ type GoCmd struct {
 
 // GoRemediateCmd remediates Go modules by adding replace directives to go.mod
 type GoRemediateCmd struct {
-	GoMod    string   `default:"go.mod" help:"Path to go.mod"`
-	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"false" help:"Use Root.io aliased modules (pkg.root.io/*); set false to use original module paths"`
-	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
-	Report   string   `help:"Write a JSON report of the remediated modules and the CVEs they fix to this path."`
+	GoMod       string   `default:"go.mod" help:"Path to go.mod"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias    bool     `default:"false" help:"Use Root.io aliased modules (pkg.root.io/*); set false to use original module paths"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-module upgrades (action upgrade, exact module version such as v0.17.0). Planned modules get a replace to that version; all other modules use the Root API. When omitted, root-upgrade-plan.json next to go.mod is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	Report      string   `help:"Write a JSON report of the remediated modules and the CVEs they fix to this path."`
 }
 
 // Run executes the go remediate command
@@ -341,7 +344,7 @@ func (cmd *GoRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *
 		golang.NewGoModParser(logger),
 		rootio.NewClient(cfg.APIURL, cfg.APIKey),
 		golang.NewRealCommandRunner(),
-	).WithReport(cmd.Report)
+	).WithReport(cmd.Report).WithUpgradePlan(cmd.UpgradePlan)
 	return app.Run(ctx)
 }
 
@@ -352,11 +355,12 @@ type NuGetCmd struct {
 
 // NuGetRemediateCmd remediates NuGet packages by patching manifest files
 type NuGetRemediateCmd struct {
-	File      string   `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
-	Directory string   `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
-	DryRun    bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias  bool     `default:"false" help:"Use Root.io aliased packages; set false to keep original package names"`
-	Ignore    []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	File        string   `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
+	Directory   string   `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias    bool     `default:"false" help:"Use Root.io aliased packages; set false to keep original package names"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-package upgrades (action upgrade, exact version). Planned packages are patched to that version; all other packages use the Root API. When omitted, root-upgrade-plan.json in the manifest directory is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // ComposerCmd handles Composer-related commands
@@ -366,10 +370,11 @@ type ComposerCmd struct {
 
 // ComposerRemediateCmd remediates Composer packages by patching composer.json
 type ComposerRemediateCmd struct {
-	File     string   `default:"composer.json" help:"Path to composer.json"`
-	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"false" help:"Use Root.io aliased packages"`
-	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	File        string   `default:"composer.json" help:"Path to composer.json"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias    bool     `default:"false" help:"Use Root.io aliased packages"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-package upgrades (action upgrade, exact version). Planned packages are patched to that version; all other packages use the Root API. When omitted, root-upgrade-plan.json next to composer.json is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // Run executes the composer remediate command
@@ -382,7 +387,7 @@ func (cmd *ComposerRemediateCmd) Run(ctx context.Context, cfg *config.Config, lo
 	}
 
 	app := composer.NewApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, filePath, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
-	return app.Run(ctx)
+	return app.WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 }
 
 // CargoCmd handles Cargo-related commands
@@ -437,7 +442,7 @@ func (cmd *NuGetRemediateCmd) Run(ctx context.Context, cfg *config.Config, logge
 	}
 
 	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, path, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
-	return app.Run(ctx)
+	return app.WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 }
 
 // RubyCmd handles RubyGems-related commands
@@ -447,9 +452,10 @@ type RubyCmd struct {
 
 // RubyRemediateCmd remediates gems by patching the Gemfile and Gemfile.lock
 type RubyRemediateCmd struct {
-	Directory string   `default:"." short:"C" help:"Project directory containing Gemfile and Gemfile.lock (defaults to current directory)"`
-	DryRun    bool     `default:"true" help:"Preview changes without applying them"`
-	Ignore    []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	Directory   string   `default:"." short:"C" help:"Project directory containing Gemfile and Gemfile.lock (defaults to current directory)"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-gem upgrades (action upgrade, exact version). Planned gems are patched to that version; all other gems use the Root API. When omitted, root-upgrade-plan.json in the project directory is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // Run executes the ruby remediate command
@@ -466,5 +472,5 @@ func (cmd *RubyRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger
 		rootio.NewClient(cfg.APIURL, cfg.APIKey),
 		ruby.NewRealCommandRunner(),
 	)
-	return app.Run(ctx)
+	return app.WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 }

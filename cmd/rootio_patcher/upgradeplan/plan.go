@@ -1,11 +1,12 @@
-// Package upgradeplan reads a fixer-written plan of per-package choices and
-// turns it into upgrade or leave decisions for one ecosystem.
+// Package upgradeplan reads a fixer-written plan of package upgrades and merges
+// it with the Root API result for one ecosystem.
 package upgradeplan
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"rootio_patcher/pkg/rootio"
@@ -17,18 +18,19 @@ const (
 	DefaultFileName = "root-upgrade-plan.json"
 
 	// ActionUpgrade installs the version named in the plan entry.
+	// It is the only action a plan accepts.
 	ActionUpgrade = "upgrade"
-	// ActionLeave does not change the package.
-	ActionLeave = "leave"
 )
 
 // Entry is one per-package choice in the plan file.
 type Entry struct {
 	Ecosystem string `json:"ecosystem"`
 	Name      string `json:"name"`
-	Action    string `json:"action"`
-	Version   string `json:"version,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	// From scopes the entry to the installed version it names. Empty applies to every installed version.
+	From    string `json:"from,omitempty"`
+	Action  string `json:"action"`
+	Version string `json:"version,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // Plan is the JSON document the image-rebuilder fixer writes.
@@ -36,34 +38,10 @@ type Plan struct {
 	Packages []Entry `json:"packages"`
 }
 
-// Package is an installed package the caller wants a decision for.
+// Package is an installed package the plan is matched against.
 type Package struct {
 	Name    string
 	Version string
-}
-
-// Upgrade is a package that should be installed at Version.
-type Upgrade struct {
-	Name             string
-	InstalledVersion string
-	Version          string
-	Reason           string
-}
-
-// Leave is an installed package the plan says not to change.
-type Leave struct {
-	Name             string
-	InstalledVersion string
-	Reason           string
-}
-
-// Result is the decision for one ecosystem.
-// Entries for every other ecosystem are listed in IgnoredEcosystems and do not fail the run.
-type Result struct {
-	Upgrades           []Upgrade
-	Leaves             []Leave
-	IgnoredEcosystems  []string
-	AbsentPackageNames []string
 }
 
 // Load reads a plan file. A missing path returns the os.ErrNotExist from the read.
@@ -86,151 +64,166 @@ func Load(path string) (*Plan, error) {
 	return &plan, nil
 }
 
-// Decide applies the plan to installed packages for ecosystem.
-// Only entries for that ecosystem are validated. Other ecosystems are ignored.
-// action upgrade installs that version; action leave does not change the package.
-// A package already at the upgrade version produces no upgrade.
-func (p *Plan) Decide(ecosystem string, installed []Package) (Result, error) {
+// Selection is the plan applied to one ecosystem's installed packages.
+type Selection struct {
+	// Patches move a planned package to the plan version, exactly as written in the plan.
+	Patches []rootio.PackagePatch
+	// Ignore lists every planned installed package as name@installed so the Root API skips it.
+	Ignore []rootio.Package
+	// Skipped lists plan entries that change nothing: not installed, or already at the plan version.
+	Skipped []Skip
+}
+
+// Why a plan entry was skipped.
+const (
+	SkipNotInstalled     = "not installed"
+	SkipAlreadyAtVersion = "already at plan version"
+)
+
+// Skip is a plan entry that changes nothing. From is the installed version, or the entry's own
+// from (empty when the entry names none) when the package is not installed.
+type Skip struct {
+	Package string
+	From    string
+	To      string
+	Reason  string
+}
+
+// Split separates the installed packages the plan upgrades from the rest.
+// Only entries for ecosystem are read; other ecosystems are neither validated nor used.
+// A planned package already at the plan version gets no patch but is still ignored,
+// so the Root API does not move it to a Root build.
+func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 	if p == nil {
-		return Result{}, fmt.Errorf("upgrade plan is nil")
+		return Selection{}, fmt.Errorf("upgrade plan is nil")
 	}
-
-	want := strings.ToLower(strings.TrimSpace(ecosystem))
-	ordered, ignored, err := p.choicesFor(want)
+	eco := canonicalEcosystem(ecosystem)
+	ordered, err := p.choicesFor(eco)
 	if err != nil {
-		return Result{}, err
+		return Selection{}, err
 	}
-	choices := make(map[string]Entry, len(ordered))
+	choices := make(map[entryKey]Entry, len(ordered))
 	for _, choice := range ordered {
-		choices[choice.Name] = choice
+		choices[choice.key()] = choice
 	}
 
-	result := Result{IgnoredEcosystems: ignored}
-	matched := make(map[string]struct{}, len(choices))
+	var sel Selection
+	matched := make(map[entryKey]struct{}, len(choices))
 	seen := make(map[string]struct{})
-
 	for _, pkg := range installed {
 		name := strings.TrimSpace(pkg.Name)
-		choice, ok := choices[name]
+		normalized := normalizeName(eco, name)
+		choice, ok := choices[entryKey{name: normalized, from: pkg.Version}]
+		if !ok {
+			choice, ok = choices[entryKey{name: normalized}]
+		}
 		if !ok {
 			continue
 		}
-		matched[name] = struct{}{}
+		matched[choice.key()] = struct{}{}
 		key := name + "\x00" + pkg.Version
 		if _, dup := seen[key]; dup {
 			continue
 		}
 		seen[key] = struct{}{}
 
-		switch choice.Action {
-		case ActionLeave:
-			result.Leaves = append(result.Leaves, Leave{
-				Name:             name,
-				InstalledVersion: pkg.Version,
-				Reason:           choice.Reason,
-			})
-		case ActionUpgrade:
-			if pkg.Version == choice.Version {
-				continue
-			}
-			result.Upgrades = append(result.Upgrades, Upgrade{
-				Name:             name,
-				InstalledVersion: pkg.Version,
-				Version:          choice.Version,
-				Reason:           choice.Reason,
-			})
-		}
-	}
-
-	for _, choice := range ordered {
-		if _, ok := matched[choice.Name]; ok {
+		sel.Ignore = append(sel.Ignore, rootio.Package{Name: name, Version: pkg.Version})
+		if pkg.Version == choice.Version {
+			sel.Skipped = append(sel.Skipped, Skip{Package: name, From: pkg.Version, To: choice.Version, Reason: SkipAlreadyAtVersion})
 			continue
 		}
-		result.AbsentPackageNames = append(result.AbsentPackageNames, choice.Name)
-	}
-	return result, nil
-}
-
-// AnalyzeResponse converts upgrade decisions into the remediate response shape.
-// Leave decisions are reported as skipped and are not patches.
-func (r Result) AnalyzeResponse() *rootio.AnalyzePackagesResponse {
-	resp := &rootio.AnalyzePackagesResponse{
-		Patches: make([]rootio.PackagePatch, 0, len(r.Upgrades)),
-		Skipped: make([]rootio.SkippedPackage, 0, len(r.Leaves)),
-	}
-	for _, upgrade := range r.Upgrades {
-		resp.Patches = append(resp.Patches, rootio.PackagePatch{
-			PackageName: upgrade.Name,
-			Version:     upgrade.InstalledVersion,
-			Patch: rootio.PatchInfo{
-				Name:    upgrade.Name,
-				Version: upgrade.Version,
-			},
+		// The plan version is used verbatim under the installed name, so the alias form equals the patch form.
+		target := rootio.PatchInfo{Name: name, Version: choice.Version}
+		sel.Patches = append(sel.Patches, rootio.PackagePatch{
+			PackageName: name,
+			Version:     pkg.Version,
+			Patch:       target,
+			PatchAlias:  target,
+			Planned:     true,
 		})
 	}
-	for _, leave := range r.Leaves {
-		reason := "leave"
-		if leave.Reason != "" {
-			reason = "leave: " + leave.Reason
+	for _, choice := range ordered {
+		if _, ok := matched[choice.key()]; !ok {
+			sel.Skipped = append(sel.Skipped, Skip{Package: choice.Name, From: choice.From, To: choice.Version, Reason: SkipNotInstalled})
 		}
-		resp.Skipped = append(resp.Skipped, rootio.SkippedPackage{
-			PackageName: leave.Name,
-			Reason:      reason,
-		})
 	}
-	return resp
+	return sel, nil
 }
 
-// choicesFor returns the last plan entry per package name for ecosystem.
+// canonicalEcosystem maps the rootio_patcher subcommand names pip and go onto the
+// API ecosystem names pypi and golang, so a plan may use either.
+func canonicalEcosystem(name string) string {
+	switch eco := strings.ToLower(strings.TrimSpace(name)); eco {
+	case "pip":
+		return "pypi"
+	case "go":
+		return "golang"
+	default:
+		return eco
+	}
+}
+
+// entryKey identifies a plan entry. An empty from applies to every installed version of the name.
+type entryKey struct{ name, from string }
+
+func (e Entry) key() entryKey {
+	return entryKey{name: normalizeName(e.Ecosystem, e.Name), from: e.From}
+}
+
+// normalizeName reduces a package name to the form its ecosystem treats as identical.
+// pypi follows PEP 503; nuget and composer ignore case; npm, golang, maven and ruby are exact.
+func normalizeName(ecosystem, name string) string {
+	switch ecosystem {
+	case "pypi":
+		return pep503Separators.ReplaceAllString(strings.ToLower(name), "-")
+	case "nuget", "composer":
+		return strings.ToLower(name)
+	default:
+		return name
+	}
+}
+
+var pep503Separators = regexp.MustCompile(`[-_.]+`)
+
+// choicesFor returns the last plan entry per (name, from) for ecosystem.
 // Slice order is first-seen, so a later duplicate overrides the choice without moving it.
-func (p *Plan) choicesFor(ecosystem string) ([]Entry, []string, error) {
+// Entries for other ecosystems are skipped without validation.
+func (p *Plan) choicesFor(ecosystem string) ([]Entry, error) {
 	var order []Entry
-	index := make(map[string]int)
-	var ignored []string
-	seenEco := make(map[string]struct{})
+	index := make(map[entryKey]int)
 
 	for i, entry := range p.Packages {
-		eco := strings.ToLower(strings.TrimSpace(entry.Ecosystem))
-		if eco != ecosystem {
-			if eco == "" {
-				continue
-			}
-			if _, ok := seenEco[eco]; !ok {
-				seenEco[eco] = struct{}{}
-				ignored = append(ignored, eco)
-			}
+		if canonicalEcosystem(entry.Ecosystem) != ecosystem {
 			continue
 		}
 
 		name := strings.TrimSpace(entry.Name)
 		if name == "" {
-			return nil, nil, fmt.Errorf("upgrade plan entry %d: package name is empty", i)
+			return nil, fmt.Errorf("upgrade plan entry %d: package name is empty", i)
 		}
 		action := strings.ToLower(strings.TrimSpace(entry.Action))
-		switch action {
-		case ActionUpgrade:
-			if strings.TrimSpace(entry.Version) == "" {
-				return nil, nil, fmt.Errorf("upgrade plan package %q: upgrade requires a version", name)
-			}
-		case ActionLeave:
-		default:
-			return nil, nil, fmt.Errorf("upgrade plan package %q: action %q is not upgrade or leave", name, strings.TrimSpace(entry.Action))
+		if action != ActionUpgrade {
+			return nil, fmt.Errorf("upgrade plan package %q: action %q is not supported, use %q", name, strings.TrimSpace(entry.Action), ActionUpgrade)
+		}
+		if strings.TrimSpace(entry.Version) == "" {
+			return nil, fmt.Errorf("upgrade plan package %q: upgrade requires a version", name)
 		}
 
 		stored := Entry{
-			Ecosystem: eco,
+			Ecosystem: ecosystem,
 			Name:      name,
+			From:      strings.TrimSpace(entry.From),
 			Action:    action,
 			Version:   strings.TrimSpace(entry.Version),
 			Reason:    strings.TrimSpace(entry.Reason),
 		}
-		if at, ok := index[name]; ok {
+		if at, ok := index[stored.key()]; ok {
 			order[at] = stored
 		} else {
-			index[name] = len(order)
+			index[stored.key()] = len(order)
 			order = append(order, stored)
 		}
 	}
 
-	return order, ignored, nil
+	return order, nil
 }

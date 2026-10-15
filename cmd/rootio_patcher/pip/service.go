@@ -20,10 +20,10 @@ import (
 type Service interface {
 	// ListPackages lists all installed packages
 	ListPackages(ctx context.Context) ([]common.InstalledPackage, error)
-	
+
 	// ApplyPatch applies a patch to a package (uninstall + install)
 	ApplyPatch(ctx context.Context, patch rootio.PackagePatch) error
-	
+
 	// ApplyPatchForPip applies a patch specifically for pip itself
 	ApplyPatchForPip(ctx context.Context, patch rootio.PackagePatch) error
 }
@@ -86,7 +86,7 @@ func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) 
 		slog.String("version", patchInfo.Version))
 
 	indexURL := s.constructIndexURL()
-	packageSpec := fmt.Sprintf("%s==%s", patchInfo.Name, patchInfo.Version)
+	packageSpec := common.PipRequirement(patch)
 
 	//nolint:gosec // Subprocess command is safe - using package names from our API
 	installCmd := exec.CommandContext(
@@ -112,7 +112,7 @@ func (s *PipService) ApplyPatchForPip(ctx context.Context, patch rootio.PackageP
 		slog.String("version", patchInfo.Version))
 
 	indexURL := s.constructIndexURL()
-	packageSpec := fmt.Sprintf("%s==%s", patchInfo.Name, patchInfo.Version)
+	packageSpec := common.PipRequirement(patch)
 
 	//nolint:gosec // Subprocess command is safe - using package names from our API
 	installCmd := exec.CommandContext(
