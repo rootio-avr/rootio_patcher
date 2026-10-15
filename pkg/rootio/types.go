@@ -25,6 +25,7 @@ type PackagePatch struct {
 	Patch       PatchInfo `json:"patch"`        // Patch details
 	PatchAlias  PatchInfo `json:"patch_alias"`  // Root.io aliased package details
 	CVEIDs      []string  `json:"cve_ids"`      // Fixed CVEs
+	Planned     bool      `json:"-"`            // Set when an upgrade plan, not the Root API, chose this patch
 }
 
 // SkippedPackage represents a package that was skipped during analysis
