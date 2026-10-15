@@ -63,7 +63,7 @@ func TestRun_PlannedGemIsIgnoredForAPIAndPatchedVerbatim(t *testing.T) {
 	assert.Equal(t, []rootio.Package{{Name: "rack", Version: "2.2.3"}}, api.ignore)
 	assert.Equal(t, []string{"bundle", "update", "rack", "nokogiri", "--conservative"}, r.args)
 	gemfile, _ := os.ReadFile(filepath.Join(dir, "Gemfile"))
-	assert.Contains(t, string(gemfile), "gem 'rack', '>= 2.2.4'")
+	assert.Contains(t, string(gemfile), "gem 'rack', '= 2.2.4'")
 	assert.Contains(t, string(gemfile), "gem 'nokogiri', '>= 1.15.0.41610.1', source: 'https://pkg.root.io/ruby'")
 }
 
@@ -95,4 +95,32 @@ func TestRun_DefaultPlanInProjectDirIsUsedAndMissingMeansNoPlan(t *testing.T) {
 	writePlan(t, filepath.Join(dir, upgradeplan.DefaultFileName), `{"packages": [{"ecosystem": "ruby", "name": "rack", "action": "upgrade", "version": "2.2.4"}]}`)
 	assert.ErrorIs(t, a.Run(context.Background()), common.ErrPatchesAvailable)
 	assert.Equal(t, []rootio.Package{{Name: "rack", Version: "2.2.3"}}, api.ignore)
+}
+
+func TestRun_PlannedNonRootVersionIsPinnedExactlyFromTheNormalSource(t *testing.T) {
+	dir := setup(t)
+	writePlan(t, filepath.Join(dir, "plan.json"), `{"packages": [{"ecosystem": "ruby", "name": "rack", "action": "upgrade", "version": "2.2.4"}]}`)
+	api := &recordingAPI{patches: []rootio.PackagePatch{nokogiriRootPatch()}}
+	r := &fakeRunner{lockOut: lockAfter("rack (2.2.3)", "rack (2.2.4)", "    nokogiri (1.15.0-x86_64-linux)\n", "", "nokogiri (1.15.0)\n", "nokogiri (1.15.0.41610.1)\n")}
+
+	require.NoError(t, planApp(dir, false, api, r).WithUpgradePlan(filepath.Join(dir, "plan.json")).Run(context.Background()))
+
+	assert.Len(t, api.packages, len(ParseLockfile(lock)))
+	assert.Equal(t, []rootio.Package{{Name: "rack", Version: "2.2.3"}}, api.ignore)
+	gemfile, _ := os.ReadFile(filepath.Join(dir, "Gemfile"))
+	assert.Contains(t, string(gemfile), "gem 'rack', '= 2.2.4'\n", "planned non-Root version: exact pin, no Root source")
+	assert.NotContains(t, string(gemfile), "gem 'rack', '= 2.2.4', source")
+	assert.Contains(t, string(gemfile), "gem 'nokogiri', '>= 1.15.0.41610.1', source: 'https://pkg.root.io/ruby'", "API patch keeps the Root source")
+	assert.Equal(t, []string{"bundle", "update", "rack", "nokogiri", "--conservative"}, r.args)
+}
+
+func TestRun_PlannedRootBuildIsPinnedExactlyToTheRootSource(t *testing.T) {
+	dir := setup(t)
+	writePlan(t, filepath.Join(dir, "plan.json"), `{"packages": [{"ecosystem": "ruby", "name": "rack", "action": "upgrade", "version": "2.2.3.41610.2"}]}`)
+	r := &fakeRunner{lockOut: lockAfter("rack (2.2.3)", "rack (2.2.3.41610.2)")}
+
+	require.NoError(t, planApp(dir, false, &recordingAPI{}, r).WithUpgradePlan(filepath.Join(dir, "plan.json")).Run(context.Background()))
+
+	gemfile, _ := os.ReadFile(filepath.Join(dir, "Gemfile"))
+	assert.Contains(t, string(gemfile), "gem 'rack', '= 2.2.3.41610.2', source: 'https://pkg.root.io/ruby'")
 }
