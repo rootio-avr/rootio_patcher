@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
+	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -46,6 +47,8 @@ type App struct {
 	apiClient common.APIClient
 	runner    CommandRunner
 	ignoreSet map[string]struct{}
+
+	upgradePlanPath string
 }
 
 // NewApp creates a new App with injected services.
@@ -62,6 +65,13 @@ func NewApp(
 		logger: logger, apiClient: apiClient, runner: runner,
 		ignoreSet: common.LoadIgnoreList(filepath.Join(dir, ".rootioignore"), ignoreEntries),
 	}
+}
+
+// WithUpgradePlan sets the upgrade plan file.
+// An empty path uses root-upgrade-plan.json in the project directory when that file exists.
+func (a *App) WithUpgradePlan(path string) *App {
+	a.upgradePlanPath = path
+	return a
 }
 
 // sourceURL is the gem index written into the Gemfile. It carries no credentials: the secret
@@ -111,9 +121,13 @@ func (a *App) Run(ctx context.Context) error {
 	for i, g := range gems {
 		pkgs[i] = rootio.Package{Name: g.Name, Version: g.Version}
 	}
-	resp, err := a.apiClient.AnalyzePackages(ctx, pkgs, common.IgnoreListToPackages(a.ignoreSet), "ruby")
+	plan, err := upgradeplan.Resolve(a.upgradePlanPath, a.dir)
 	if err != nil {
-		return fmt.Errorf("failed to analyze packages: %w", err)
+		return err
+	}
+	resp, err := upgradeplan.Analyze(ctx, a.logger, a.apiClient, plan, "ruby", pkgs, common.IgnoreListToPackages(a.ignoreSet))
+	if err != nil {
+		return err
 	}
 	a.logger.DebugContext(ctx, "Vulnerability analysis complete",
 		slog.Int("patches_available", len(resp.Patches)),
