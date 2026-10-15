@@ -52,3 +52,5 @@ Thumbs.db
 .worktrees/
 /rootio_patcher_testbed
 graphify-out/
+# Local scratch and mock runs
+tmp/
