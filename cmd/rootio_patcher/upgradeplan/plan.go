@@ -25,9 +25,11 @@ const (
 type Entry struct {
 	Ecosystem string `json:"ecosystem"`
 	Name      string `json:"name"`
-	Action    string `json:"action"`
-	Version   string `json:"version,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	// From scopes the entry to the installed version it names. Empty applies to every installed version.
+	From    string `json:"from,omitempty"`
+	Action  string `json:"action"`
+	Version string `json:"version,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // Plan is the JSON document the image-rebuilder fixer writes.
@@ -85,22 +87,25 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 	if err != nil {
 		return Selection{}, err
 	}
-	choices := make(map[string]Entry, len(ordered))
+	choices := make(map[entryKey]Entry, len(ordered))
 	for _, choice := range ordered {
-		choices[choice.Name] = choice
+		choices[choice.key()] = choice
 	}
 
 	var sel Selection
-	matched := make(map[string]struct{}, len(choices))
+	matched := make(map[entryKey]struct{}, len(choices))
 	current := make(map[string]struct{})
 	seen := make(map[string]struct{})
 	for _, pkg := range installed {
 		name := strings.TrimSpace(pkg.Name)
-		choice, ok := choices[name]
+		choice, ok := choices[entryKey{name: name, from: pkg.Version}]
+		if !ok {
+			choice, ok = choices[entryKey{name: name}]
+		}
 		if !ok {
 			continue
 		}
-		matched[name] = struct{}{}
+		matched[choice.key()] = struct{}{}
 		key := name + "\x00" + pkg.Version
 		if _, dup := seen[key]; dup {
 			continue
@@ -122,19 +127,24 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 		})
 	}
 	for _, choice := range ordered {
-		if _, ok := matched[choice.Name]; !ok {
+		if _, ok := matched[choice.key()]; !ok {
 			sel.Absent = append(sel.Absent, choice.Name)
 		}
 	}
 	return sel, nil
 }
 
-// choicesFor returns the last plan entry per package name for ecosystem.
+// entryKey identifies a plan entry. An empty from applies to every installed version of the name.
+type entryKey struct{ name, from string }
+
+func (e Entry) key() entryKey { return entryKey{name: e.Name, from: e.From} }
+
+// choicesFor returns the last plan entry per (name, from) for ecosystem.
 // Slice order is first-seen, so a later duplicate overrides the choice without moving it.
 // Entries for other ecosystems are skipped without validation.
 func (p *Plan) choicesFor(ecosystem string) ([]Entry, error) {
 	var order []Entry
-	index := make(map[string]int)
+	index := make(map[entryKey]int)
 
 	for i, entry := range p.Packages {
 		if strings.ToLower(strings.TrimSpace(entry.Ecosystem)) != ecosystem {
@@ -156,14 +166,15 @@ func (p *Plan) choicesFor(ecosystem string) ([]Entry, error) {
 		stored := Entry{
 			Ecosystem: ecosystem,
 			Name:      name,
+			From:      strings.TrimSpace(entry.From),
 			Action:    action,
 			Version:   strings.TrimSpace(entry.Version),
 			Reason:    strings.TrimSpace(entry.Reason),
 		}
-		if at, ok := index[name]; ok {
+		if at, ok := index[stored.key()]; ok {
 			order[at] = stored
 		} else {
-			index[name] = len(order)
+			index[stored.key()] = len(order)
 			order = append(order, stored)
 		}
 	}
