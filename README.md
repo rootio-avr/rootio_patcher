@@ -156,6 +156,7 @@ rootio_patcher pip remediate [FLAGS]
 **Flags:**
 - `--python-path` - Path to Python interpreter (default: `python`)
 - `--dry-run` - Preview changes without applying (default: `true`)
+- `--upgrade-plan` - JSON file of per-package upgrades; default `root-upgrade-plan.json` in the current directory when present. See [Upgrade plans](#upgrade-plans).
 
 **How it works:** Post-install patching - scans installed packages and reinstalls them with Root.io patches, always under the original package name
 
@@ -169,20 +170,11 @@ rootio_patcher npm remediate [FLAGS]
 - `--package-manager` - Package manager to use: `npm`, `yarn`, or `pnpm` (default: `npm`)
 - `--directory`, `-C` - Project directory containing the lock file and `package.json` (default: `.` — current directory)
 - `--dry-run` - Preview changes without applying (default: `true`)
-- `--upgrade-plan` - JSON file of per-package upgrades. When omitted, `root-upgrade-plan.json` in the project directory is used if that file exists. A missing default file means no plan; an explicit path that does not exist is an error.
+- `--upgrade-plan` - JSON file of per-package upgrades. When omitted, `root-upgrade-plan.json` in the project directory is used if that file exists. A missing default file means no plan; an explicit path that does not exist is an error. See [Upgrade plans](#upgrade-plans).
 
 **How it works:** Pre-install patching - updates `package.json` with overrides/resolutions. After running, execute `npm install` to apply patches.
 
-When a plan file is present, npm remediate merges it with the Root API result. An installed package named in the plan is patched to the plan `version` exactly as written (`1.6.0`, `4.17.21-aikido.2`, `2.2.2+root.io.1`). Every other package goes to the Root API, with each planned package sent as an `ignore` entry (`name@installed`). Both lists are applied together. `action` must be `upgrade`; any other value is an error. A planned package that is not installed is logged and skipped. Entries for other ecosystems are ignored.
-
-```json
-{
-  "packages": [
-    {"ecosystem": "npm", "name": "lodash", "action": "upgrade", "version": "4.17.21", "reason": "no breaking API use found"},
-    {"ecosystem": "npm", "name": "ms", "action": "upgrade", "version": "2.1.3-aikido.1"}
-  ]
-}
-```
+See [Upgrade plans](#upgrade-plans).
 
 #### Maven
 
@@ -193,6 +185,7 @@ rootio_patcher maven remediate [FLAGS]
 **Flags:**
 - `--file` - Path to pom.xml (default: `pom.xml`)
 - `--dry-run` - Preview changes without applying (default: `true`)
+- `--upgrade-plan` - JSON file of per-package upgrades; default `root-upgrade-plan.json` next to the pom when present. See [Upgrade plans](#upgrade-plans).
 
 **How it works:** Pre-install patching - updates version numbers in `pom.xml`. After running, execute `mvn clean install` to apply patches.
 
@@ -206,6 +199,7 @@ rootio_patcher go remediate [FLAGS]
 - `--go-mod` - Path to go.mod (default: `go.mod`)
 - `--dry-run` - Preview changes without applying (default: `true`)
 - `--use-alias` - Use Root.io aliased modules (`pkg.root.io/*`); set `false` to use original module paths (default: `false`)
+- `--upgrade-plan` - JSON file of per-module upgrades; default `root-upgrade-plan.json` next to `go.mod` when present. See [Upgrade plans](#upgrade-plans).
 - `--report` - Write a JSON report of the remediated modules and the CVEs they fix to this path
 
 **How it works:** Pre-build patching — adds a version-pinned `replace` directive for each patched module, in one of two modes controlled by `--use-alias`:
@@ -225,6 +219,7 @@ rootio_patcher composer remediate [FLAGS]
 **Flags:**
 - `--file` - Path to composer.json (default: `composer.json`)
 - `--dry-run` - Preview changes without applying (default: `true`)
+- `--upgrade-plan` - JSON file of per-package upgrades; default `root-upgrade-plan.json` next to `composer.json` when present. See [Upgrade plans](#upgrade-plans).
 
 **How it works:** Pre-install patching — reads exact resolved versions from `composer.lock`, updates `composer.json` with patched version constraints (pinning transitive deps as needed), adds the Root.io Composer repository entry, then automatically runs `composer update --with-dependencies <affected-packages>` to download the patched versions and update the lock file. The `vendor/` directory is fully populated and ready to deploy after the patcher runs.
 
@@ -306,6 +301,43 @@ rootio_patcher microdnf remediate [FLAGS]
 - `microdnf remediate` runs `microdnf upgrade -y --refresh <names>` (microdnf has no separate cache-refresh command, so `--refresh` is passed on the upgrade itself)
 
 Requires `root` — intended to run inside containers or as part of a privileged build step.
+
+### Upgrade plans
+
+An upgrade plan names packages that must go to an exact version you chose, instead of the Root build. It is supported by `npm`, `pip`, `maven`, `go`, `nuget`, `composer` and `ruby`. `cargo` and the OS package managers ignore it.
+
+`--upgrade-plan <file>` selects the plan. When the flag is omitted, `root-upgrade-plan.json` is read from the project or manifest directory (the current directory for `pip`); a missing default file means no plan. An explicit path that does not exist is an error.
+
+```json
+{
+  "packages": [
+    {"ecosystem": "npm", "name": "lodash", "from": "4.17.20", "action": "upgrade", "version": "4.17.21", "reason": "no breaking API use found"}
+  ]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `ecosystem` | `npm`, `pip` (or `pypi`), `maven`, `go` (or `golang`), `nuget`, `composer`, `ruby`. Entries for other ecosystems are ignored. |
+| `name` | Package name as the ecosystem writes it (`group:artifact` for maven, module path for go). Matching follows the ecosystem: pip uses PEP 503 normalization (`Jinja2` matches `jinja2`, `typing_extensions` matches `typing-extensions`), nuget and composer ignore case, npm, go, maven and ruby are exact. The patch always uses the installed package's own name. |
+| `from` | Optional installed version. When set, the entry applies only to an installed package at exactly that version; other installed versions of the name go to the Root API. When empty, the entry applies to every installed version of the name. |
+| `action` | Must be `upgrade`; any other value is an error. |
+| `version` | Exact target version, written verbatim (`1.6.0`, `4.17.21-aikido.2`, `2.2.2+root.io.1`, `v0.17.0`). |
+| `reason` | Free text, not used. |
+
+Several entries may share a `name` with different `from` values. For the same `(name, from)` the last entry wins. An entry with a `from` beats an entry for the same name without one.
+
+**Merge behavior:** in one run, every planned installed package is patched to its plan `version`. All installed packages are still sent to the Root API, with each planned package added to `ignore` as `name@installed`, so the API never patches a planned package. The planned and API patches are then applied together by the ecosystem's normal apply step. A planned package that is not installed, or is already at the plan version, is skipped. Each package is logged once as `Package upgraded` (plan), `Package patched` (API) or `Package skipped` (plan entry that changes nothing), with `package`, `from` and `to`.
+
+| Ecosystem | Example entry | Notes |
+|-----------|---------------|-------|
+| npm | `{"ecosystem": "npm", "name": "ms", "action": "upgrade", "version": "2.1.3"}` | Written as an override in `package.json`. |
+| pip | `{"ecosystem": "pip", "name": "jinja2", "action": "upgrade", "version": "3.1.4"}` | Planned packages are installed with PEP 440 arbitrary equality, `jinja2===3.1.4`, because `==2.2.2` also matches the local version `2.2.2+root.io.1` and pip would pick the Root build. API patches keep `==`. |
+| maven | `{"ecosystem": "maven", "name": "junit:junit", "action": "upgrade", "version": "4.13.2"}` | Version rewritten in `pom.xml`. |
+| go | `{"ecosystem": "go", "name": "golang.org/x/net", "action": "upgrade", "version": "v0.17.0"}` | `replace` to that module version; it need not be a Root build. |
+| nuget | `{"ecosystem": "nuget", "name": "Newtonsoft.Json", "action": "upgrade", "version": "13.0.3"}` | Version rewritten in the manifest. |
+| composer | `{"ecosystem": "composer", "name": "monolog/monolog", "action": "upgrade", "version": "2.9.3"}` | Exact constraint in `composer.json`, then `composer update`. |
+| ruby | `{"ecosystem": "ruby", "name": "rack", "action": "upgrade", "version": "2.2.4"}` | Exact pin (`= 2.2.4`) in the `Gemfile`. Only a Root build (version containing `.41610.`) is pinned to `pkg.root.io/ruby`; any other version resolves from the gem's own source. |
 
 ### Configuration Details
 
