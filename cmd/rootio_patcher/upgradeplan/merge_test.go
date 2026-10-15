@@ -136,7 +136,7 @@ func TestAnalyze_PlannedPackageNeverComesFromAPI(t *testing.T) {
 func TestAnalyze_PlanWithNoInstalledMatchStillCallsAPI(t *testing.T) {
 	client := &fakeClient{resp: &rootio.AnalyzePackagesResponse{}}
 	logger, logs := testLogger()
-	plan := &Plan{Packages: []Entry{{Ecosystem: "npm", Name: "ghost", Action: "upgrade", Version: "1.0.0"}}}
+	plan := &Plan{Packages: []Entry{{Ecosystem: "npm", Name: "ghost", From: "4.0.0", Action: "upgrade", Version: "1.0.0"}}}
 
 	got, err := Analyze(context.Background(), logger, client, plan, "npm", []rootio.Package{{Name: "ms", Version: "2.0.0"}}, nil)
 	if err != nil {
@@ -145,8 +145,8 @@ func TestAnalyze_PlanWithNoInstalledMatchStillCallsAPI(t *testing.T) {
 	if client.calls != 1 || len(client.ignore) != 0 || len(got.Patches) != 0 {
 		t.Fatalf("calls = %d ignore = %+v patches = %+v", client.calls, client.ignore, got.Patches)
 	}
-	if !strings.Contains(logs.String(), "not installed") || !strings.Contains(logs.String(), "package=ghost") {
-		t.Errorf("expected skip log for ghost:\n%s", logs.String())
+	if want := `msg="Package skipped" package=ghost from=4.0.0 to=1.0.0 source=plan reason="not installed"`; !strings.Contains(logs.String(), want) {
+		t.Errorf("logs missing %q:\n%s", want, logs.String())
 	}
 }
 
@@ -229,4 +229,33 @@ func TestResolve(t *testing.T) {
 			t.Fatal("expected parse error")
 		}
 	})
+}
+
+func TestAnalyze_LogsOneLinePerPackageWithFromAndTo(t *testing.T) {
+	client := &fakeClient{resp: &rootio.AnalyzePackagesResponse{
+		Patches: []rootio.PackagePatch{apiPatch("express", "4.18.2", "4.18.2-root.io.1")},
+	}}
+	logger, logs := testLogger()
+	plan := &Plan{Packages: []Entry{
+		{Ecosystem: "npm", Name: "lodash", Action: "upgrade", Version: "4.17.21"},
+		{Ecosystem: "npm", Name: "ms", Action: "upgrade", Version: "2.1.3"},
+	}}
+	installed := []rootio.Package{
+		{Name: "lodash", Version: "4.17.20"},
+		{Name: "ms", Version: "2.1.3"},
+		{Name: "express", Version: "4.18.2"},
+	}
+	if _, err := Analyze(context.Background(), logger, client, plan, "npm", installed, nil); err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	for msg, want := range map[string]string{
+		"Package upgraded": `package=lodash from=4.17.20 to=4.17.21 source=plan`,
+		"Package patched":  `package=express from=4.18.2 to=4.18.2-root.io.1 source=api`,
+		"Package skipped":  `package=ms from=2.1.3 to=2.1.3 source=plan reason="already at plan version"`,
+	} {
+		line := `msg="` + msg + `" ` + want
+		if got := strings.Count(logs.String(), line); got != 1 {
+			t.Errorf("%q logged %d times, want 1:\n%s", line, got, logs.String())
+		}
+	}
 }

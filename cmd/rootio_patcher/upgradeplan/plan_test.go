@@ -126,7 +126,7 @@ func TestSplit_EmptyPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Split: %v", err)
 	}
-	if len(got.Patches) != 0 || len(got.Ignore) != 0 || len(got.Absent) != 0 {
+	if len(got.Patches) != 0 || len(got.Ignore) != 0 || len(got.Skipped) != 0 {
 		t.Fatalf("result = %+v, want empty", got)
 	}
 }
@@ -161,8 +161,9 @@ func TestSplit_PlannedPatchesAndIgnore(t *testing.T) {
 	if !reflect.DeepEqual(got.Ignore, wantIgnore) {
 		t.Fatalf("ignore = %+v, want %+v", got.Ignore, wantIgnore)
 	}
-	if !reflect.DeepEqual(got.Absent, []string{"absent"}) {
-		t.Fatalf("absent = %v", got.Absent)
+	wantSkipped := []Skip{{Package: "absent", To: "1.0.0", Reason: SkipNotInstalled}}
+	if !reflect.DeepEqual(got.Skipped, wantSkipped) {
+		t.Fatalf("skipped = %+v, want %+v", got.Skipped, wantSkipped)
 	}
 }
 
@@ -218,8 +219,9 @@ func TestSplit_AlreadyAtPlanVersionIsIgnoredWithoutPatch(t *testing.T) {
 	if !reflect.DeepEqual(got.Ignore, []rootio.Package{{Name: "ms", Version: "2.1.3"}}) {
 		t.Fatalf("ignore = %+v", got.Ignore)
 	}
-	if !reflect.DeepEqual(got.Current, []string{"ms"}) {
-		t.Fatalf("current = %v", got.Current)
+	wantSkipped := []Skip{{Package: "ms", From: "2.1.3", To: "2.1.3", Reason: SkipAlreadyAtVersion}}
+	if !reflect.DeepEqual(got.Skipped, wantSkipped) {
+		t.Fatalf("skipped = %+v, want %+v", got.Skipped, wantSkipped)
 	}
 }
 
@@ -261,8 +263,8 @@ func TestSplit_FromScopesEntryToInstalledVersion(t *testing.T) {
 	if !reflect.DeepEqual(got.Ignore, []rootio.Package{{Name: "lodash", Version: "4.17.15"}}) {
 		t.Fatalf("ignore = %+v, want only the from version", got.Ignore)
 	}
-	if len(got.Absent) != 0 {
-		t.Fatalf("absent = %v, want none", got.Absent)
+	if len(got.Skipped) != 0 {
+		t.Fatalf("skipped = %+v, want none", got.Skipped)
 	}
 }
 
@@ -277,8 +279,9 @@ func TestSplit_FromNotInstalledIsAbsent(t *testing.T) {
 	if len(got.Patches) != 0 || len(got.Ignore) != 0 {
 		t.Fatalf("result = %+v, want nothing planned", got)
 	}
-	if !reflect.DeepEqual(got.Absent, []string{"lodash"}) {
-		t.Fatalf("absent = %v", got.Absent)
+	wantSkipped := []Skip{{Package: "lodash", From: "4.17.15", To: "4.17.21", Reason: SkipNotInstalled}}
+	if !reflect.DeepEqual(got.Skipped, wantSkipped) {
+		t.Fatalf("skipped = %+v, want %+v", got.Skipped, wantSkipped)
 	}
 }
 

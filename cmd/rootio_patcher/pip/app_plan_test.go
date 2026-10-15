@@ -194,3 +194,37 @@ func TestPipService_ApplyPatchForPipUsesArbitraryEqualityOnlyForPlannedPatches(t
 		})
 	}
 }
+
+func TestPipApp_LogsEachPackageOnce(t *testing.T) {
+	planPath := filepath.Join(t.TempDir(), "plan.json")
+	writePlan(t, planPath, `{"packages": [
+	  {"ecosystem": "pip", "name": "jinja2", "action": "upgrade", "version": "3.1.4"},
+	  {"ecosystem": "pip", "name": "six", "action": "upgrade", "version": "1.16.0"},
+	  {"ecosystem": "pip", "name": "absent", "action": "upgrade", "version": "1.0.0"}
+	]}`)
+	var logs strings.Builder
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	svc := &MockPipService{ListPackagesFunc: func(context.Context) ([]common.InstalledPackage, error) {
+		return []common.InstalledPackage{{Name: "Jinja2", Version: "3.0.0"}, {Name: "six", Version: "1.16.0"}, {Name: "flask", Version: "2.0.0"}}, nil
+	}}
+	client := &MockAPIClient{AnalyzePackagesFunc: func(context.Context, []rootio.Package, []rootio.Package, string) (*rootio.AnalyzePackagesResponse, error) {
+		return &rootio.AnalyzePackagesResponse{Patches: []rootio.PackagePatch{
+			{PackageName: "flask", Version: "2.0.0", Patch: rootio.PatchInfo{Name: "flask", Version: "2.0.1"}},
+		}}, nil
+	}}
+	app := NewAppWithServices(&config.Config{}, "python", false, nil, logger, svc, client, nil).WithUpgradePlan(planPath)
+	if err := app.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	for _, line := range []string{
+		`msg="Package upgraded" package=Jinja2 from=3.0.0 to=3.1.4 source=plan`,
+		`msg="Package patched" package=flask from=2.0.0 to=2.0.1 source=api`,
+		`msg="Package skipped" package=six from=1.16.0 to=1.16.0 source=plan reason="already at plan version"`,
+		`msg="Package skipped" package=absent from="" to=1.0.0 source=plan reason="not installed"`,
+	} {
+		if got := strings.Count(logs.String(), line); got != 1 {
+			t.Errorf("%q logged %d times, want 1:\n%s", line, got, logs.String())
+		}
+	}
+}
