@@ -56,8 +56,8 @@ func (r *Reporter) ReportDryRun(patches []rootio.PackagePatch, useAlias bool) {
 		fmt.Printf("   CVEs Fixed: %v\n", patch.CVEIDs)
 		fmt.Printf("   Commands:\n")
 		fmt.Printf("     pip uninstall -y %s\n", patch.PackageName)
-		fmt.Printf("     pip install --no-deps --index-url %s %s==%s\n\n",
-			indexURLTemplate, patchInfo.Name, patchInfo.Version)
+		fmt.Printf("     pip install --no-deps --index-url %s %s\n\n",
+			indexURLTemplate, PipRequirement(patch))
 	}
 
 	fmt.Println("To apply these patches, run with --dry-run=false")
