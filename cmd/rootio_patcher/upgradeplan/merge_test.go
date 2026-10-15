@@ -88,7 +88,7 @@ func TestAnalyze_MergesPlannedAndAPIPatches(t *testing.T) {
 		t.Fatalf("api ignore = %+v, want %+v", client.ignore, wantIgnore)
 	}
 	wantPatches := []rootio.PackagePatch{
-		apiPatch("lodash", "4.17.20", "4.17.21-aikido.2"),
+		planned("lodash", "4.17.20", "4.17.21-aikido.2"),
 		apiPatch("express", "4.18.2", "4.18.2-root.io.1"),
 	}
 	if !reflect.DeepEqual(got.Patches, wantPatches) {
@@ -125,7 +125,7 @@ func TestAnalyze_PlannedPackageNeverComesFromAPI(t *testing.T) {
 	}
 	// The planned 4.17.20 patch wins. The 3.10.1 copy is not planned, so the API result stays.
 	want := []rootio.PackagePatch{
-		apiPatch("lodash", "4.17.20", "4.17.21"),
+		planned("lodash", "4.17.20", "4.17.21"),
 		apiPatch("lodash", "3.10.1", "3.10.1-root.io.1"),
 	}
 	if !reflect.DeepEqual(got.Patches, want) {

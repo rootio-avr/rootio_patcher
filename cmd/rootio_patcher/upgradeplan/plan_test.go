@@ -9,6 +9,12 @@ import (
 	"rootio_patcher/pkg/rootio"
 )
 
+// planned is the patch Split emits: the plan version under the installed name, in both name forms.
+func planned(name, from, to string) rootio.PackagePatch {
+	info := rootio.PatchInfo{Name: name, Version: to}
+	return rootio.PackagePatch{PackageName: name, Version: from, Patch: info, PatchAlias: info, Planned: true}
+}
+
 func TestLoad_ExamplePlan(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, DefaultFileName)
@@ -145,8 +151,8 @@ func TestSplit_PlannedPatchesAndIgnore(t *testing.T) {
 	}
 
 	wantPatches := []rootio.PackagePatch{
-		{PackageName: "lodash", Version: "4.17.20", Patch: rootio.PatchInfo{Name: "lodash", Version: "4.17.21-aikido.2"}},
-		{PackageName: "ms", Version: "2.0.0", Patch: rootio.PatchInfo{Name: "ms", Version: "2.1.3"}},
+		planned("lodash", "4.17.20", "4.17.21-aikido.2"),
+		planned("ms", "2.0.0", "2.1.3"),
 	}
 	if !reflect.DeepEqual(got.Patches, wantPatches) {
 		t.Fatalf("patches = %+v, want %+v", got.Patches, wantPatches)
@@ -247,7 +253,7 @@ func TestSplit_FromScopesEntryToInstalledVersion(t *testing.T) {
 		t.Fatalf("Split: %v", err)
 	}
 	wantPatches := []rootio.PackagePatch{
-		{PackageName: "lodash", Version: "4.17.15", Patch: rootio.PatchInfo{Name: "lodash", Version: "4.17.21"}},
+		planned("lodash", "4.17.15", "4.17.21"),
 	}
 	if !reflect.DeepEqual(got.Patches, wantPatches) {
 		t.Fatalf("patches = %+v, want %+v", got.Patches, wantPatches)
@@ -291,8 +297,8 @@ func TestSplit_SameNameDifferentFromAllApply(t *testing.T) {
 		t.Fatalf("Split: %v", err)
 	}
 	wantPatches := []rootio.PackagePatch{
-		{PackageName: "lodash", Version: "3.10.1", Patch: rootio.PatchInfo{Name: "lodash", Version: "3.10.2"}},
-		{PackageName: "lodash", Version: "4.17.15", Patch: rootio.PatchInfo{Name: "lodash", Version: "4.17.21"}},
+		planned("lodash", "3.10.1", "3.10.2"),
+		planned("lodash", "4.17.15", "4.17.21"),
 	}
 	if !reflect.DeepEqual(got.Patches, wantPatches) {
 		t.Fatalf("patches = %+v, want %+v", got.Patches, wantPatches)
@@ -398,10 +404,7 @@ func TestSplit_NamesMatchPerEcosystem(t *testing.T) {
 				}
 				return
 			}
-			want := []rootio.PackagePatch{{
-				PackageName: tc.installed, Version: "1.0.0",
-				Patch: rootio.PatchInfo{Name: tc.installed, Version: "9.9.9"},
-			}}
+			want := []rootio.PackagePatch{planned(tc.installed, "1.0.0", "9.9.9")}
 			if !reflect.DeepEqual(got.Patches, want) {
 				t.Fatalf("patches = %+v, want %+v (installed name emitted)", got.Patches, want)
 			}
