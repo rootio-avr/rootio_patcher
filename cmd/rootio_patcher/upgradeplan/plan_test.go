@@ -425,3 +425,25 @@ func TestSplit_PipDuplicateEntriesUnderNormalizationLastWins(t *testing.T) {
 		t.Fatalf("patches = %+v, want the last entry", got.Patches)
 	}
 }
+
+func TestSplit_SubcommandEcosystemNamesAreAliases(t *testing.T) {
+	cases := []struct{ entryEcosystem, splitEcosystem string }{
+		{"pip", "pypi"},
+		{"pypi", "pypi"},
+		{"go", "golang"},
+		{"golang", "golang"},
+		{"PIP", " pypi "},
+	}
+	for _, tc := range cases {
+		plan := &Plan{Packages: []Entry{{Ecosystem: tc.entryEcosystem, Name: "pkg", Action: "upgrade", Version: "2"}}}
+		got, err := plan.Split(tc.splitEcosystem, []Package{{Name: "pkg", Version: "1"}})
+		if err != nil || len(got.Patches) != 1 {
+			t.Fatalf("entry %q split %q: patches = %+v err = %v", tc.entryEcosystem, tc.splitEcosystem, got.Patches, err)
+		}
+	}
+	other := &Plan{Packages: []Entry{{Ecosystem: "go", Name: "pkg", Action: "upgrade", Version: "2"}}}
+	got, err := other.Split("pypi", []Package{{Name: "pkg", Version: "1"}})
+	if err != nil || len(got.Patches) != 0 {
+		t.Fatalf("go entry applied to pypi: %+v err = %v", got.Patches, err)
+	}
+}

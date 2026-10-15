@@ -84,11 +84,11 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 	if p == nil {
 		return Selection{}, fmt.Errorf("upgrade plan is nil")
 	}
-	ordered, err := p.choicesFor(strings.ToLower(strings.TrimSpace(ecosystem)))
+	eco := canonicalEcosystem(ecosystem)
+	ordered, err := p.choicesFor(eco)
 	if err != nil {
 		return Selection{}, err
 	}
-	eco := strings.ToLower(strings.TrimSpace(ecosystem))
 	choices := make(map[entryKey]Entry, len(ordered))
 	for _, choice := range ordered {
 		choices[choice.key()] = choice
@@ -137,6 +137,19 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 	return sel, nil
 }
 
+// canonicalEcosystem maps the rootio_patcher subcommand names pip and go onto the
+// API ecosystem names pypi and golang, so a plan may use either.
+func canonicalEcosystem(name string) string {
+	switch eco := strings.ToLower(strings.TrimSpace(name)); eco {
+	case "pip":
+		return "pypi"
+	case "go":
+		return "golang"
+	default:
+		return eco
+	}
+}
+
 // entryKey identifies a plan entry. An empty from applies to every installed version of the name.
 type entryKey struct{ name, from string }
 
@@ -167,7 +180,7 @@ func (p *Plan) choicesFor(ecosystem string) ([]Entry, error) {
 	index := make(map[entryKey]int)
 
 	for i, entry := range p.Packages {
-		if strings.ToLower(strings.TrimSpace(entry.Ecosystem)) != ecosystem {
+		if canonicalEcosystem(entry.Ecosystem) != ecosystem {
 			continue
 		}
 
