@@ -218,10 +218,11 @@ type MavenCmd struct {
 
 // MavenRemediateCmd remediates Maven packages by patching pom.xml
 type MavenRemediateCmd struct {
-	File     string   `default:"pom.xml" help:"Path to pom.xml"`
-	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"false" help:"Use Root.io aliased packages (io.root.io.*); set false to keep original groupId"`
-	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	File        string   `default:"pom.xml" help:"Path to pom.xml"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias    bool     `default:"false" help:"Use Root.io aliased packages (io.root.io.*); set false to keep original groupId"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-package upgrades (action upgrade, exact version). Planned packages are patched to that version; all other packages use the Root API. When omitted, root-upgrade-plan.json next to the pom is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 func main() {
@@ -316,7 +317,7 @@ func (cmd *MavenRemediateCmd) Run(ctx context.Context, cfg *config.Config, logge
 	logger.InfoContext(ctx, "Starting Maven remediation", slog.String("file", cmd.File), slog.Bool("use_alias", cmd.UseAlias))
 
 	app := maven.NewApp(cfg.APIKey, cfg.APIURL, cmd.File, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
-	return app.Run(ctx)
+	return app.WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 }
 
 // GoCmd handles Go module commands
