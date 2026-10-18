@@ -33,6 +33,14 @@ var eolCodenames = map[string]eolRule{
 		},
 		dropUpdatesIn: []string{"/etc/apt/sources.list"},
 	},
+	// archive.debian.org serves bullseye-security and bullseye-updates since Debian 11 LTS ended.
+	// The first rewrite also covers deb.debian.org/debian-security (prefix match).
+	"bullseye": {
+		rewrites: []fileRewrite{
+			{"/etc/apt/sources.list", "http://deb.debian.org/debian", "http://archive.debian.org/debian"},
+			{"/etc/apt/sources.list", "http://security.debian.org/debian-security", "http://archive.debian.org/debian-security"},
+		},
+	},
 	"stretch": {
 		rewrites: []fileRewrite{
 			{"/etc/apt/sources.list", "http://deb.debian.org/debian", "http://archive.debian.org/debian"},
