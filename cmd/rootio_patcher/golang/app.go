@@ -190,10 +190,7 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 
-	// 8. Run go mod tidy (with Root.io GOPROXY so the proxy supplies patched modules).
-	// Tidy needs the module's source: without it, it prunes requires only imported by code
-	// that isn't there (tools, Makefile-only) or fails resolving in-repo packages. With no
-	// .go files (go.mod/go.sum-only dependency layer) keep go.mod as is and just fetch.
+	// 8. go mod tidy (Root.io GOPROXY), but only with source present: without it tidy prunes requires.
 	if hasGoSource(goModDir) {
 		a.logger.DebugContext(ctx, "Running go mod tidy", slog.String("dir", goModDir))
 		if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "mod", "tidy"); err != nil {
