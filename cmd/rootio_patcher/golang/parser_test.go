@@ -20,6 +20,8 @@ func writeGoMod(t *testing.T, dir, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, "go.mod")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+	// Source next to go.mod so remediation runs go mod tidy (see hasGoSource).
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0644))
 	return path
 }
 

@@ -493,3 +493,49 @@ func TestGoLangApp_Run_NonAliased_DryRun_GoModUnchanged(t *testing.T) {
 	assert.Equal(t, originalContent, string(content), "go.mod must not be modified in dry-run mode")
 	assert.Empty(t, cmdRunner.Calls, "no commands should be run in dry-run mode")
 }
+
+// A go.mod/go.sum-only context (Docker dependency layer) must not be tidied: tidy would drop
+// requires only used by code that isn't there (e.g. controller-tools) or fail on in-repo imports.
+func TestGoLangApp_Run_NoGoSource_SkipsTidyKeepsRequires(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	dir := t.TempDir()
+	goModPath := filepath.Join(dir, "go.mod")
+	require.NoError(t, os.WriteFile(goModPath, []byte(`module example.com/app
+
+go 1.21
+
+require (
+	github.com/google/uuid v1.3.0
+	sigs.k8s.io/controller-tools v0.16.0
+)
+`), 0644))
+	cmdRunner := &MockCommandRunner{}
+
+	app := NewApp(
+		"test-key", "https://api.root.io", "https://pkg.root.io", goModPath, false, true, nil, logger,
+		NewGoModParser(logger),
+		&MockAPIClient{
+			AnalyzePackagesFunc: func(_ context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+				return &rootio.AnalyzePackagesResponse{
+					Patches: []rootio.PackagePatch{{
+						PackageName: "github.com/google/uuid",
+						Version:     "v1.3.0",
+						PatchAlias:  rootio.PatchInfo{Name: "pkg.root.io/golang/github.com/google/uuid", Version: "v1.3.0-rootio.1"},
+					}},
+				}, nil
+			},
+		},
+		cmdRunner,
+	)
+
+	require.NoError(t, app.Run(ctx))
+
+	content, err := os.ReadFile(goModPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "sigs.k8s.io/controller-tools v0.16.0")
+	assert.Contains(t, string(content), "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.0-rootio.1")
+	require.Len(t, cmdRunner.Calls, 1)
+	assert.Equal(t, []string{"mod", "download"}, cmdRunner.Calls[0].Args)
+}
