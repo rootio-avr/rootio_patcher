@@ -190,10 +190,17 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 
-	// 8. Run go mod tidy (with Root.io GOPROXY so the proxy supplies patched modules)
-	a.logger.DebugContext(ctx, "Running go mod tidy", slog.String("dir", goModDir))
-	if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "mod", "tidy"); err != nil {
-		return fmt.Errorf("go mod tidy failed: %w", err)
+	// 8. go mod tidy (Root.io GOPROXY), but only with source present: without it tidy prunes requires.
+	if hasGoSource(goModDir) {
+		a.logger.DebugContext(ctx, "Running go mod tidy", slog.String("dir", goModDir))
+		if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "mod", "tidy"); err != nil {
+			return fmt.Errorf("go mod tidy failed: %w", err)
+		}
+	} else {
+		a.logger.DebugContext(ctx, "No Go source next to go.mod, running go mod download instead of tidy", slog.String("dir", goModDir))
+		if err := a.cmdRunner.Run(ctx, goModDir, goEnv, "go", "mod", "download"); err != nil {
+			return fmt.Errorf("go mod download failed: %w", err)
+		}
 	}
 
 	// 9. If a vendor directory exists, run go mod vendor
@@ -211,6 +218,25 @@ func (a *App) Run(ctx context.Context) error {
 	fmt.Println("  3. Test your application")
 
 	return nil
+}
+
+// hasGoSource reports whether dir holds any .go file outside vendor/.
+func hasGoSource(dir string) bool {
+	found := false
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && d.Name() == "vendor" {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".go") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 // ReportEntry is one remediated module in the --report file. Callers such as the binary build
