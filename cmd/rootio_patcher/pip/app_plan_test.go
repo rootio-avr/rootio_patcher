@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/cmd/rootio_patcher/config"
 	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
@@ -168,6 +170,62 @@ func TestPipService_ApplyPatchUsesArbitraryEqualityOnlyForPlannedPatches(t *test
 				t.Fatalf("install args = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestPipService_ApplyPatchInstallsBeforeItRemovesAnything(t *testing.T) {
+	index := "https://idx.example/simple/"
+	install := "-m pip install --no-deps --no-cache-dir --index-url " + index + " idna===99.0.0"
+
+	t.Run("missing version", func(t *testing.T) {
+		python, calls := fakePythonExit(t, "install")
+		svc := NewService(python, "https://pkg.root.io", "key", index, discardLogger())
+		err := svc.ApplyPatch(context.Background(), rootio.PackagePatch{
+			PackageName: "idna", Version: "3.4", Planned: true,
+			Patch: rootio.PatchInfo{Name: "idna", Version: "99.0.0"},
+		})
+		require.ErrorContains(t, err, "install failed")
+		require.Equal(t, []string{install}, calls())
+	})
+
+	t.Run("alias", func(t *testing.T) {
+		python, calls := fakePython(t)
+		svc := NewService(python, "https://pkg.root.io", "key", index, discardLogger())
+		require.NoError(t, svc.ApplyPatch(context.Background(), rootio.PackagePatch{
+			PackageName: "idna", Version: "3.4",
+			Patch: rootio.PatchInfo{Name: "rootio-idna", Version: "3.4.0"},
+		}))
+		require.Equal(t, []string{
+			"-m pip install --no-deps --no-cache-dir --index-url " + index + " rootio-idna==3.4.0",
+			"-m pip uninstall -y idna",
+		}, calls())
+	})
+
+	t.Run("same distribution", func(t *testing.T) {
+		python, calls := fakePython(t)
+		svc := NewService(python, "https://pkg.root.io", "key", index, discardLogger())
+		require.NoError(t, svc.ApplyPatch(context.Background(), rootio.PackagePatch{
+			PackageName: "typing_extensions", Version: "4.0.0", Planned: true,
+			Patch: rootio.PatchInfo{Name: "Typing-Extensions", Version: "4.12.0"},
+		}))
+		require.Equal(t, []string{
+			"-m pip install --no-deps --no-cache-dir --index-url " + index + " Typing-Extensions===4.12.0",
+		}, calls())
+	})
+}
+
+// fakePythonExit is fakePython that exits 1 when an argument word equals failOn.
+func fakePythonExit(t *testing.T, failOn string) (path string, calls func() []string) {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls.log")
+	path = filepath.Join(dir, "python")
+	script := "#!/bin/sh\necho \"$*\" >> " + log + "\ncase \" $* \" in *\" " + failOn + " \"*) echo \"No matching distribution\" >&2; exit 1;; esac\necho " + dir + "\n"
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
+	return path, func() []string {
+		data, err := os.ReadFile(log)
+		require.NoError(t, err)
+		return strings.Split(strings.TrimSpace(string(data)), "\n")
 	}
 }
 
