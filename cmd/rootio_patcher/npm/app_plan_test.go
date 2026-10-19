@@ -7,10 +7,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
@@ -45,18 +46,10 @@ func TestNpmApp_PlannedPackageIsIgnoredForAPIAndPatched(t *testing.T) {
 	})
 
 	err := app.Run(context.Background())
-	if !errors.Is(err, common.ErrPatchesAvailable) {
-		t.Fatalf("err = %v, want ErrPatchesAvailable from the planned patch", err)
-	}
-	if apiCalls != 1 {
-		t.Fatalf("AnalyzePackages calls = %d, want 1", apiCalls)
-	}
-	if len(gotPackages) != 2 {
-		t.Fatalf("API packages = %+v, want both installed packages", gotPackages)
-	}
-	if want := []rootio.Package{{Name: "lodash", Version: "4.17.20"}}; !reflect.DeepEqual(gotIgnore, want) {
-		t.Fatalf("API ignore = %+v, want %+v", gotIgnore, want)
-	}
+	require.ErrorIs(t, err, common.ErrPatchesAvailable)
+	require.Equal(t, 1, apiCalls)
+	require.Len(t, gotPackages, 2)
+	require.Equal(t, []rootio.Package{{Name: "lodash", Version: "4.17.20"}}, gotIgnore)
 }
 
 func TestNpmApp_PlannedPackageKeepsUserIgnore(t *testing.T) {
@@ -78,14 +71,10 @@ func TestNpmApp_PlannedPackageKeepsUserIgnore(t *testing.T) {
 			return &rootio.AnalyzePackagesResponse{}, nil
 		}})
 
-	if err := app.Run(context.Background()); !errors.Is(err, common.ErrPatchesAvailable) {
-		t.Fatalf("err = %v", err)
-	}
+	err := app.Run(context.Background())
+	require.ErrorIs(t, err, common.ErrPatchesAvailable)
 	sort.Slice(gotIgnore, func(i, j int) bool { return gotIgnore[i].Name < gotIgnore[j].Name })
-	want := []rootio.Package{{Name: "debug", Version: "4.3.4"}, {Name: "lodash", Version: "4.17.20"}}
-	if !reflect.DeepEqual(gotIgnore, want) {
-		t.Fatalf("API ignore = %+v, want %+v", gotIgnore, want)
-	}
+	require.Equal(t, []rootio.Package{{Name: "debug", Version: "4.3.4"}, {Name: "lodash", Version: "4.17.20"}}, gotIgnore)
 }
 
 func TestNpmApp_PlanForUninstalledPackageIsSkipped(t *testing.T) {

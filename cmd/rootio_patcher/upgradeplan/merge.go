@@ -79,7 +79,11 @@ func Analyze(
 		Skipped: response.Skipped,
 	}
 	for _, patch := range planned.Patches {
-		logPackage(ctx, logger, "Package upgraded", "plan", patch)
+		logger.InfoContext(ctx, "Package upgraded",
+			slog.String("package", patch.PackageName),
+			slog.String("from", patch.Version),
+			slog.String("to", patch.Patch.Version),
+			slog.String("source", "plan"))
 	}
 	plannedKeys := make(map[rootio.Package]struct{}, len(planned.Ignore))
 	for _, pkg := range planned.Ignore {
@@ -89,18 +93,14 @@ func Analyze(
 		if _, isPlanned := plannedKeys[rootio.Package{Name: patch.PackageName, Version: patch.Version}]; isPlanned {
 			continue
 		}
-		logPackage(ctx, logger, "Package patched", "api", patch)
+		logger.InfoContext(ctx, "Package patched",
+			slog.String("package", patch.PackageName),
+			slog.String("from", patch.Version),
+			slog.String("to", patch.Patch.Version),
+			slog.String("source", "api"))
 		merged.Patches = append(merged.Patches, patch)
 	}
 	return merged, nil
-}
-
-func logPackage(ctx context.Context, logger *slog.Logger, msg, source string, patch rootio.PackagePatch) {
-	logger.InfoContext(ctx, msg,
-		slog.String("package", patch.PackageName),
-		slog.String("from", patch.Version),
-		slog.String("to", patch.Patch.Version),
-		slog.String("source", source))
 }
 
 // mergeIgnore appends extra to base, dropping repeated name@version pairs.
