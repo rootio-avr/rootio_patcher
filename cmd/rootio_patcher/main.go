@@ -354,11 +354,12 @@ type NuGetCmd struct {
 
 // NuGetRemediateCmd remediates NuGet packages by patching manifest files
 type NuGetRemediateCmd struct {
-	File      string   `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
-	Directory string   `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
-	DryRun    bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias  bool     `default:"false" help:"Use Root.io aliased packages; set false to keep original package names"`
-	Ignore    []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	File        string   `help:"Path to a specific .csproj or packages.config file (overrides --directory)"`
+	Directory   string   `default:"." short:"C" help:"Project directory to auto-discover NuGet manifests (default: current directory)"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias    bool     `default:"false" help:"Use Root.io aliased packages; set false to keep original package names"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-package upgrades (action upgrade, exact version). Planned packages are patched to that version; all other packages use the Root API. When omitted, root-upgrade-plan.json in the manifest directory is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // ComposerCmd handles Composer-related commands
@@ -440,7 +441,7 @@ func (cmd *NuGetRemediateCmd) Run(ctx context.Context, cfg *config.Config, logge
 	}
 
 	app := nuget.NewApp(cfg.APIKey, cfg.APIURL, path, cmd.DryRun, cmd.UseAlias, cmd.Ignore, logger)
-	return app.Run(ctx)
+	return app.WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 }
 
 // RubyCmd handles RubyGems-related commands

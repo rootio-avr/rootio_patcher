@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
+	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -22,15 +23,13 @@ type App struct {
 	logger    *slog.Logger
 	parser    common.Parser
 	apiClient common.APIClient
+
+	upgradePlanPath string
 }
 
 // NewApp creates a new NuGet application instance.
 func NewApp(apiKey, apiURL, path string, dryRun, useAlias bool, ignoreEntries []string, logger *slog.Logger) *App {
-	ignoreDir := path
-	if info, err := os.Stat(path); err == nil && !info.IsDir() {
-		ignoreDir = filepath.Dir(path)
-	}
-	ignoreFilePath := filepath.Join(ignoreDir, ".rootioignore")
+	ignoreFilePath := filepath.Join(manifestDir(path), ".rootioignore")
 	return NewAppWithServices(apiKey, apiURL, path, dryRun, useAlias, common.LoadIgnoreList(ignoreFilePath, ignoreEntries), logger, NewParser(logger), rootio.NewClient(apiURL, apiKey))
 }
 
@@ -54,6 +53,21 @@ func NewAppWithServices(
 		parser:    parser,
 		apiClient: apiClient,
 	}
+}
+
+// WithUpgradePlan sets the upgrade plan file.
+// An empty path uses root-upgrade-plan.json in the manifest directory when that file exists.
+func (a *App) WithUpgradePlan(path string) *App {
+	a.upgradePlanPath = path
+	return a
+}
+
+// manifestDir is the directory holding the manifest, or path itself when it is a directory.
+func manifestDir(path string) string {
+	if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		return filepath.Dir(path)
+	}
+	return path
 }
 
 // Run executes the NuGet remediation workflow.
@@ -89,11 +103,14 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
-	// 4. Analyze for vulnerabilities
-	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "nuget")
+	// 4. Planned upgrades plus Root API patches for everything else
+	plan, err := upgradeplan.Resolve(a.upgradePlanPath, manifestDir(a.path))
 	if err != nil {
-		return fmt.Errorf("failed to analyze packages: %w", err)
+		return err
+	}
+	response, err := upgradeplan.Analyze(ctx, a.logger, a.apiClient, plan, "nuget", sdkPackages, common.IgnoreListToPackages(a.ignoreSet))
+	if err != nil {
+		return err
 	}
 
 	a.logger.DebugContext(ctx, "Vulnerability analysis complete",
