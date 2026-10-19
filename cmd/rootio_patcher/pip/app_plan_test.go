@@ -248,7 +248,7 @@ func TestPipApp_LogsEachPackageOnce(t *testing.T) {
 		`msg="Package upgraded" package=Jinja2 from=3.0.0 to=3.1.4 source=plan`,
 		`msg="Package patched" package=flask from=2.0.0 to=2.0.1 source=api`,
 		`msg="Package skipped" package=six from=1.16.0 to=1.16.0 source=plan reason="already at plan version"`,
-		`msg="Package skipped" package=absent from="" to=1.0.0 source=plan reason="not installed"`,
+		`msg="Package skipped" package=absent from="" to=1.0.0 source=plan reason="no installed version matches"`,
 	} {
 		require.Equal(t, 1, strings.Count(logs.String(), line), logs.String())
 	}

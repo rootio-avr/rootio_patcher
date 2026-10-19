@@ -123,7 +123,7 @@ func TestAnalyze(t *testing.T) {
 		require.Equal(t, 1, client.calls)
 		require.Empty(t, client.ignore)
 		require.Empty(t, got.Patches)
-		require.Contains(t, logs.String(), `msg="Package skipped" package=ghost from=4.0.0 to=1.0.0 source=plan reason="not installed"`)
+		require.Contains(t, logs.String(), `msg="Package skipped" package=ghost from=4.0.0 to=1.0.0 source=plan reason="no installed version matches"`)
 	})
 }
 

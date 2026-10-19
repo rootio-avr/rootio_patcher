@@ -70,13 +70,13 @@ type Selection struct {
 	Patches []rootio.PackagePatch
 	// Ignore lists every planned installed package as name@installed so the Root API skips it.
 	Ignore []rootio.Package
-	// Skipped lists plan entries that change nothing: not installed, or already at the plan version.
+	// Skipped lists plan entries that change nothing: no installed version matches, or already at the plan version.
 	Skipped []Skip
 }
 
 // Why a plan entry was skipped.
 const (
-	SkipNotInstalled     = "not installed"
+	SkipNotInstalled     = "no installed version matches"
 	SkipAlreadyAtVersion = "already at plan version"
 )
 
