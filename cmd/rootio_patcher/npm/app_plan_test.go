@@ -262,15 +262,9 @@ func TestNpmApp_MergeAppliesPlanVersionAndAPIPatchTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(updated)
-	if !strings.Contains(content, `"lodash": "4.17.21-aikido.2"`) {
-		t.Errorf("package.json should install lodash at the exact plan version, got:\n%s", content)
-	}
-	if !strings.Contains(content, `"lodash@4.17.20": "4.17.21-aikido.2"`) {
-		t.Errorf("package.json should override lodash@4.17.20 to the plan version, got:\n%s", content)
-	}
-	if !strings.Contains(content, `"express": "4.18.2-root.io.1"`) {
-		t.Errorf("package.json should install express from the API patch, got:\n%s", content)
-	}
+	require.Contains(t, content, `"lodash": "4.17.21-aikido.2"`)
+	require.Contains(t, content, `"lodash@4.17.20": "4.17.21-aikido.2"`)
+	require.Contains(t, content, `"express": "4.18.2-root.io.1"`)
 }
 
 func newPlanApp(t *testing.T, lockFile string, dryRun bool, parser npmParser, client *MockAPIClient) *App {
