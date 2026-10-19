@@ -189,9 +189,10 @@ type PipCmd struct {
 type PipRemediateCmd struct {
 	deprecatedUseAlias
 
-	PythonPath string   `default:"python" help:"Path to Python interpreter"`
-	DryRun     bool     `default:"true" help:"Preview changes without applying them"`
-	Ignore     []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	PythonPath  string   `default:"python" help:"Path to Python interpreter"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-package upgrades (action upgrade, exact version). Planned packages are installed at that exact version; all other packages use the Root API. When omitted, root-upgrade-plan.json in the current directory is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
 }
 
 // NpmCmd handles npm-related commands
@@ -292,7 +293,7 @@ func (cmd *PipRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 	cmd.warnUseAliasIgnored(ctx, logger, "pip")
 
 	app := pip.NewApp(cfg, cmd.PythonPath, cmd.DryRun, cmd.Ignore, logger)
-	return app.Run(ctx)
+	return app.WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 }
 
 // Run executes the npm remediate command
