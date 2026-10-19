@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -96,12 +95,8 @@ func TestNpmApp_PlanForUninstalledPackageIsSkipped(t *testing.T) {
 		},
 	})
 
-	if err := app.Run(context.Background()); err != nil {
-		t.Fatalf("err = %v, want nil", err)
-	}
-	if apiCalls != 1 {
-		t.Fatalf("AnalyzePackages calls = %d, want 1", apiCalls)
-	}
+	require.NoError(t, app.Run(context.Background()))
+	require.Equal(t, 1, apiCalls)
 }
 
 func TestNpmApp_LeaveActionIsRejected(t *testing.T) {
@@ -117,15 +112,13 @@ func TestNpmApp_LeaveActionIsRejected(t *testing.T) {
 		},
 	}, &MockAPIClient{
 		AnalyzePackagesFunc: func(context.Context, []rootio.Package, []rootio.Package, string) (*rootio.AnalyzePackagesResponse, error) {
-			t.Error("AnalyzePackages called")
+			require.Fail(t, "AnalyzePackages called")
 			return &rootio.AnalyzePackagesResponse{}, nil
 		},
 	})
 
 	err := app.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), `action "leave"`) {
-		t.Fatalf("err = %v, want action leave error", err)
-	}
+	require.ErrorContains(t, err, `action "leave"`)
 }
 
 func TestNpmApp_MissingPlanKeepsAPI(t *testing.T) {
@@ -144,12 +137,8 @@ func TestNpmApp_MissingPlanKeepsAPI(t *testing.T) {
 		},
 	})
 
-	if err := app.Run(context.Background()); err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if apiCalls != 1 {
-		t.Fatalf("AnalyzePackages calls = %d, want 1", apiCalls)
-	}
+	require.NoError(t, app.Run(context.Background()))
+	require.Equal(t, 1, apiCalls)
 }
 
 func TestNpmApp_ExplicitMissingPlanErrors(t *testing.T) {
@@ -168,12 +157,8 @@ func TestNpmApp_ExplicitMissingPlanErrors(t *testing.T) {
 	}).WithUpgradePlan(filepath.Join(dir, "no-such-plan.json"))
 
 	err := app.Run(context.Background())
-	if underlyingNotExist(err) == nil {
-		t.Fatalf("err = %v, want not exist", err)
-	}
-	if apiCalls != 0 {
-		t.Fatalf("AnalyzePackages calls = %d, want 0", apiCalls)
-	}
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.Zero(t, apiCalls)
 }
 
 func TestNpmApp_InvalidPlanErrors(t *testing.T) {
@@ -187,14 +172,12 @@ func TestNpmApp_InvalidPlanErrors(t *testing.T) {
 		},
 	}, &MockAPIClient{
 		AnalyzePackagesFunc: func(context.Context, []rootio.Package, []rootio.Package, string) (*rootio.AnalyzePackagesResponse, error) {
-			t.Error("AnalyzePackages called")
+			require.Fail(t, "AnalyzePackages called")
 			return nil, errors.New("API should not be called")
 		},
 	})
 
-	if err := app.Run(context.Background()); err == nil {
-		t.Fatal("expected invalid plan error")
-	}
+	require.Error(t, app.Run(context.Background()))
 }
 
 func TestNpmApp_MergeAppliesPlanVersionAndAPIPatchTogether(t *testing.T) {
@@ -209,9 +192,7 @@ func TestNpmApp_MergeAppliesPlanVersionAndAPIPatchTogether(t *testing.T) {
 	    "node_modules/express": {"version": "4.18.2"}
 	  }
 	}`
-	if err := os.WriteFile(lockFile, []byte(lock), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(lockFile, []byte(lock), 0o644))
 	packageJSON := filepath.Join(dir, "package.json")
 	manifest := `{
 	  "name": "test",
@@ -221,9 +202,7 @@ func TestNpmApp_MergeAppliesPlanVersionAndAPIPatchTogether(t *testing.T) {
 	    "express": "4.18.2"
 	  }
 	}`
-	if err := os.WriteFile(packageJSON, []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(packageJSON, []byte(manifest), 0o644))
 	writePlan(t, filepath.Join(dir, upgradeplan.DefaultFileName), `{
 	  "packages": [
 	    {"ecosystem": "npm", "name": "lodash", "action": "upgrade", "version": "4.17.21-aikido.2", "reason": "safe"}
@@ -241,9 +220,7 @@ func TestNpmApp_MergeAppliesPlanVersionAndAPIPatchTogether(t *testing.T) {
 	}, &MockAPIClient{
 		AnalyzePackagesFunc: func(_ context.Context, _, ignore []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
 			for _, pkg := range ignore {
-				if pkg.Name == "express" {
-					t.Errorf("unplanned express must not be ignored, got %+v", ignore)
-				}
+				require.NotEqual(t, "express", pkg.Name)
 			}
 			return &rootio.AnalyzePackagesResponse{Patches: []rootio.PackagePatch{{
 				PackageName: "express",
@@ -253,14 +230,10 @@ func TestNpmApp_MergeAppliesPlanVersionAndAPIPatchTogether(t *testing.T) {
 		},
 	})
 
-	if err := app.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
+	require.NoError(t, app.Run(context.Background()))
 
 	updated, err := os.ReadFile(packageJSON)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	content := string(updated)
 	require.Contains(t, content, `"lodash": "4.17.21-aikido.2"`)
 	require.Contains(t, content, `"lodash@4.17.20": "4.17.21-aikido.2"`)
@@ -276,25 +249,11 @@ func newPlanApp(t *testing.T, lockFile string, dryRun bool, parser npmParser, cl
 func writeMinimalLock(t *testing.T, dir string) string {
 	t.Helper()
 	path := filepath.Join(dir, "package-lock.json")
-	if err := os.WriteFile(path, []byte(`{"name":"test","lockfileVersion":3,"packages":{"":{}}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte(`{"name":"test","lockfileVersion":3,"packages":{"":{}}}`), 0o644))
 	return path
 }
 
 func writePlan(t *testing.T, path, body string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func underlyingNotExist(err error) error {
-	for err != nil {
-		if os.IsNotExist(err) {
-			return err
-		}
-		err = errors.Unwrap(err)
-	}
-	return nil
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 }
