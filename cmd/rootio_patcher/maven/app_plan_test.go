@@ -2,14 +2,13 @@ package maven
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
@@ -19,9 +18,7 @@ import (
 func planTestApp(t *testing.T, useAlias bool, parser *MockParser, client *MockAPIClient) (*App, string) {
 	t.Helper()
 	pom := filepath.Join(t.TempDir(), "pom.xml")
-	if err := os.WriteFile(pom, []byte("<project/>"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(pom, []byte("<project/>"), 0o644))
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return NewAppWithServices("key", "https://api.root.io", pom, false, useAlias, nil, logger, parser, client), pom
 }
@@ -49,9 +46,7 @@ func TestMavenApp_PlannedPackageIsPatchedVerbatimAndIgnoredForAPI(t *testing.T) 
 			}
 			client := &MockAPIClient{AnalyzePackagesFunc: func(_ context.Context, pkgs, ignore []rootio.Package, eco string) (*rootio.AnalyzePackagesResponse, error) {
 				gotPackages, gotIgnore = pkgs, ignore
-				if eco != "maven" {
-					t.Errorf("ecosystem = %q", eco)
-				}
+				require.Equal(t, "maven", eco)
 				return &rootio.AnalyzePackagesResponse{Patches: []rootio.PackagePatch{{
 					PackageName: "commons-lang:commons-lang", Version: "2.6",
 					Patch:      rootio.PatchInfo{Name: "commons-lang:commons-lang", Version: "2.6-root.io.1"},
@@ -60,28 +55,17 @@ func TestMavenApp_PlannedPackageIsPatchedVerbatimAndIgnoredForAPI(t *testing.T) 
 			}}
 			app, pom := planTestApp(t, useAlias, parser, client)
 			planPath := filepath.Join(filepath.Dir(pom), "plan.json")
-			if err := os.WriteFile(planPath, []byte(`{"packages": [
-			  {"ecosystem": "maven", "name": "junit:junit", "action": "upgrade", "version": "4.13.2"}]}`), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.WriteFile(planPath, []byte(`{"packages": [
+			  {"ecosystem": "maven", "name": "junit:junit", "action": "upgrade", "version": "4.13.2"}]}`), 0o644))
 
-			if err := app.WithUpgradePlan(planPath).Run(context.Background()); err != nil {
-				t.Fatalf("Run: %v", err)
-			}
+			require.NoError(t, app.WithUpgradePlan(planPath).Run(context.Background()))
 
-			if len(gotPackages) != 2 {
-				t.Fatalf("API packages = %+v", gotPackages)
-			}
-			if want := []rootio.Package{{Name: "junit:junit", Version: "4.12"}}; !reflect.DeepEqual(gotIgnore, want) {
-				t.Fatalf("API ignore = %+v, want %+v", gotIgnore, want)
-			}
-			want := map[string]string{
+			require.Len(t, gotPackages, 2)
+			require.Equal(t, []rootio.Package{{Name: "junit:junit", Version: "4.12"}}, gotIgnore)
+			require.Equal(t, map[string]string{
 				"junit:junit":               "junit:junit:4.13.2",
 				"commons-lang:commons-lang": "commons-lang:commons-lang:2.6-root.io.1",
-			}
-			if !reflect.DeepEqual(updates, want) {
-				t.Fatalf("updates = %+v, want %+v", updates, want)
-			}
+			}, updates)
 		})
 	}
 }
@@ -93,9 +77,8 @@ func TestMavenApp_ExplicitMissingPlanIsError(t *testing.T) {
 	app, pom := planTestApp(t, false, parser, &MockAPIClient{})
 
 	err := app.WithUpgradePlan(filepath.Join(filepath.Dir(pom), "missing.json")).Run(context.Background())
-	if err == nil || !errors.Is(err, os.ErrNotExist) || !strings.Contains(err.Error(), "read upgrade plan") {
-		t.Fatalf("err = %v, want read upgrade plan error", err)
-	}
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.ErrorContains(t, err, "read upgrade plan")
 }
 
 func TestMavenApp_DefaultPlanNextToPomIsUsedAndMissingMeansNoPlan(t *testing.T) {
@@ -112,18 +95,11 @@ func TestMavenApp_DefaultPlanNextToPomIsUsedAndMissingMeansNoPlan(t *testing.T) 
 	}}
 	app, pom := planTestApp(t, false, parser, client)
 
-	if err := app.Run(context.Background()); err != nil || len(gotIgnore) != 0 {
-		t.Fatalf("no default plan: err = %v ignore = %+v", err, gotIgnore)
-	}
+	require.NoError(t, app.Run(context.Background()))
+	require.Empty(t, gotIgnore)
 
 	planPath := filepath.Join(filepath.Dir(pom), upgradeplan.DefaultFileName)
-	if err := os.WriteFile(planPath, []byte(`{"packages": [{"ecosystem": "maven", "name": "junit:junit", "action": "upgrade", "version": "4.13.2"}]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.Run(context.Background()); err != nil {
-		t.Fatalf("with default plan: %v", err)
-	}
-	if want := []rootio.Package{{Name: "junit:junit", Version: "4.12"}}; !reflect.DeepEqual(gotIgnore, want) {
-		t.Fatalf("ignore = %+v, want %+v", gotIgnore, want)
-	}
+	require.NoError(t, os.WriteFile(planPath, []byte(`{"packages": [{"ecosystem": "maven", "name": "junit:junit", "action": "upgrade", "version": "4.13.2"}]}`), 0o644))
+	require.NoError(t, app.Run(context.Background()))
+	require.Equal(t, []rootio.Package{{Name: "junit:junit", Version: "4.12"}}, gotIgnore)
 }
