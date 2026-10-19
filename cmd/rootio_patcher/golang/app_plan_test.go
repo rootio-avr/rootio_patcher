@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
@@ -70,20 +69,20 @@ func TestGoLangApp_PlannedModuleIsReplacedVerbatimAndIgnoredForAPI(t *testing.T)
 				app := planApp(goModPath, useAlias, uuidAPIPatch(&gotIgnore, &gotPackages), cmd).WithUpgradePlan(planPath)
 				require.NoError(t, app.Run(context.Background()))
 
-				assert.Len(t, gotPackages, 2)
-				assert.Equal(t, []rootio.Package{{Name: "golang.org/x/net", Version: "v0.16.0"}}, gotIgnore)
+				require.Len(t, gotPackages, 2)
+				require.Equal(t, []rootio.Package{{Name: "golang.org/x/net", Version: "v0.16.0"}}, gotIgnore)
 
 				content, err := os.ReadFile(goModPath)
 				require.NoError(t, err)
-				assert.True(t, containsLine(string(content), tc.wantReplace), string(content))
-				assert.True(t, strings.Contains(string(content), "require (\n\tgithub.com/google/uuid v1.3.0\n\tgolang.org/x/net v0.16.0\n)"), "requires must not change:\n"+string(content))
+				require.True(t, containsLine(string(content), tc.wantReplace), string(content))
+				require.True(t, strings.Contains(string(content), "require (\n\tgithub.com/google/uuid v1.3.0\n\tgolang.org/x/net v0.16.0\n)"), "requires must not change:\n"+string(content))
 				apiReplace := "replace github.com/google/uuid v1.3.0 => github.com/google/uuid v1.3.1-rootio.1"
 				if useAlias {
 					apiReplace = "replace github.com/google/uuid v1.3.0 => pkg.root.io/golang/github.com/google/uuid v1.3.1-rootio.1"
 				}
-				assert.True(t, containsLine(string(content), apiReplace), "unplanned module still comes from the API:\n"+string(content))
+				require.True(t, containsLine(string(content), apiReplace), "unplanned module still comes from the API:\n"+string(content))
 				require.Len(t, cmd.Calls, 1)
-				assert.Equal(t, "mod tidy", strings.Join(cmd.Calls[0].Args, " "))
+				require.Equal(t, "mod tidy", strings.Join(cmd.Calls[0].Args, " "))
 			})
 		}
 	}
@@ -100,7 +99,7 @@ func TestGoLangApp_PlannedModuleIsExemptFromSumDBLikeAPIPatches(t *testing.T) {
 	require.NoError(t, planApp(goModPath, false, uuidAPIPatch(&ignore, &packages), cmd).WithUpgradePlan(planPath).Run(context.Background()))
 
 	require.Len(t, cmd.Calls, 1)
-	assert.Contains(t, cmd.Calls[0].Env, "GONOSUMDB=golang.org/x/net,github.com/google/uuid")
+	require.Contains(t, cmd.Calls[0].Env, "GONOSUMDB=golang.org/x/net,github.com/google/uuid")
 }
 
 func TestGoLangApp_ReportShowsPlannedVersion(t *testing.T) {
@@ -119,7 +118,7 @@ func TestGoLangApp_ReportShowsPlannedVersion(t *testing.T) {
 	var entries []ReportEntry
 	require.NoError(t, json.Unmarshal(data, &entries))
 	require.Len(t, entries, 2)
-	assert.Equal(t, ReportEntry{Name: "golang.org/x/net", OldVersion: "v0.16.0", NewVersion: "v0.17.0", CVEIDs: []string{}}, entries[0])
+	require.Equal(t, ReportEntry{Name: "golang.org/x/net", OldVersion: "v0.16.0", NewVersion: "v0.17.0", CVEIDs: []string{}}, entries[0])
 }
 
 func TestGoLangApp_ExplicitMissingPlanIsError(t *testing.T) {
@@ -129,8 +128,8 @@ func TestGoLangApp_ExplicitMissingPlanIsError(t *testing.T) {
 
 	err := app.Run(context.Background())
 	require.Error(t, err)
-	assert.ErrorIs(t, err, os.ErrNotExist)
-	assert.Contains(t, err.Error(), "read upgrade plan")
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.Contains(t, err.Error(), "read upgrade plan")
 }
 
 func TestGoLangApp_DefaultPlanNextToGoModIsUsedAndMissingMeansNoPlan(t *testing.T) {
@@ -140,11 +139,11 @@ func TestGoLangApp_DefaultPlanNextToGoModIsUsedAndMissingMeansNoPlan(t *testing.
 	app := planApp(goModPath, false, uuidAPIPatch(&ignore, &packages), &MockCommandRunner{})
 
 	require.NoError(t, app.Run(context.Background()))
-	assert.Empty(t, ignore)
+	require.Empty(t, ignore)
 
 	writeGoMod(t, dir, planGoMod) // fresh go.mod: the first run added a replace
 	require.NoError(t, os.WriteFile(filepath.Join(dir, upgradeplan.DefaultFileName),
 		[]byte(`{"packages": [{"ecosystem": "go", "name": "golang.org/x/net", "action": "upgrade", "version": "v0.17.0"}]}`), 0o644))
 	require.NoError(t, app.Run(context.Background()))
-	assert.Equal(t, []rootio.Package{{Name: "golang.org/x/net", Version: "v0.16.0"}}, ignore)
+	require.Equal(t, []rootio.Package{{Name: "golang.org/x/net", Version: "v0.16.0"}}, ignore)
 }

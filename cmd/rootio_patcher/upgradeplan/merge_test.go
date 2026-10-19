@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -122,7 +123,7 @@ func TestAnalyze(t *testing.T) {
 		require.Equal(t, 1, client.calls)
 		require.Empty(t, client.ignore)
 		require.Empty(t, got.Patches)
-		require.Contains(t, logs.String(), `package=ghost from=4.0.0 reason="no installed version matches"`)
+		require.Contains(t, logs.String(), `msg="Package skipped" package=ghost from=4.0.0 to=1.0.0 source=plan reason="no installed version matches"`)
 	})
 }
 
@@ -145,4 +146,30 @@ func TestResolve(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(`{`), 0o644))
 	_, err = Resolve("", dir)
 	require.Error(t, err)
+}
+
+func TestAnalyze_LogsOneLinePerPackageWithFromAndTo(t *testing.T) {
+	client := &fakeClient{resp: &rootio.AnalyzePackagesResponse{
+		Patches: []rootio.PackagePatch{apiPatch("express", "4.18.2", "4.18.2-root.io.1")},
+	}}
+	logger, logs := testLogger()
+	plan := &Plan{Packages: []Entry{
+		{Ecosystem: "npm", Name: "lodash", Action: "upgrade", Version: "4.17.21"},
+		{Ecosystem: "npm", Name: "ms", Action: "upgrade", Version: "2.1.3"},
+	}}
+	installed := []rootio.Package{
+		{Name: "lodash", Version: "4.17.20"},
+		{Name: "ms", Version: "2.1.3"},
+		{Name: "express", Version: "4.18.2"},
+	}
+	_, err := Analyze(context.Background(), logger, client, plan, "npm", installed, nil)
+	require.NoError(t, err)
+	for msg, want := range map[string]string{
+		"Package upgraded": `package=lodash from=4.17.20 to=4.17.21 source=plan`,
+		"Package patched":  `package=express from=4.18.2 to=4.18.2-root.io.1 source=api`,
+		"Package skipped":  `package=ms from=2.1.3 to=2.1.3 source=plan reason="already at plan version"`,
+	} {
+		line := `msg="` + msg + `" ` + want
+		require.Equal(t, 1, strings.Count(logs.String(), line), logs.String())
+	}
 }

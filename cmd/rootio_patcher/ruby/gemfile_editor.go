@@ -200,9 +200,25 @@ func pairKey(a string) string {
 // resolves to installVersion. A gem not declared in the Gemfile is appended as a direct
 // dependency (with source when non-empty), since Bundler needs it to pin a transitive gem.
 func (g *GemfileEditor) PatchDependency(name, installVersion string) error {
+	return g.rewriteConstraints(name, ">= "+installVersion, func(cons []string) []string {
+		return determineConstraints(cons, installVersion)
+	})
+}
+
+// PinDependency makes every declaration of gem require exactly version, replacing its other
+// version constraints, so a bundle update cannot resolve to anything newer. A gem not declared
+// in the Gemfile is appended with the exact pin.
+func (g *GemfileEditor) PinDependency(name, version string) error {
+	exact := "= " + version
+	return g.rewriteConstraints(name, exact, func([]string) []string { return []string{exact} })
+}
+
+// rewriteConstraints replaces the version constraints of every declaration of gem with
+// newConstraints(existing). A gem that is not declared is appended with addConstraint.
+func (g *GemfileEditor) rewriteConstraints(name, addConstraint string, newConstraints func(existing []string) []string) error {
 	stmts := g.findGems(name)
 	if len(stmts) == 0 {
-		g.addGem(name, ">= "+installVersion, "")
+		g.addGem(name, addConstraint, "")
 		return nil
 	}
 	quote := g.quoteStyle()
@@ -227,7 +243,7 @@ func (g *GemfileEditor) PatchDependency(name, installVersion string) error {
 				return fmt.Errorf("unsupported version constraints on gem %q: %q", name, firstLine(text))
 			}
 		}
-		newCons := strings.Join(quoteAll(determineConstraints(cons, installVersion), quote), ", ")
+		newCons := strings.Join(quoteAll(newConstraints(cons), quote), ", ")
 		if len(consIdx) == 0 {
 			at := args[0].end
 			text = text[:at] + ", " + newCons + text[at:]

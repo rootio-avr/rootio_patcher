@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
+	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -46,6 +47,8 @@ type App struct {
 	apiClient common.APIClient
 	runner    CommandRunner
 	ignoreSet map[string]struct{}
+
+	upgradePlanPath string
 }
 
 // NewApp creates a new App with injected services.
@@ -62,6 +65,13 @@ func NewApp(
 		logger: logger, apiClient: apiClient, runner: runner,
 		ignoreSet: common.LoadIgnoreList(filepath.Join(dir, ".rootioignore"), ignoreEntries),
 	}
+}
+
+// WithUpgradePlan sets the upgrade plan file.
+// An empty path uses root-upgrade-plan.json in the project directory when that file exists.
+func (a *App) WithUpgradePlan(path string) *App {
+	a.upgradePlanPath = path
+	return a
 }
 
 // sourceURL is the gem index written into the Gemfile. It carries no credentials: the secret
@@ -111,9 +121,13 @@ func (a *App) Run(ctx context.Context) error {
 	for i, g := range gems {
 		pkgs[i] = rootio.Package{Name: g.Name, Version: g.Version}
 	}
-	resp, err := a.apiClient.AnalyzePackages(ctx, pkgs, common.IgnoreListToPackages(a.ignoreSet), "ruby")
+	plan, err := upgradeplan.Resolve(a.upgradePlanPath, a.dir)
 	if err != nil {
-		return fmt.Errorf("failed to analyze packages: %w", err)
+		return err
+	}
+	resp, err := upgradeplan.Analyze(ctx, a.logger, a.apiClient, plan, "ruby", pkgs, common.IgnoreListToPackages(a.ignoreSet))
+	if err != nil {
+		return err
 	}
 	a.logger.DebugContext(ctx, "Vulnerability analysis complete",
 		slog.Int("patches_available", len(resp.Patches)),
@@ -146,6 +160,14 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
+// rootBuildMarker is the reserved numeric segment of a Root-built gem version (1.2.4.41610.1).
+const rootBuildMarker = ".41610."
+
+// isRootBuild reports whether version is a Root build, which only the Root gem source serves.
+func isRootBuild(version string) bool {
+	return strings.Contains(version, rootBuildMarker)
+}
+
 func patchTarget(p rootio.PackagePatch) (name, version string) {
 	name, version = p.PatchAlias.Name, p.PatchAlias.Version
 	if version == "" {
@@ -170,10 +192,7 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch, g
 	for _, p := range patches {
 		name, version := patchTarget(p)
 		fmt.Printf("  - %s: %s → %s\n", name, p.Version, version)
-		if err := editor.PatchDependency(name, version); err != nil {
-			return fmt.Errorf("cannot edit Gemfile for %s (declaration too dynamic to rewrite safely): %w", name, err)
-		}
-		if err := editor.SetGemSource(name, source); err != nil {
+		if err := editPatchedGem(editor, p, name, version, source); err != nil {
 			return fmt.Errorf("cannot edit Gemfile for %s (declaration too dynamic to rewrite safely): %w", name, err)
 		}
 		names = append(names, name)
@@ -212,6 +231,25 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch, g
 		}
 	}
 	return os.WriteFile(lockPath, []byte(RestoreRubyAndBundlerInfo(lock, newLock)), 0o644)
+}
+
+// editPatchedGem rewrites the Gemfile so name resolves to version. An API patch raises the
+// constraint and pins the Root source. A planned version is pinned exactly, and only a Root
+// build moves the gem to the Root source; any other version resolves from the gem's own source.
+func editPatchedGem(editor *GemfileEditor, patch rootio.PackagePatch, name, version, rootSource string) error {
+	if !patch.Planned {
+		if err := editor.PatchDependency(name, version); err != nil {
+			return err
+		}
+		return editor.SetGemSource(name, rootSource)
+	}
+	if err := editor.PinDependency(name, version); err != nil {
+		return err
+	}
+	if !isRootBuild(version) {
+		return nil
+	}
+	return editor.SetGemSource(name, rootSource)
 }
 
 func redact(s, secret string) string {
