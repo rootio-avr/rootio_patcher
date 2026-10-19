@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
@@ -52,7 +51,7 @@ func TestComposerApp_PlannedPackageIsPatchedVerbatimAndIgnoredForAPI(t *testing.
 			}
 			api := &MockAPIClient{AnalyzePackagesFunc: func(_ context.Context, pkgs, ignore []rootio.Package, eco string) (*rootio.AnalyzePackagesResponse, error) {
 				gotPackages, gotIgnore = pkgs, ignore
-				assert.Equal(t, "composer", eco)
+				require.Equal(t, "composer", eco)
 				return &rootio.AnalyzePackagesResponse{Patches: []rootio.PackagePatch{{
 					PackageName: "guzzlehttp/guzzle", Version: "7.0.0",
 					Patch:      rootio.PatchInfo{Name: "guzzlehttp/guzzle", Version: "7.0.1"},
@@ -64,15 +63,15 @@ func TestComposerApp_PlannedPackageIsPatchedVerbatimAndIgnoredForAPI(t *testing.
 			app := newTestApp(composerFile, false, useAlias, parser, api, cmd).WithUpgradePlan(planPath)
 			require.NoError(t, app.Run(context.Background()))
 
-			assert.Len(t, gotPackages, 2)
-			assert.Equal(t, []rootio.Package{{Name: "monolog/monolog", Version: "2.0.0"}}, gotIgnore)
-			assert.Equal(t, map[string]string{
+			require.Len(t, gotPackages, 2)
+			require.Equal(t, []rootio.Package{{Name: "monolog/monolog", Version: "2.0.0"}}, gotIgnore)
+			require.Equal(t, map[string]string{
 				"monolog/monolog":   "monolog/monolog:2.9.3",
 				"guzzlehttp/guzzle": "guzzlehttp/guzzle:7.0.1",
 			}, updates)
 			require.Len(t, cmd.Calls, 1)
-			assert.Contains(t, cmd.Calls[0].Args, "monolog/monolog")
-			assert.Contains(t, cmd.Calls[0].Args, "guzzlehttp/guzzle")
+			require.Contains(t, cmd.Calls[0].Args, "monolog/monolog")
+			require.Contains(t, cmd.Calls[0].Args, "guzzlehttp/guzzle")
 		})
 	}
 }
@@ -84,8 +83,8 @@ func TestComposerApp_ExplicitMissingPlanIsError(t *testing.T) {
 
 	err := app.Run(context.Background())
 	require.Error(t, err)
-	assert.ErrorIs(t, err, os.ErrNotExist)
-	assert.Contains(t, err.Error(), "read upgrade plan")
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.Contains(t, err.Error(), "read upgrade plan")
 }
 
 func TestComposerApp_DefaultPlanNextToComposerJSONIsUsedAndMissingMeansNoPlan(t *testing.T) {
@@ -98,10 +97,10 @@ func TestComposerApp_DefaultPlanNextToComposerJSONIsUsedAndMissingMeansNoPlan(t 
 	app := newTestApp(composerFile, true, false, installedPair(), api, &MockCommandRunner{})
 
 	require.NoError(t, app.Run(context.Background()))
-	assert.Empty(t, gotIgnore)
+	require.Empty(t, gotIgnore)
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, upgradeplan.DefaultFileName),
 		[]byte(`{"packages": [{"ecosystem": "composer", "name": "monolog/monolog", "action": "upgrade", "version": "2.9.3"}]}`), 0o644))
-	assert.ErrorIs(t, app.Run(context.Background()), common.ErrPatchesAvailable)
-	assert.Equal(t, []rootio.Package{{Name: "monolog/monolog", Version: "2.0.0"}}, gotIgnore)
+	require.ErrorIs(t, app.Run(context.Background()), common.ErrPatchesAvailable)
+	require.Equal(t, []rootio.Package{{Name: "monolog/monolog", Version: "2.0.0"}}, gotIgnore)
 }
