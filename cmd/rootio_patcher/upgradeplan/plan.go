@@ -70,10 +70,16 @@ type Selection struct {
 	Patches []rootio.PackagePatch
 	// Ignore lists every planned installed package as name@installed so the Root API skips it.
 	Ignore []rootio.Package
-	// Absent names plan entries for this ecosystem whose package is not installed.
-	Absent []string
+	// Absent lists plan entries for this ecosystem that matched no installed version.
+	Absent []Unmatched
 	// Current names planned packages already installed at the plan version.
 	Current []string
+}
+
+// Unmatched is a plan entry no installed version matched. From is the entry's from, empty when it named none.
+type Unmatched struct {
+	Name string
+	From string
 }
 
 // Split separates the installed packages the plan upgrades from the rest.
@@ -135,7 +141,7 @@ func (p *Plan) Split(ecosystem string, installed []Package) (Selection, error) {
 	}
 	for _, choice := range ordered {
 		if _, ok := matched[choice.key()]; !ok {
-			sel.Absent = append(sel.Absent, choice.Name)
+			sel.Absent = append(sel.Absent, Unmatched{Name: choice.Name, From: choice.From})
 		}
 	}
 	return sel, nil
