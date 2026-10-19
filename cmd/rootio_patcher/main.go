@@ -327,11 +327,12 @@ type GoCmd struct {
 
 // GoRemediateCmd remediates Go modules by adding replace directives to go.mod
 type GoRemediateCmd struct {
-	GoMod    string   `default:"go.mod" help:"Path to go.mod"`
-	DryRun   bool     `default:"true" help:"Preview changes without applying them"`
-	UseAlias bool     `default:"false" help:"Use Root.io aliased modules (pkg.root.io/*); set false to use original module paths"`
-	Ignore   []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
-	Report   string   `help:"Write a JSON report of the remediated modules and the CVEs they fix to this path."`
+	GoMod       string   `default:"go.mod" help:"Path to go.mod"`
+	DryRun      bool     `default:"true" help:"Preview changes without applying them"`
+	UseAlias    bool     `default:"false" help:"Use Root.io aliased modules (pkg.root.io/*); set false to use original module paths"`
+	UpgradePlan string   `name:"upgrade-plan" help:"JSON file of per-module upgrades (action upgrade, exact module version such as v0.17.0). Planned modules get a replace to that version; all other modules use the Root API. When omitted, root-upgrade-plan.json next to go.mod is used if present; a missing default file means no plan."`
+	Ignore      []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	Report      string   `help:"Write a JSON report of the remediated modules and the CVEs they fix to this path."`
 }
 
 // Run executes the go remediate command
@@ -343,7 +344,7 @@ func (cmd *GoRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger *
 		golang.NewGoModParser(logger),
 		rootio.NewClient(cfg.APIURL, cfg.APIKey),
 		golang.NewRealCommandRunner(),
-	).WithReport(cmd.Report)
+	).WithReport(cmd.Report).WithUpgradePlan(cmd.UpgradePlan)
 	return app.Run(ctx)
 }
 
