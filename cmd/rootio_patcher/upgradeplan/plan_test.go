@@ -3,234 +3,193 @@ package upgradeplan
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"rootio_patcher/pkg/rootio"
 )
 
-func TestLoad_ExamplePlan(t *testing.T) {
+func planned(name, from, to string) rootio.PackagePatch {
+	info := rootio.PatchInfo{Name: name, Version: to}
+	return rootio.PackagePatch{PackageName: name, Version: from, Patch: info, PatchAlias: info, Planned: true}
+}
+
+func split(t *testing.T, plan *Plan, ecosystem string, installed []Package) Selection {
+	t.Helper()
+	got, err := plan.Split(ecosystem, installed)
+	require.NoError(t, err)
+	return got
+}
+
+func TestLoad(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, DefaultFileName)
-	body := `{
-	  "source": "fixer",
-	  "packages": [
-	    {"ecosystem": "npm", "name": "lodash", "action": "upgrade", "version": "4.17.21", "reason": "no breaking API use found"},
-	    {"ecosystem": "npm", "name": "left-pad", "action": "leave", "reason": "upgrade decision unknown"}
-	  ]
-	}`
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
-	plan, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(plan.Packages) != 2 {
-		t.Fatalf("packages = %d, want 2", len(plan.Packages))
-	}
-	if plan.Packages[0].Name != "lodash" || plan.Packages[0].Action != ActionUpgrade || plan.Packages[0].Version != "4.17.21" {
-		t.Fatalf("lodash entry = %+v", plan.Packages[0])
-	}
-	if plan.Packages[1].Name != "left-pad" || plan.Packages[1].Action != ActionLeave {
-		t.Fatalf("left-pad entry = %+v", plan.Packages[1])
-	}
+	t.Run("example", func(t *testing.T) {
+		body := `{"packages":[
+			{"ecosystem":"npm","name":"lodash","action":"upgrade","version":"4.17.21","reason":"safe"},
+			{"ecosystem":"npm","name":"ms","from":"2.0.0","action":"upgrade","version":"2.2.2+root.io.1"}]}`
+		require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+		plan, err := Load(path)
+		require.NoError(t, err)
+		require.Equal(t, []Entry{
+			{Ecosystem: "npm", Name: "lodash", Action: ActionUpgrade, Version: "4.17.21", Reason: "safe"},
+			{Ecosystem: "npm", Name: "ms", From: "2.0.0", Action: ActionUpgrade, Version: "2.2.2+root.io.1"},
+		}, plan.Packages)
+	})
+	t.Run("missing", func(t *testing.T) {
+		_, err := Load(filepath.Join(dir, "missing.json"))
+		require.ErrorIs(t, err, os.ErrNotExist)
+	})
+	t.Run("invalid", func(t *testing.T) {
+		require.NoError(t, os.WriteFile(path, []byte("{"), 0o644))
+		_, err := Load(path)
+		require.Error(t, err)
+	})
+	t.Run("empty", func(t *testing.T) {
+		require.NoError(t, os.WriteFile(path, []byte(" \n"), 0o644))
+		_, err := Load(path)
+		require.Error(t, err)
+	})
 }
 
-func TestLoad_MissingFile(t *testing.T) {
-	_, err := Load(filepath.Join(t.TempDir(), "missing.json"))
-	if !os.IsNotExist(err) {
-		t.Fatalf("err = %v, want not exist", err)
-	}
-}
-
-func TestLoad_InvalidJSON(t *testing.T) {
-	path := filepath.Join(t.TempDir(), DefaultFileName)
-	if err := os.WriteFile(path, []byte("{"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected parse error")
-	}
-}
-
-func TestLoad_EmptyFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), DefaultFileName)
-	if err := os.WriteFile(path, []byte(" \n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected empty-file error")
-	}
-}
-
-func TestDecide_UpgradeAndLeave(t *testing.T) {
-	plan := &Plan{Packages: []Entry{
-		{Ecosystem: "npm", Name: "lodash", Action: "upgrade", Version: "4.17.21", Reason: "no breaking API use found"},
-		{Ecosystem: "npm", Name: "left-pad", Action: "leave", Reason: "upgrade decision unknown"},
-		{Ecosystem: "pypi", Name: "requests", Action: "not-an-action"},
-		{Ecosystem: "maven", Name: "org.example:lib", Action: "upgrade"},
-	}}
-	installed := []Package{
-		{Name: "lodash", Version: "4.17.20"},
-		{Name: "left-pad", Version: "1.3.0"},
-		{Name: "express", Version: "4.18.2"},
-	}
-
-	got, err := plan.Decide("npm", installed)
-	if err != nil {
-		t.Fatalf("Decide: %v", err)
-	}
-
-	wantUpgrades := []Upgrade{{
-		Name: "lodash", InstalledVersion: "4.17.20", Version: "4.17.21", Reason: "no breaking API use found",
-	}}
-	if !reflect.DeepEqual(got.Upgrades, wantUpgrades) {
-		t.Fatalf("upgrades = %+v, want %+v", got.Upgrades, wantUpgrades)
-	}
-	wantLeaves := []Leave{{
-		Name: "left-pad", InstalledVersion: "1.3.0", Reason: "upgrade decision unknown",
-	}}
-	if !reflect.DeepEqual(got.Leaves, wantLeaves) {
-		t.Fatalf("leaves = %+v, want %+v", got.Leaves, wantLeaves)
-	}
-	if !reflect.DeepEqual(got.IgnoredEcosystems, []string{"pypi", "maven"}) {
-		t.Fatalf("ignored = %v", got.IgnoredEcosystems)
-	}
-
-	resp := got.AnalyzeResponse()
-	if len(resp.Patches) != 1 {
-		t.Fatalf("patches = %d, want 1", len(resp.Patches))
-	}
-	patch := resp.Patches[0]
-	if patch.PackageName != "lodash" || patch.Version != "4.17.20" || patch.Patch.Name != "lodash" || patch.Patch.Version != "4.17.21" {
-		t.Fatalf("patch = %+v", patch)
-	}
-	if len(resp.Skipped) != 1 || resp.Skipped[0].PackageName != "left-pad" || resp.Skipped[0].Reason != "leave: upgrade decision unknown" {
-		t.Fatalf("skipped = %+v", resp.Skipped)
-	}
-}
-
-func TestDecide_UnknownEcosystemDoesNotFail(t *testing.T) {
-	plan := &Plan{Packages: []Entry{
-		{Ecosystem: "hex", Name: "poison", Action: "explode", Version: ""},
-		{Ecosystem: "NPM", Name: "lodash", Action: "Upgrade", Version: " 4.17.21 "},
-	}}
-	got, err := plan.Decide("npm", []Package{{Name: "lodash", Version: "4.17.20"}})
-	if err != nil {
-		t.Fatalf("Decide: %v", err)
-	}
-	if len(got.Upgrades) != 1 || got.Upgrades[0].Version != "4.17.21" {
-		t.Fatalf("upgrades = %+v", got.Upgrades)
-	}
-	if !reflect.DeepEqual(got.IgnoredEcosystems, []string{"hex"}) {
-		t.Fatalf("ignored = %v", got.IgnoredEcosystems)
-	}
-}
-
-func TestDecide_InvalidNpmEntryFails(t *testing.T) {
+func TestSplit_Errors(t *testing.T) {
 	cases := []struct {
-		name    string
-		entry   Entry
-		wantErr string
+		name  string
+		entry Entry
+		want  string
 	}{
-		{
-			name:    "unknown action",
-			entry:   Entry{Ecosystem: "npm", Name: "lodash", Action: "pin", Version: "1.0.0"},
-			wantErr: `upgrade plan package "lodash": action "pin" is not upgrade or leave`,
-		},
-		{
-			name:    "upgrade missing version",
-			entry:   Entry{Ecosystem: "npm", Name: "lodash", Action: "upgrade"},
-			wantErr: `upgrade plan package "lodash": upgrade requires a version`,
-		},
-		{
-			name:    "empty name",
-			entry:   Entry{Ecosystem: "npm", Name: "  ", Action: "leave"},
-			wantErr: "upgrade plan entry 0: package name is empty",
-		},
+		{"unknown action", Entry{Ecosystem: "npm", Name: "lodash", Action: "pin", Version: "1.0.0"}, `upgrade plan package "lodash": action "pin" is not supported, use "upgrade"`},
+		{"leave", Entry{Ecosystem: "npm", Name: "lodash", Action: "leave"}, `upgrade plan package "lodash": action "leave" is not supported, use "upgrade"`},
+		{"missing version", Entry{Ecosystem: "npm", Name: "lodash", Action: "upgrade"}, `upgrade plan package "lodash": upgrade requires a version`},
+		{"empty name", Entry{Ecosystem: "npm", Name: "  ", Action: "upgrade", Version: "1"}, "upgrade plan entry 0: package name is empty"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := (&Plan{Packages: []Entry{tc.entry}}).Decide("npm", nil)
-			if err == nil || err.Error() != tc.wantErr {
-				t.Fatalf("err = %v, want %q", err, tc.wantErr)
-			}
+			_, err := (&Plan{Packages: []Entry{tc.entry}}).Split("npm", nil)
+			require.EqualError(t, err, tc.want)
 		})
 	}
+	_, err := (*Plan)(nil).Split("npm", nil)
+	require.Error(t, err)
 }
 
-func TestDecide_OtherEcosystemInvalidActionIsIgnored(t *testing.T) {
-	plan := &Plan{Packages: []Entry{
-		{Ecosystem: "maven", Name: "org.example:lib", Action: "pin"},
-	}}
-	got, err := plan.Decide("npm", []Package{{Name: "lodash", Version: "1.0.0"}})
-	if err != nil {
-		t.Fatalf("Decide: %v", err)
-	}
-	if len(got.Upgrades) != 0 || len(got.Leaves) != 0 {
-		t.Fatalf("result = %+v, want empty decisions", got)
-	}
-	if !reflect.DeepEqual(got.IgnoredEcosystems, []string{"maven"}) {
-		t.Fatalf("ignored = %v", got.IgnoredEcosystems)
-	}
-}
-
-func TestDecide_AlreadyAtVersionAndAbsentAndLastWins(t *testing.T) {
-	plan := &Plan{Packages: []Entry{
-		{Ecosystem: "npm", Name: "lodash", Action: "upgrade", Version: "4.17.20", Reason: "first"},
-		{Ecosystem: "npm", Name: "lodash", Action: "upgrade", Version: "4.17.21", Reason: "last"},
-		{Ecosystem: "npm", Name: "ms", Action: "upgrade", Version: "2.1.3"},
-		{Ecosystem: "npm", Name: "left-pad", Action: "upgrade", Version: "1.3.0"},
-		{Ecosystem: "npm", Name: "debug", Action: "leave"},
-	}}
+func TestSplit(t *testing.T) {
 	installed := []Package{
 		{Name: "lodash", Version: "4.17.20"},
-		{Name: "lodash", Version: "4.17.20"},
+		{Name: "ms", Version: "2.0.0"},
+		{Name: "express", Version: "4.18.2"},
+		{Name: "requests", Version: "2.0.0"},
+	}
+	got := split(t, &Plan{Packages: []Entry{
+		{Ecosystem: "npm", Name: "lodash", Action: "upgrade", Version: "4.17.21-aikido.2"},
+		{Ecosystem: "npm", Name: "ms", Action: "upgrade", Version: "2.1.3", Reason: "safe"},
+		{Ecosystem: "pypi", Name: "requests", Action: "upgrade", Version: "2.32.0"},
+		{Ecosystem: "npm", Name: "absent", Action: "upgrade", Version: "1.0.0"},
+		{Ecosystem: "maven", Name: "org.example:lib", Action: "pin"},
+	}}, "npm", installed)
+	require.Equal(t, []rootio.PackagePatch{
+		planned("lodash", "4.17.20", "4.17.21-aikido.2"),
+		planned("ms", "2.0.0", "2.1.3"),
+	}, got.Patches)
+	require.Equal(t, []rootio.Package{{Name: "lodash", Version: "4.17.20"}, {Name: "ms", Version: "2.0.0"}}, got.Ignore)
+	require.Equal(t, []Unmatched{{Name: "absent"}}, got.Absent)
+
+	got = split(t, &Plan{Packages: []Entry{{Ecosystem: "NPM", Name: "lodash", Action: "Upgrade", Version: " 4.17.21 "}}}, " Npm ", []Package{{Name: "lodash", Version: "4.17.20"}})
+	require.Equal(t, "4.17.21", got.Patches[0].Patch.Version)
+
+	got = split(t, &Plan{}, "npm", installed)
+	require.Empty(t, got.Patches)
+	require.Empty(t, got.Ignore)
+	require.Empty(t, got.Absent)
+
+	got = split(t, &Plan{Packages: []Entry{{Ecosystem: "npm", Name: "ms", Action: "upgrade", Version: "2.1.3"}}}, "npm", []Package{{Name: "ms", Version: "2.1.3"}})
+	require.Empty(t, got.Patches)
+	require.Equal(t, []rootio.Package{{Name: "ms", Version: "2.1.3"}}, got.Ignore)
+	require.Equal(t, []string{"ms"}, got.Current)
+
+	// Last duplicate entry wins. A repeated installed row is planned once.
+	got = split(t, &Plan{Packages: []Entry{
+		{Ecosystem: "npm", Name: "lodash", Action: "upgrade", Version: "4.17.20"},
+		{Ecosystem: "npm", Name: "lodash", Action: "upgrade", Version: "4.17.21"},
+	}}, "npm", []Package{{Name: "lodash", Version: "4.17.15"}, {Name: "lodash", Version: "4.17.15"}, {Name: "lodash", Version: "3.10.1"}})
+	require.Equal(t, []rootio.PackagePatch{
+		planned("lodash", "4.17.15", "4.17.21"),
+		planned("lodash", "3.10.1", "4.17.21"),
+	}, got.Patches)
+}
+
+func TestSplit_From(t *testing.T) {
+	got := split(t, &Plan{Packages: []Entry{
+		{Ecosystem: "npm", Name: "lodash", Action: "upgrade", Version: "4.17.21"},
+		{Ecosystem: "npm", Name: "lodash", From: " 3.10.1 ", Action: "upgrade", Version: "3.10.2"},
+		{Ecosystem: "npm", Name: "lodash", From: "1.0.0", Action: "upgrade", Version: "1.0.1"},
+		{Ecosystem: "npm", Name: "lodash", From: "1.0.0", Action: "upgrade", Version: "1.0.2"},
+	}}, "npm", []Package{
+		{Name: "lodash", Version: "3.10.1"},
 		{Name: "lodash", Version: "4.17.15"},
-		{Name: "left-pad", Version: "1.3.0"},
-		{Name: "debug", Version: "4.3.4"},
-		{Name: "debug", Version: "4.3.4"},
-	}
+		{Name: "lodash", Version: "1.0.0"},
+	})
+	require.Equal(t, []rootio.PackagePatch{
+		planned("lodash", "3.10.1", "3.10.2"),
+		planned("lodash", "4.17.15", "4.17.21"),
+		planned("lodash", "1.0.0", "1.0.2"),
+	}, got.Patches)
+	require.Equal(t, []rootio.Package{
+		{Name: "lodash", Version: "3.10.1"},
+		{Name: "lodash", Version: "4.17.15"},
+		{Name: "lodash", Version: "1.0.0"},
+	}, got.Ignore)
 
-	got, err := plan.Decide("npm", installed)
-	if err != nil {
-		t.Fatalf("Decide: %v", err)
-	}
-
-	wantUpgrades := []Upgrade{
-		{Name: "lodash", InstalledVersion: "4.17.20", Version: "4.17.21", Reason: "last"},
-		{Name: "lodash", InstalledVersion: "4.17.15", Version: "4.17.21", Reason: "last"},
-	}
-	if !reflect.DeepEqual(got.Upgrades, wantUpgrades) {
-		t.Fatalf("upgrades = %+v, want %+v", got.Upgrades, wantUpgrades)
-	}
-	wantLeaves := []Leave{{Name: "debug", InstalledVersion: "4.3.4"}}
-	if !reflect.DeepEqual(got.Leaves, wantLeaves) {
-		t.Fatalf("leaves = %+v, want %+v", got.Leaves, wantLeaves)
-	}
-	if !reflect.DeepEqual(got.AbsentPackageNames, []string{"ms"}) {
-		t.Fatalf("absent = %v", got.AbsentPackageNames)
-	}
-	if len(got.AnalyzeResponse().Patches) != 2 {
-		t.Fatalf("patches = %+v", got.AnalyzeResponse().Patches)
-	}
+	miss := split(t, &Plan{Packages: []Entry{{Ecosystem: "npm", Name: "lodash", From: "4.17.15", Action: "upgrade", Version: "4.17.21"}}}, "npm", []Package{{Name: "lodash", Version: "3.10.1"}})
+	require.Empty(t, miss.Patches)
+	require.Empty(t, miss.Ignore)
+	require.Equal(t, []Unmatched{{Name: "lodash", From: "4.17.15"}}, miss.Absent)
 }
 
-func TestDecide_EmptyPlan(t *testing.T) {
-	got, err := (&Plan{}).Decide("npm", []Package{{Name: "lodash", Version: "1.0.0"}})
-	if err != nil {
-		t.Fatalf("Decide: %v", err)
+func TestSplit_NamesMatchPerEcosystem(t *testing.T) {
+	cases := []struct {
+		ecosystem, planName, installed string
+		matches                        bool
+	}{
+		{"pypi", "Jinja2", "jinja2", true},
+		{"pypi", "typing_extensions", "typing-extensions", true},
+		{"pypi", "ruamel.yaml", "ruamel-yaml", true},
+		{"pypi", "a-_.b", "a--b", true},
+		{"pypi", "jinja2", "jinja3", false},
+		{"nuget", "newtonsoft.json", "Newtonsoft.Json", true},
+		{"nuget", "Newtonsoft.Json", "Newtonsoft.Xml", false},
+		{"composer", "Monolog/Monolog", "monolog/monolog", true},
+		{"npm", "Lodash", "lodash", false},
+		{"npm", "lodash", "lodash", true},
+		{"golang", "github.com/Azure/go", "github.com/azure/go", false},
+		{"maven", "Junit:junit", "junit:junit", false},
+		{"ruby", "Rack", "rack", false},
 	}
-	if len(got.Upgrades) != 0 || len(got.Leaves) != 0 || len(got.IgnoredEcosystems) != 0 {
-		t.Fatalf("result = %+v, want empty", got)
+	for _, tc := range cases {
+		t.Run(tc.ecosystem+"/"+tc.planName+"/"+tc.installed, func(t *testing.T) {
+			got := split(t, &Plan{Packages: []Entry{{Ecosystem: tc.ecosystem, Name: tc.planName, Action: "upgrade", Version: "9.9.9"}}}, tc.ecosystem, []Package{{Name: tc.installed, Version: "1.0.0"}})
+			if !tc.matches {
+				require.Empty(t, got.Patches)
+				require.Empty(t, got.Ignore)
+				return
+			}
+			require.Equal(t, []rootio.PackagePatch{planned(tc.installed, "1.0.0", "9.9.9")}, got.Patches)
+			require.Equal(t, []rootio.Package{{Name: tc.installed, Version: "1.0.0"}}, got.Ignore)
+		})
 	}
-}
 
-func TestDecide_NilPlan(t *testing.T) {
-	_, err := (*Plan)(nil).Decide("npm", nil)
-	if err == nil {
-		t.Fatal("expected error")
+	got := split(t, &Plan{Packages: []Entry{
+		{Ecosystem: "pypi", Name: "Jinja2", Action: "upgrade", Version: "3.1.3"},
+		{Ecosystem: "pypi", Name: "jinja2", Action: "upgrade", Version: "3.1.4"},
+	}}, "pypi", []Package{{Name: "Jinja2", Version: "3.0.0"}})
+	require.Equal(t, "3.1.4", got.Patches[0].Patch.Version)
+
+	for _, tc := range []struct{ entry, eco string }{{"pip", "pypi"}, {"pypi", "pypi"}, {"go", "golang"}, {"golang", "golang"}, {"PIP", " pypi "}} {
+		got = split(t, &Plan{Packages: []Entry{{Ecosystem: tc.entry, Name: "pkg", Action: "upgrade", Version: "2"}}}, tc.eco, []Package{{Name: "pkg", Version: "1"}})
+		require.Len(t, got.Patches, 1)
 	}
+	got = split(t, &Plan{Packages: []Entry{{Ecosystem: "go", Name: "pkg", Action: "upgrade", Version: "2"}}}, "pypi", []Package{{Name: "pkg", Version: "1"}})
+	require.Empty(t, got.Patches)
 }
