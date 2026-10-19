@@ -94,7 +94,7 @@ func TestSplit(t *testing.T) {
 		planned("ms", "2.0.0", "2.1.3"),
 	}, got.Patches)
 	require.Equal(t, []rootio.Package{{Name: "lodash", Version: "4.17.20"}, {Name: "ms", Version: "2.0.0"}}, got.Ignore)
-	require.Equal(t, []string{"absent"}, got.Absent)
+	require.Equal(t, []Unmatched{{Name: "absent"}}, got.Absent)
 
 	got = split(t, &Plan{Packages: []Entry{{Ecosystem: "NPM", Name: "lodash", Action: "Upgrade", Version: " 4.17.21 "}}}, " Npm ", []Package{{Name: "lodash", Version: "4.17.20"}})
 	require.Equal(t, "4.17.21", got.Patches[0].Patch.Version)
@@ -145,7 +145,7 @@ func TestSplit_From(t *testing.T) {
 	miss := split(t, &Plan{Packages: []Entry{{Ecosystem: "npm", Name: "lodash", From: "4.17.15", Action: "upgrade", Version: "4.17.21"}}}, "npm", []Package{{Name: "lodash", Version: "3.10.1"}})
 	require.Empty(t, miss.Patches)
 	require.Empty(t, miss.Ignore)
-	require.Equal(t, []string{"lodash"}, miss.Absent)
+	require.Equal(t, []Unmatched{{Name: "lodash", From: "4.17.15"}}, miss.Absent)
 }
 
 func TestSplit_NamesMatchPerEcosystem(t *testing.T) {

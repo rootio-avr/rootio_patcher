@@ -116,13 +116,13 @@ func TestAnalyze(t *testing.T) {
 		require.Zero(t, client.calls)
 
 		client = &fakeClient{resp: &rootio.AnalyzePackagesResponse{}}
-		ghost := &Plan{Packages: []Entry{{Ecosystem: "npm", Name: "ghost", Action: "upgrade", Version: "1.0.0"}}}
+		ghost := &Plan{Packages: []Entry{{Ecosystem: "npm", Name: "ghost", From: "4.0.0", Action: "upgrade", Version: "1.0.0"}}}
 		got, err := Analyze(context.Background(), logger, client, ghost, "npm", []rootio.Package{{Name: "ms", Version: "2.0.0"}}, nil)
 		require.NoError(t, err)
 		require.Equal(t, 1, client.calls)
 		require.Empty(t, client.ignore)
 		require.Empty(t, got.Patches)
-		require.Contains(t, logs.String(), "package=ghost")
+		require.Contains(t, logs.String(), `package=ghost from=4.0.0 reason="no installed version matches"`)
 	})
 }
 

@@ -54,10 +54,11 @@ func Analyze(
 		if planned, err = plan.Split(ecosystem, pkgs); err != nil {
 			return nil, err
 		}
-		for _, name := range planned.Absent {
-			logger.InfoContext(ctx, "Upgrade plan package is not installed, skipping",
-				slog.String("package", name),
-				slog.String("ecosystem", ecosystem))
+		for _, miss := range planned.Absent {
+			logger.InfoContext(ctx, "Upgrade plan package skipped",
+				slog.String("package", miss.Name),
+				slog.String("from", miss.From),
+				slog.String("reason", "no installed version matches"))
 		}
 		for _, name := range planned.Current {
 			logger.InfoContext(ctx, "Upgrade plan package already at plan version, skipping",
