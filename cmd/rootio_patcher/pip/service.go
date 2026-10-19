@@ -21,7 +21,8 @@ type Service interface {
 	// ListPackages lists all installed packages
 	ListPackages(ctx context.Context) ([]common.InstalledPackage, error)
 
-	// ApplyPatch applies a patch to a package (uninstall + install)
+	// ApplyPatch installs the patched distribution, then removes the installed
+	// name only when that name is a different distribution.
 	ApplyPatch(ctx context.Context, patch rootio.PackagePatch) error
 
 	// ApplyPatchForPip applies a patch specifically for pip itself
@@ -69,16 +70,12 @@ func (s *PipService) ListPackages(ctx context.Context) ([]common.InstalledPackag
 	return packages, nil
 }
 
-// ApplyPatch applies a single package patch (uninstall + install)
+// ApplyPatch installs the patched distribution first. pip replaces an already
+// installed copy of that same distribution only after the new version is
+// downloaded, so a planned version missing from the index leaves the package
+// in place. An alias is a different distribution and is removed only after
+// the new one is installed.
 func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) error {
-	// 1. Uninstall vulnerable package (original name)
-	s.logger.DebugContext(ctx, "Uninstalling package", slog.String("package", patch.PackageName))
-	//nolint:gosec // Subprocess command is safe - using validated package names from our API
-	uninstallCmd := exec.CommandContext(ctx, s.pythonPath, "-m", "pip", "uninstall", "-y", patch.PackageName)
-	if output, err := uninstallCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("uninstall failed: %w (output: %s)", err, string(output))
-	}
-
 	patchInfo := patch.Patch
 
 	s.logger.DebugContext(ctx, "Installing patched package",
@@ -99,6 +96,17 @@ func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) 
 
 	if output, err := installCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("install failed: %w (output: %s)", err, string(output))
+	}
+
+	if common.SamePipDistribution(patch.PackageName, patchInfo.Name) {
+		return nil
+	}
+
+	s.logger.DebugContext(ctx, "Uninstalling package", slog.String("package", patch.PackageName))
+	//nolint:gosec // Subprocess command is safe - using validated package names from our API
+	uninstallCmd := exec.CommandContext(ctx, s.pythonPath, "-m", "pip", "uninstall", "-y", patch.PackageName)
+	if output, err := uninstallCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("uninstall failed: %w (output: %s)", err, string(output))
 	}
 
 	return nil
