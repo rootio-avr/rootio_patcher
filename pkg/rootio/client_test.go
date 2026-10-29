@@ -55,3 +55,25 @@ type AnalyzePackagesRequestCapture struct {
 	Packages []rootio.Package `json:"packages"`
 	Ignore   []rootio.Package `json:"ignore"`
 }
+// The request carries "flavor" only when rootio.Flavor is set.
+func TestClient_AnalyzePackages_Flavor(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body = nil
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.NoError(t, json.NewEncoder(w).Encode(rootio.AnalyzePackagesResponse{}))
+	}))
+	defer srv.Close()
+	t.Cleanup(func() { rootio.Flavor = "" })
+	client := rootio.NewClient(srv.URL, "test-key")
+	pkgs := []rootio.Package{{Name: "express", Version: "4.17.1"}}
+
+	_, err := client.AnalyzePackages(context.Background(), pkgs, nil, "npm")
+	require.NoError(t, err)
+	assert.NotContains(t, body, "flavor")
+
+	rootio.Flavor = "fips"
+	_, err = client.AnalyzePackages(context.Background(), pkgs, nil, "npm")
+	require.NoError(t, err)
+	assert.Equal(t, "fips", body["flavor"])
+}

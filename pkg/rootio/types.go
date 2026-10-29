@@ -10,6 +10,7 @@ type Package struct {
 type AnalyzePackagesRequest struct {
 	Packages []Package `json:"packages"`
 	Ignore   []Package `json:"ignore,omitempty"`
+	Flavor   string    `json:"flavor,omitempty"` // "fips" requests FIPS builds; omitted = regular builds
 }
 
 // PatchInfo contains package name and version

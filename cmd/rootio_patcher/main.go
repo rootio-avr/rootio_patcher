@@ -33,6 +33,7 @@ var version = "dev"
 // CLI defines the command-line interface
 type CLI struct {
 	Version kong.VersionFlag `short:"v" help:"Print version information"`
+	Flavor  string           `enum:",fips" default:"" help:"Build flavor to request from the Root API: 'fips' asks for FIPS builds (the backend returns a FIPS build when one is published, else the regular build; callers verify the installed version). Empty = regular builds."`
 
 	Pip      PipCmd      `cmd:"" help:"Python/pip package remediation"`
 	Npm      NpmCmd      `cmd:"" help:"npm package remediation"`
@@ -240,6 +241,8 @@ func run() int {
 		kong.Vars{"version": version},
 		kong.BindTo(ctx, (*context.Context)(nil)), // Bind context with interface type
 	)
+
+	rootio.Flavor = cli.Flavor
 
 	// Load configuration from environment variables (after parsing, before running)
 	cfg, err := config.LoadConfig()

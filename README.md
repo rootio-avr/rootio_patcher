@@ -314,6 +314,10 @@ Set to `false` to actually apply patches:
 rootio_patcher pip remediate --dry-run=false
 ```
 
+#### `--flavor` Flag
+
+`--flavor fips` requests FIPS builds from the Root API: the backend returns a FIPS build when one is published, else the regular build; callers verify the installed version. It is sent with the language-package analyze requests (not the apt/apk OS endpoints). Default: empty (regular builds).
+
 #### `--use-alias` Flag (apt, apk)
 
 Root.io publishes each security patch under **two** package names: the original name (e.g. `curl`, `openssl`) and an aliased name with a `rootio-` prefix (e.g. `rootio-curl`, `rootio-openssl`). The `--use-alias` flag controls which variant the patcher installs.

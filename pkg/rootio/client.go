@@ -10,6 +10,9 @@ import (
 	"strings"
 )
 
+// Flavor is sent with every package analyze request ("" omits it). Set once by main from --flavor.
+var Flavor string
+
 // Client is the Root.io API client
 type Client struct {
 	baseURL    string
@@ -33,6 +36,7 @@ func (c *Client) AnalyzePackages(
 	request := AnalyzePackagesRequest{
 		Packages: packages,
 		Ignore:   ignore,
+		Flavor:   Flavor,
 	}
 
 	body, err := json.Marshal(request)
