@@ -108,3 +108,17 @@ func TestDeprecatedUseAliasHiddenFromHelp(t *testing.T) {
 		t.Errorf("help output mentions the deprecated flag:\n%s", out.String())
 	}
 }
+
+// --flavor is a global flag: "fips" parses after any subcommand, the default is empty, other values are usage errors.
+func TestFlavorFlag(t *testing.T) {
+	cli, _, err := parseCLI(t, "apt", "remediate", "--flavor", "fips")
+	if err != nil || cli.Flavor != "fips" {
+		t.Fatalf("--flavor fips: err=%v flavor=%q", err, cli.Flavor)
+	}
+	if cli, _, err = parseCLI(t, "pip", "remediate"); err != nil || cli.Flavor != "" {
+		t.Fatalf("no flag: err=%v flavor=%q", err, cli.Flavor)
+	}
+	if _, _, err = parseCLI(t, "pip", "remediate", "--flavor", "fipz"); err == nil {
+		t.Fatal("--flavor fipz: want usage error")
+	}
+}
