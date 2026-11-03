@@ -226,6 +226,9 @@ func (e *Executor) addSource(ctx context.Context, registryURL, codename string) 
 		return err
 	}
 	line := fmt.Sprintf("deb [signed-by=%s] %s %s main", gpgKeyPath, registryURL, codename)
+	if rootio.Flavor == "fips" {
+		line += " fips" // FIPS builds live in the "fips" component of the same suite
+	}
 	return e.runner.Run(ctx, "sh", "-c", fmt.Sprintf("echo '%s' > %s/rootio.list", line, sourcesListDir))
 }
 

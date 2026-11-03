@@ -77,3 +77,26 @@ func TestClient_AnalyzePackages_Flavor(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "fips", body["flavor"])
 }
+
+// The OS analyze request carries "flavor" only when rootio.Flavor is set.
+func TestClient_AnalyzeOsPackages_Flavor(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body = nil
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.NoError(t, json.NewEncoder(w).Encode(rootio.OsAnalyzeResponse{}))
+	}))
+	defer srv.Close()
+	t.Cleanup(func() { rootio.Flavor = "" })
+	client := rootio.NewClient(srv.URL, "test-key")
+	pkgs := []rootio.Package{{Name: "openssl", Version: "3.0.11-1~deb12u2"}}
+
+	_, err := client.AnalyzeOsPackages(context.Background(), "apt", "debian", "12", pkgs)
+	require.NoError(t, err)
+	assert.NotContains(t, body, "flavor")
+
+	rootio.Flavor = "fips"
+	_, err = client.AnalyzeOsPackages(context.Background(), "apt", "debian", "12", pkgs)
+	require.NoError(t, err)
+	assert.Equal(t, "fips", body["flavor"])
+}

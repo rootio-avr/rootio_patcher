@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"rootio_patcher/pkg/rootio"
 )
 
 // errRunner always returns the configured error from Run.
@@ -218,5 +220,17 @@ func TestAuthMachine(t *testing.T) {
 		if got := authMachine(in); got != want {
 			t.Errorf("authMachine(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// --flavor fips adds the "fips" component to the rootio.list line; without it the line is unchanged.
+func TestAddSource_Flavor(t *testing.T) {
+	t.Cleanup(func() { rootio.Flavor = "" })
+	want := "echo 'deb [signed-by=" + gpgKeyPath + "] https://pkg.root.io/debian bookworm main%s' > " + sourcesListDir + "/rootio.list"
+	for flavor, suffix := range map[string]string{"": "", "fips": " fips"} {
+		rootio.Flavor = flavor
+		rec := &recordingRunner{}
+		require.NoError(t, NewExecutor("", "", false, rec).addSource(context.Background(), "https://pkg.root.io/debian", "bookworm"))
+		assert.Equal(t, []string{fmt.Sprintf(want, suffix)}, shScripts(rec.cmds), "flavor=%q", flavor)
 	}
 }
