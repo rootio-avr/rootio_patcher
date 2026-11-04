@@ -45,6 +45,7 @@ type OsAnalyzeRequest struct {
 	Ecosystem       string    `json:"ecosystem"`
 	OsDistroVersion string    `json:"os_distro_version"`
 	Packages        []Package `json:"packages"`
+	Flavor          string    `json:"flavor,omitempty"` // "fips" requests FIPS builds; omitted = regular builds
 }
 
 // UpgradeableOsPackage represents a package with a fix available in the official distro repo

@@ -316,7 +316,7 @@ rootio_patcher pip remediate --dry-run=false
 
 #### `--flavor` Flag
 
-`--flavor fips` requests FIPS builds from the Root API: the backend returns a FIPS build when one is published, else the regular build; callers verify the installed version. It is sent with the language-package analyze requests (not the apt/apk OS endpoints). Default: empty (regular builds).
+`--flavor fips` requests FIPS builds from the Root API: the backend returns a FIPS build when one is published, else the regular build; callers verify the installed version. It is sent with the language-package and apt/apk OS analyze requests; for apt it also adds the `fips` component to the temporary Root.io source (`... <codename> main fips`). Default: empty (regular builds).
 
 #### `--use-alias` Flag (apt, apk)
 

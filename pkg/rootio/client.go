@@ -83,6 +83,7 @@ func (c *Client) AnalyzeOsPackages(
 		Ecosystem:       ecosystem,
 		OsDistroVersion: distroVersion,
 		Packages:        packages,
+		Flavor:          Flavor,
 	}
 
 	body, err := json.Marshal(request)
