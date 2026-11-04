@@ -8,6 +8,7 @@ import (
 
 	"rootio_patcher/cmd/rootio_patcher/common"
 	"rootio_patcher/cmd/rootio_patcher/config"
+	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -18,6 +19,8 @@ type App struct {
 	dryRun     bool
 	ignoreSet  map[string]struct{}
 	logger     *slog.Logger
+
+	upgradePlanPath string
 
 	pipService Service
 	apiClient  common.APIClient
@@ -57,6 +60,13 @@ func NewAppWithServices(
 	}
 }
 
+// WithUpgradePlan sets the upgrade plan file.
+// An empty path uses root-upgrade-plan.json in the working directory when that file exists.
+func (a *App) WithUpgradePlan(path string) *App {
+	a.upgradePlanPath = path
+	return a
+}
+
 // Run executes the pip remediation workflow
 func (a *App) Run(ctx context.Context) error {
 	a.logger.DebugContext(ctx, "Starting pip remediation", slog.Bool("dry_run", a.dryRun))
@@ -78,11 +88,14 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
-	// 3. Call backend API to analyze vulnerabilities
-	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "pypi")
+	// 3. Planned upgrades plus Root API patches for everything else
+	plan, err := upgradeplan.Resolve(a.upgradePlanPath, ".")
 	if err != nil {
-		return fmt.Errorf("failed to analyze packages: %w", err)
+		return err
+	}
+	response, err := upgradeplan.Analyze(ctx, a.logger, a.apiClient, plan, "pypi", sdkPackages, common.IgnoreListToPackages(a.ignoreSet))
+	if err != nil {
+		return err
 	}
 
 	// 4. Log analysis results
