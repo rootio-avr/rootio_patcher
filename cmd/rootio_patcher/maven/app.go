@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
+	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -22,6 +23,8 @@ type App struct {
 	logger    *slog.Logger
 	parser    common.Parser
 	apiClient common.APIClient
+
+	upgradePlanPath string
 }
 
 // NewApp creates a new Maven application instance
@@ -50,6 +53,13 @@ func NewAppWithServices(
 		parser:    parser,
 		apiClient: apiClient,
 	}
+}
+
+// WithUpgradePlan sets the upgrade plan file.
+// An empty path uses root-upgrade-plan.json next to the pom when that file exists.
+func (a *App) WithUpgradePlan(path string) *App {
+	a.upgradePlanPath = path
+	return a
 }
 
 // Run executes the Maven remediation workflow
@@ -85,11 +95,14 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
-	// 4. Call backend API to analyze vulnerabilities
-	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "maven")
+	// 4. Planned upgrades plus Root API patches for everything else
+	plan, err := upgradeplan.Resolve(a.upgradePlanPath, filepath.Dir(a.filePath))
 	if err != nil {
-		return fmt.Errorf("failed to analyze packages: %w", err)
+		return err
+	}
+	response, err := upgradeplan.Analyze(ctx, a.logger, a.apiClient, plan, "maven", sdkPackages, common.IgnoreListToPackages(a.ignoreSet))
+	if err != nil {
+		return err
 	}
 
 	// 5. Log analysis results
