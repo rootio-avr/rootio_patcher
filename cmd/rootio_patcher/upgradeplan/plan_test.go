@@ -94,7 +94,7 @@ func TestSplit(t *testing.T) {
 		planned("ms", "2.0.0", "2.1.3"),
 	}, got.Patches)
 	require.Equal(t, []rootio.Package{{Name: "lodash", Version: "4.17.20"}, {Name: "ms", Version: "2.0.0"}}, got.Ignore)
-	require.Equal(t, []Unmatched{{Name: "absent"}}, got.Absent)
+	require.Equal(t, []Skip{{Package: "absent", To: "1.0.0", Reason: SkipNotInstalled}}, got.Skipped)
 
 	got = split(t, &Plan{Packages: []Entry{{Ecosystem: "NPM", Name: "lodash", Action: "Upgrade", Version: " 4.17.21 "}}}, " Npm ", []Package{{Name: "lodash", Version: "4.17.20"}})
 	require.Equal(t, "4.17.21", got.Patches[0].Patch.Version)
@@ -102,12 +102,12 @@ func TestSplit(t *testing.T) {
 	got = split(t, &Plan{}, "npm", installed)
 	require.Empty(t, got.Patches)
 	require.Empty(t, got.Ignore)
-	require.Empty(t, got.Absent)
+	require.Empty(t, got.Skipped)
 
 	got = split(t, &Plan{Packages: []Entry{{Ecosystem: "npm", Name: "ms", Action: "upgrade", Version: "2.1.3"}}}, "npm", []Package{{Name: "ms", Version: "2.1.3"}})
 	require.Empty(t, got.Patches)
 	require.Equal(t, []rootio.Package{{Name: "ms", Version: "2.1.3"}}, got.Ignore)
-	require.Equal(t, []string{"ms"}, got.Current)
+	require.Equal(t, []Skip{{Package: "ms", From: "2.1.3", To: "2.1.3", Reason: SkipAlreadyAtVersion}}, got.Skipped)
 
 	// Last duplicate entry wins. A repeated installed row is planned once.
 	got = split(t, &Plan{Packages: []Entry{
@@ -145,7 +145,7 @@ func TestSplit_From(t *testing.T) {
 	miss := split(t, &Plan{Packages: []Entry{{Ecosystem: "npm", Name: "lodash", From: "4.17.15", Action: "upgrade", Version: "4.17.21"}}}, "npm", []Package{{Name: "lodash", Version: "3.10.1"}})
 	require.Empty(t, miss.Patches)
 	require.Empty(t, miss.Ignore)
-	require.Equal(t, []Unmatched{{Name: "lodash", From: "4.17.15"}}, miss.Absent)
+	require.Equal(t, []Skip{{Package: "lodash", From: "4.17.15", To: "4.17.21", Reason: SkipNotInstalled}}, miss.Skipped)
 }
 
 func TestSplit_NamesMatchPerEcosystem(t *testing.T) {
