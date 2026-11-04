@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"rootio_patcher/cmd/rootio_patcher/common"
+	"rootio_patcher/cmd/rootio_patcher/upgradeplan"
 	"rootio_patcher/pkg/rootio"
 )
 
@@ -20,6 +21,7 @@ type App struct {
 	lockFilePath    string
 	packageJSONPath string
 	dryRun          bool
+	upgradePlanPath string
 	ignoreSet       map[string]struct{}
 	logger          *slog.Logger
 	parser          npmParser
@@ -114,6 +116,13 @@ func NewAppWithServices(
 	}
 }
 
+// WithUpgradePlan sets an explicit upgrade plan path.
+// An empty path uses root-upgrade-plan.json in the project directory when that file exists.
+func (a *App) WithUpgradePlan(path string) *App {
+	a.upgradePlanPath = path
+	return a
+}
+
 // Run executes the npm remediation workflow
 func (a *App) Run(ctx context.Context) error {
 	a.logger.DebugContext(ctx, "Starting npm remediation",
@@ -139,23 +148,12 @@ func (a *App) Run(ctx context.Context) error {
 		return nil
 	}
 
-	// 3. Convert to SDK format
-	sdkPackages := make([]rootio.Package, len(packages))
-	for i, pkg := range packages {
-		sdkPackages[i] = rootio.Package{
-			Name:    pkg.Name,
-			Version: pkg.Version,
-		}
-	}
-
-	// 4. Call backend API to analyze vulnerabilities
-	a.logger.DebugContext(ctx, "Analyzing packages for vulnerabilities")
-	response, err := a.apiClient.AnalyzePackages(ctx, sdkPackages, common.IgnoreListToPackages(a.ignoreSet), "npm")
+	// 3. Planned upgrades plus Root API patches for everything else.
+	response, err := a.analyze(ctx, packages)
 	if err != nil {
-		return fmt.Errorf("failed to analyze packages: %w", err)
+		return err
 	}
 
-	// 5. Log analysis results
 	a.logger.DebugContext(ctx, "Vulnerability analysis complete",
 		slog.Int("patches_available", len(response.Patches)),
 		slog.Int("packages_skipped", len(response.Skipped)))
@@ -165,19 +163,14 @@ func (a *App) Run(ctx context.Context) error {
 		return nil
 	}
 
-	if len(response.Patches) == 0 {
-		fmt.Println("\nNo patches needed - all packages are up to date!")
-		return nil
-	}
-
-	// 6. Execute or dry-run patches
+	// 4. Execute or dry-run patches
 	if a.dryRun {
 		a.logger.DebugContext(ctx, "DRY-RUN MODE: No changes will be made")
 		a.reportDryRun(response.Patches)
 		return common.ErrPatchesAvailable
 	}
 
-	// 7. Apply patches by updating package.json
+	// 5. Apply patches by updating package.json
 	fmt.Printf("\nApplying %d patches to package.json...\n\n", len(response.Patches))
 	if err := a.applyPatches(ctx, response.Patches); err != nil {
 		return err
@@ -193,6 +186,20 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// analyze merges the upgrade plan, when one is present, with the Root API lookup.
+// A missing default plan file keeps the Root API lookup alone.
+func (a *App) analyze(ctx context.Context, packages []common.PackageInfo) (*rootio.AnalyzePackagesResponse, error) {
+	plan, err := upgradeplan.Resolve(a.upgradePlanPath, filepath.Dir(a.lockFilePath))
+	if err != nil {
+		return nil, err
+	}
+	sdkPackages := make([]rootio.Package, len(packages))
+	for i, pkg := range packages {
+		sdkPackages[i] = rootio.Package{Name: pkg.Name, Version: pkg.Version}
+	}
+	return upgradeplan.Analyze(ctx, a.logger, a.apiClient, plan, "npm", sdkPackages, common.IgnoreListToPackages(a.ignoreSet))
 }
 
 // reportDryRun shows what would be changed without modifying files
