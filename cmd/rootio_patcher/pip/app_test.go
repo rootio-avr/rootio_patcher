@@ -356,3 +356,42 @@ func TestPipApp_Run_MultiplePatches(t *testing.T) {
 		t.Fatalf("Expected 2 patches to be applied, got %d", patchCount)
 	}
 }
+
+// Packages apt installed (Debian/Ubuntu, incl. pip itself and ones a --system-site-packages
+// venv sees) are skipped; pip-owned ones are still patched and the run succeeds.
+func TestPipApp_Run_SkipsDistroOwned(t *testing.T) {
+	tests := []struct{ name, location string }{
+		{"debian-apt-pkg", "/usr/lib/python3/dist-packages"},
+		{"pip", "/usr/lib/python3/dist-packages"},
+		{"local-pip-pkg", "/usr/local/lib/python3.13/dist-packages"},
+		{"venv-pkg", "/venv/lib/python3.13/site-packages"},
+		{"official-image-pkg", "/usr/local/lib/python3.12/site-packages"},
+	}
+	var installed []common.InstalledPackage
+	var patches []rootio.PackagePatch
+	for _, tt := range tests {
+		installed = append(installed, common.InstalledPackage{Name: tt.name, Version: "1.0", Location: tt.location})
+		patches = append(patches, rootio.PackagePatch{PackageName: tt.name, Version: "1.0",
+			Patch: rootio.PatchInfo{Name: tt.name, Version: "1.0+aikido.1"}})
+	}
+	applied := map[string]bool{}
+	record := func(ctx context.Context, p rootio.PackagePatch) error { applied[p.PackageName] = true; return nil }
+	svc := &MockPipService{
+		ListPackagesFunc:     func(ctx context.Context) ([]common.InstalledPackage, error) { return installed, nil },
+		ApplyPatchFunc:       record,
+		ApplyPatchForPipFunc: record,
+	}
+	api := &MockAPIClient{AnalyzePackagesFunc: func(ctx context.Context, _ []rootio.Package, _ []rootio.Package, _ string) (*rootio.AnalyzePackagesResponse, error) {
+		return &rootio.AnalyzePackagesResponse{Patches: patches}, nil
+	}}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	if err := NewAppWithServices(&config.Config{}, "python", false, nil, logger, svc, api, nil).Run(context.Background()); err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+	for _, tt := range tests {
+		want := tt.location != "/usr/lib/python3/dist-packages"
+		if applied[tt.name] != want {
+			t.Errorf("%s at %s: applied=%v, want %v", tt.name, tt.location, applied[tt.name], want)
+		}
+	}
+}
