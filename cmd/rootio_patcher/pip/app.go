@@ -145,8 +145,10 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch, i
 
 		a.logger.DebugContext(ctx, "Patch details", slog.String("patch_name", patchName))
 
-		// pip list -v reports who installed each package: "pip" is ours. apt and apk write no INSTALLER
-		// (""), rpm writes "rpm". nil = pip too old to report it (or name not listed): v2.18.0 behaviour.
+		// pip list -v reports who installed each package: "pip" is ours. apt writes "debian" (trixie,
+		// noble pip) or nothing (""), apk nothing, rpm "rpm". nil = pip too old to report it (or name
+		// not listed): v2.18.0 behaviour. ponytail: rpm packages built with pip say "pip" (UBI8
+		// python39-setuptools), so they are patched as on v2.18.0.
 		inst := installer[canonicalName(patch.PackageName)]
 		if inst != nil && *inst != "pip" {
 			a.logger.WarnContext(ctx, "skipping package not installed by pip", slog.String("package", patch.PackageName), slog.String("installer", *inst))
