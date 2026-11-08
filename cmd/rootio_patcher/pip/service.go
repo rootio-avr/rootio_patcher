@@ -54,7 +54,7 @@ func (s *PipService) ListPackages(ctx context.Context) ([]common.InstalledPackag
 
 	// Run: python -m pip list --format=json
 	//nolint:gosec // Subprocess is safe - using fixed pip list arguments, pythonPath from config
-	cmd := exec.CommandContext(ctx, s.pythonPath, "-m", "pip", "list", "--format=json")
+	cmd := pipCmd(ctx, s.pythonPath, "list", "-v", "--format=json") // -v adds each package's location
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to run pip list: %w", err)
@@ -74,7 +74,7 @@ func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) 
 	// 1. Uninstall vulnerable package (original name)
 	s.logger.DebugContext(ctx, "Uninstalling package", slog.String("package", patch.PackageName))
 	//nolint:gosec // Subprocess command is safe - using validated package names from our API
-	uninstallCmd := exec.CommandContext(ctx, s.pythonPath, "-m", "pip", "uninstall", "-y", patch.PackageName)
+	uninstallCmd := pipCmd(ctx, s.pythonPath, "uninstall", "-y", patch.PackageName)
 	if output, err := uninstallCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("uninstall failed: %w (output: %s)", err, string(output))
 	}
@@ -89,8 +89,8 @@ func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) 
 	packageSpec := fmt.Sprintf("%s==%s", patchInfo.Name, patchInfo.Version)
 
 	//nolint:gosec // Subprocess command is safe - using package names from our API
-	installCmd := exec.CommandContext(
-		ctx, s.pythonPath, "-m", "pip", "install",
+	installCmd := pipCmd(
+		ctx, s.pythonPath, "install",
 		"--no-deps",
 		"--no-cache-dir",
 		"--index-url", indexURL,
@@ -115,8 +115,8 @@ func (s *PipService) ApplyPatchForPip(ctx context.Context, patch rootio.PackageP
 	packageSpec := fmt.Sprintf("%s==%s", patchInfo.Name, patchInfo.Version)
 
 	//nolint:gosec // Subprocess command is safe - using package names from our API
-	installCmd := exec.CommandContext(
-		ctx, s.pythonPath, "-m", "pip", "install",
+	installCmd := pipCmd(
+		ctx, s.pythonPath, "install",
 		"--no-deps",
 		"--no-cache-dir",
 		"--upgrade",
@@ -181,6 +181,15 @@ func (s *PipService) constructIndexURL() string {
 	parsedURL.Path = "/pypi/simple/"
 
 	return parsedURL.String()
+}
+
+// pipCmd runs "python -m pip <args>". PIP_BREAK_SYSTEM_PACKAGES lets pip modify a PEP 668
+// (externally managed) system Python, e.g. Debian's /usr/bin/python3; older pip ignores it.
+func pipCmd(ctx context.Context, pythonPath string, args ...string) *exec.Cmd {
+	//nolint:gosec // safe: pythonPath from config, package names from our API
+	cmd := exec.CommandContext(ctx, pythonPath, append([]string{"-m", "pip"}, args...)...)
+	cmd.Env = append(os.Environ(), "PIP_BREAK_SYSTEM_PACKAGES=1")
+	return cmd
 }
 
 // GetArch returns the system architecture
