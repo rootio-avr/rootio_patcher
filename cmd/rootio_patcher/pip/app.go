@@ -104,7 +104,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 6. Execute patches
 	fmt.Printf("\nApplying %d patches...\n\n", len(response.Patches))
-	if err := a.applyPatches(ctx, response.Patches, packages); err != nil {
+	if err := a.applyPatches(ctx, response.Patches); err != nil {
 		return err
 	}
 
@@ -121,12 +121,8 @@ func denormalizeAliasName(name string) string {
 	return name
 }
 
-// applyPatches applies patches sequentially, skips distro-owned packages, exits on first failure
-func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch, installed []common.InstalledPackage) error {
-	location := make(map[string]string, len(installed))
-	for _, pkg := range installed {
-		location[strings.ToLower(pkg.Name)] = pkg.Location
-	}
+// applyPatches applies patches sequentially, exits on first failure
+func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) error {
 	for i, patch := range patches {
 		patchName, patchVersion := patch.Patch.Name, patch.Patch.Version
 
@@ -137,13 +133,6 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch, i
 			patchVersion)
 
 		a.logger.DebugContext(ctx, "Patch details", slog.String("patch_name", patchName))
-
-		// apt installs here (Debian/Ubuntu python3-* debs); pip never does. Not ours to replace.
-		if loc := location[strings.ToLower(patch.PackageName)]; strings.HasPrefix(loc, "/usr/lib/python3/dist-packages") {
-			a.logger.WarnContext(ctx, "skipping distro-owned package", slog.String("package", patch.PackageName), slog.String("location", loc))
-			fmt.Printf("  ⚠ Skipped %s: not pip-owned (%s)\n\n", patch.PackageName, loc)
-			continue
-		}
 
 		// Use special handling for pip package - upgrade instead of uninstall+install
 		var err error
