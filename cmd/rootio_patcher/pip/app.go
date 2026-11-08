@@ -104,11 +104,16 @@ func (a *App) Run(ctx context.Context) error {
 
 	// 6. Execute patches
 	fmt.Printf("\nApplying %d patches...\n\n", len(response.Patches))
-	if err := a.applyPatches(ctx, response.Patches); err != nil {
+	patched, err := a.applyPatches(ctx, response.Patches, packages)
+	if err != nil {
 		return err
 	}
 
-	fmt.Printf("\n✓ Successfully patched %d packages!\n", len(response.Patches))
+	fmt.Printf("\n✓ Successfully patched %d packages!", patched)
+	if skipped := len(response.Patches) - patched; skipped > 0 {
+		fmt.Printf(" Skipped %d (not pip-owned).", skipped)
+	}
+	fmt.Println()
 
 	return nil
 }
@@ -121,8 +126,14 @@ func denormalizeAliasName(name string) string {
 	return name
 }
 
-// applyPatches applies patches sequentially, exits on first failure
-func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) error {
+// applyPatches applies patches sequentially, skips packages pip does not own, exits on first failure;
+// returns how many it patched.
+func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch, installed []common.InstalledPackage) (int, error) {
+	installer := make(map[string]*string, len(installed))
+	for _, pkg := range installed {
+		installer[canonicalName(pkg.Name)] = pkg.Installer
+	}
+	patched := 0
 	for i, patch := range patches {
 		patchName, patchVersion := patch.Patch.Name, patch.Patch.Version
 
@@ -134,21 +145,40 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch) e
 
 		a.logger.DebugContext(ctx, "Patch details", slog.String("patch_name", patchName))
 
+		// pip list -v reports who installed each package: "pip" is ours. apt and apk write no INSTALLER
+		// (""), rpm writes "rpm". nil = pip too old to report it (or name not listed): v2.18.0 behaviour.
+		inst := installer[canonicalName(patch.PackageName)]
+		if inst != nil && *inst != "pip" {
+			a.logger.WarnContext(ctx, "skipping package not installed by pip", slog.String("package", patch.PackageName), slog.String("installer", *inst))
+			fmt.Printf("  ⚠ Skipped %s: not pip-owned (installer %q)\n\n", patch.PackageName, *inst)
+			continue
+		}
+		// pip-owned: allowed past PEP 668 (Debian /usr/local).
+		// ponytail: a --system-site-packages venv now skips system debs (v2.18.0 shadow-installed them);
+		// dry-run still lists packages apply will skip.
+		breakSystem := inst != nil
+
 		// Use special handling for pip package - upgrade instead of uninstall+install
 		var err error
 		if strings.EqualFold(patch.PackageName, "pip") {
-			err = a.pipService.ApplyPatchForPip(ctx, patch)
+			err = a.pipService.ApplyPatchForPip(ctx, patch, breakSystem)
 		} else {
-			err = a.pipService.ApplyPatch(ctx, patch)
+			err = a.pipService.ApplyPatch(ctx, patch, breakSystem)
 		}
 
 		if err != nil {
 			fmt.Printf("✗ Patch failed: %v\n", err)
-			return fmt.Errorf("patch failed: %w", err)
+			return patched, fmt.Errorf("patch failed: %w", err)
 		}
 
 		fmt.Printf("  ✓ Successfully patched %s\n\n", patch.PackageName)
+		patched++
 	}
 
-	return nil
+	return patched, nil
 }
+
+// canonicalName is the PEP 503 form, so pip's "typing_extensions" matches the API's "typing-extensions".
+func canonicalName(name string) string { return pep503.Replace(strings.ToLower(name)) }
+
+var pep503 = strings.NewReplacer("_", "-", ".", "-") // ponytail: "a__b" stays "a--b"; no real dist names like that

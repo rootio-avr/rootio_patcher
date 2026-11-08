@@ -1,6 +1,7 @@
 package pip
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,10 +23,10 @@ type Service interface {
 	ListPackages(ctx context.Context) ([]common.InstalledPackage, error)
 	
 	// ApplyPatch applies a patch to a package (uninstall + install)
-	ApplyPatch(ctx context.Context, patch rootio.PackagePatch) error
+	ApplyPatch(ctx context.Context, patch rootio.PackagePatch, breakSystem bool) error
 	
 	// ApplyPatchForPip applies a patch specifically for pip itself
-	ApplyPatchForPip(ctx context.Context, patch rootio.PackagePatch) error
+	ApplyPatchForPip(ctx context.Context, patch rootio.PackagePatch, breakSystem bool) error
 }
 
 // PipService implements Service for pip operations
@@ -52,17 +53,15 @@ func NewService(pythonPath, pkgURL, apiKey, pipIndexURL string, logger *slog.Log
 func (s *PipService) ListPackages(ctx context.Context) ([]common.InstalledPackage, error) {
 	s.logger.DebugContext(ctx, "Using Python executable", slog.String("path", s.pythonPath))
 
-	// Run: python -m pip list --format=json
-	//nolint:gosec // Subprocess is safe - using fixed pip list arguments, pythonPath from config
-	cmd := exec.CommandContext(ctx, s.pythonPath, "-m", "pip", "list", "--format=json")
-	output, err := cmd.Output()
+	// -v adds each package's location and installer
+	output, err := pipCmd(ctx, s.pythonPath, false, "list", "-v", "--format=json").Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to run pip list: %w", err)
 	}
 
-	// Parse JSON output
+	// Decode only the first JSON value: some pips print notices to stdout after it.
 	var packages []common.InstalledPackage
-	if err := json.Unmarshal(output, &packages); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(output)).Decode(&packages); err != nil {
 		return nil, fmt.Errorf("failed to parse pip list output: %w", err)
 	}
 
@@ -70,11 +69,11 @@ func (s *PipService) ListPackages(ctx context.Context) ([]common.InstalledPackag
 }
 
 // ApplyPatch applies a single package patch (uninstall + install)
-func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) error {
+// breakSystem sets PIP_BREAK_SYSTEM_PACKAGES=1 (PEP 668); only pass true for a pip-owned package.
+func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch, breakSystem bool) error {
 	// 1. Uninstall vulnerable package (original name)
 	s.logger.DebugContext(ctx, "Uninstalling package", slog.String("package", patch.PackageName))
-	//nolint:gosec // Subprocess command is safe - using validated package names from our API
-	uninstallCmd := exec.CommandContext(ctx, s.pythonPath, "-m", "pip", "uninstall", "-y", patch.PackageName)
+	uninstallCmd := pipCmd(ctx, s.pythonPath, breakSystem, "uninstall", "-y", patch.PackageName)
 	if output, err := uninstallCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("uninstall failed: %w (output: %s)", err, string(output))
 	}
@@ -88,9 +87,8 @@ func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) 
 	indexURL := s.constructIndexURL()
 	packageSpec := fmt.Sprintf("%s==%s", patchInfo.Name, patchInfo.Version)
 
-	//nolint:gosec // Subprocess command is safe - using package names from our API
-	installCmd := exec.CommandContext(
-		ctx, s.pythonPath, "-m", "pip", "install",
+	installCmd := pipCmd(
+		ctx, s.pythonPath, breakSystem, "install",
 		"--no-deps",
 		"--no-cache-dir",
 		"--index-url", indexURL,
@@ -105,7 +103,7 @@ func (s *PipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) 
 }
 
 // ApplyPatchForPip applies a patch for pip itself using upgrade
-func (s *PipService) ApplyPatchForPip(ctx context.Context, patch rootio.PackagePatch) error {
+func (s *PipService) ApplyPatchForPip(ctx context.Context, patch rootio.PackagePatch, breakSystem bool) error {
 	patchInfo := patch.Patch
 
 	s.logger.DebugContext(ctx, "Upgrading pip package",
@@ -114,9 +112,8 @@ func (s *PipService) ApplyPatchForPip(ctx context.Context, patch rootio.PackageP
 	indexURL := s.constructIndexURL()
 	packageSpec := fmt.Sprintf("%s==%s", patchInfo.Name, patchInfo.Version)
 
-	//nolint:gosec // Subprocess command is safe - using package names from our API
-	installCmd := exec.CommandContext(
-		ctx, s.pythonPath, "-m", "pip", "install",
+	installCmd := pipCmd(
+		ctx, s.pythonPath, breakSystem, "install",
 		"--no-deps",
 		"--no-cache-dir",
 		"--upgrade",
@@ -181,6 +178,17 @@ func (s *PipService) constructIndexURL() string {
 	parsedURL.Path = "/pypi/simple/"
 
 	return parsedURL.String()
+}
+
+// pipCmd runs "python -m pip <args>" without the self-version check (it prints to stdout).
+// breakSystem lets pip modify a PEP 668 (externally managed) Python; older pip ignores it.
+func pipCmd(ctx context.Context, pythonPath string, breakSystem bool, args ...string) *exec.Cmd {
+	//nolint:gosec // safe: pythonPath from config, package names from our API
+	cmd := exec.CommandContext(ctx, pythonPath, append([]string{"-m", "pip", "--disable-pip-version-check"}, args...)...)
+	if breakSystem {
+		cmd.Env = append(os.Environ(), "PIP_BREAK_SYSTEM_PACKAGES=1")
+	}
+	return cmd
 }
 
 // GetArch returns the system architecture

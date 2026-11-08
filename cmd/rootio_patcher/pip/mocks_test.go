@@ -24,6 +24,7 @@ type MockPipService struct {
 	ListPackagesFunc     func(ctx context.Context) ([]common.InstalledPackage, error)
 	ApplyPatchFunc       func(ctx context.Context, patch rootio.PackagePatch) error
 	ApplyPatchForPipFunc func(ctx context.Context, patch rootio.PackagePatch) error
+	BreakSystem          map[string]bool // package -> breakSystem it was applied with
 }
 
 func (m *MockPipService) ListPackages(ctx context.Context) ([]common.InstalledPackage, error) {
@@ -33,14 +34,23 @@ func (m *MockPipService) ListPackages(ctx context.Context) ([]common.InstalledPa
 	return []common.InstalledPackage{}, nil
 }
 
-func (m *MockPipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch) error {
+func (m *MockPipService) record(patch rootio.PackagePatch, breakSystem bool) {
+	if m.BreakSystem == nil {
+		m.BreakSystem = map[string]bool{}
+	}
+	m.BreakSystem[patch.PackageName] = breakSystem
+}
+
+func (m *MockPipService) ApplyPatch(ctx context.Context, patch rootio.PackagePatch, breakSystem bool) error {
+	m.record(patch, breakSystem)
 	if m.ApplyPatchFunc != nil {
 		return m.ApplyPatchFunc(ctx, patch)
 	}
 	return nil
 }
 
-func (m *MockPipService) ApplyPatchForPip(ctx context.Context, patch rootio.PackagePatch) error {
+func (m *MockPipService) ApplyPatchForPip(ctx context.Context, patch rootio.PackagePatch, breakSystem bool) error {
+	m.record(patch, breakSystem)
 	if m.ApplyPatchForPipFunc != nil {
 		return m.ApplyPatchForPipFunc(ctx, patch)
 	}

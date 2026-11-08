@@ -16,6 +16,8 @@ type InstalledPackage struct {
 	Name     string `json:"name"`
 	Version  string `json:"version"`
 	Location string `json:"location,omitempty"`
+	// Installer is pip's INSTALLER record (pip list -v); nil when pip is too old to report it.
+	Installer *string `json:"installer,omitempty"`
 }
 
 // APIClient defines the interface for calling the Root.io API
