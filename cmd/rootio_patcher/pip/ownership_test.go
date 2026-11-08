@@ -14,13 +14,14 @@ import (
 	"rootio_patcher/pkg/rootio"
 )
 
-// fakePython writes an executable that records its argv and prints out to stdout.
+// fakePython writes an executable that records its pip argv and prints out to stdout. Its
+// "python -c" (the venv check) prints "False" (system interpreter) unless FAKE_VENV is set.
 func fakePython(t *testing.T, out string) (python, argvFile string) {
 	t.Helper()
 	dir := t.TempDir()
 	argvFile = filepath.Join(dir, "argv")
 	python = filepath.Join(dir, "python")
-	script := "#!/bin/sh\necho \"$@\" > " + argvFile + "\ncat <<'EOF'\n" + out + "\nEOF\n"
+	script := "#!/bin/sh\n[ \"$1\" = -c ] && { echo ${FAKE_VENV:-False}; exit 0; }\necho \"$@\" > " + argvFile + "\ncat <<'EOF'\n" + out + "\nEOF\n"
 	if err := os.WriteFile(python, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +48,20 @@ Looking in indexes: https://example.invalid/simple`
 	argv, _ := os.ReadFile(argvFile)
 	if !strings.Contains(string(argv), "--disable-pip-version-check") {
 		t.Fatalf("pip list not run with --disable-pip-version-check: %s", argv)
+	}
+}
+
+// Rule A: in a venv (uv writes installer "uv") every Installer is dropped, so nothing is skipped and
+// PIP_BREAK_SYSTEM_PACKAGES is not set: v2.18.0 behaviour.
+func TestListPackages_VenvDropsInstaller(t *testing.T) {
+	out := `[{"name": "idna", "version": "3.4", "installer": "uv"}, {"name": "six", "version": "1.16.0", "installer": ""}]`
+	for venv, wantNil := range map[string]bool{"True": true, "False": false} {
+		t.Setenv("FAKE_VENV", venv)
+		python, _ := fakePython(t, out)
+		pkgs, err := NewService(python, "", "", "", slog.New(slog.NewTextHandler(io.Discard, nil))).ListPackages(context.Background())
+		if err != nil || len(pkgs) != 2 || (pkgs[0].Installer == nil) != wantNil || (pkgs[1].Installer == nil) != wantNil {
+			t.Fatalf("venv=%s: pkgs=%+v err=%v", venv, pkgs, err)
+		}
 	}
 }
 

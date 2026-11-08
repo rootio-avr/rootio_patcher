@@ -146,8 +146,8 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch, i
 		a.logger.DebugContext(ctx, "Patch details", slog.String("patch_name", patchName))
 
 		// pip list -v reports who installed each package: "pip" is ours. apt writes "debian" (trixie,
-		// noble pip) or nothing (""), apk nothing, rpm "rpm". nil = pip too old to report it (or name
-		// not listed): v2.18.0 behaviour. ponytail: rpm packages built with pip say "pip" (UBI8
+		// noble pip) or nothing (""), apk nothing, rpm "rpm". nil = a venv, pip too old to report it (or name
+		// not listed): v2.18.0 behaviour. ponytail: rpm packages built with pip say "pip" (UBI9 python3-six, UBI8
 		// python39-setuptools), so they are patched as on v2.18.0.
 		inst := installer[canonicalName(patch.PackageName)]
 		if inst != nil && *inst != "pip" {
@@ -156,8 +156,7 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch, i
 			continue
 		}
 		// pip-owned: allowed past PEP 668 (Debian /usr/local).
-		// ponytail: a --system-site-packages venv now skips system debs (v2.18.0 shadow-installed them);
-		// dry-run still lists packages apply will skip.
+		// ponytail: dry-run still lists packages apply will skip.
 		breakSystem := inst != nil
 
 		// Use special handling for pip package - upgrade instead of uninstall+install

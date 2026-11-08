@@ -65,6 +65,15 @@ func (s *PipService) ListPackages(ctx context.Context) ([]common.InstalledPackag
 		return nil, fmt.Errorf("failed to parse pip list output: %w", err)
 	}
 
+	// A venv (uv writes installer "uv") behaves as in v2.18.0: no installer, so no skips and no PEP 668 override.
+	//nolint:gosec // safe: fixed args, pythonPath from config
+	out, err := exec.CommandContext(ctx, s.pythonPath, "-c", "import sys; print(sys.prefix != getattr(sys, 'base_prefix', sys.prefix))").Output()
+	if err == nil && strings.TrimSpace(string(out)) == "True" {
+		for i := range packages {
+			packages[i].Installer = nil
+		}
+	}
+
 	return packages, nil
 }
 
