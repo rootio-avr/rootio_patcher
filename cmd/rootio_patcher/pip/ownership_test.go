@@ -132,7 +132,7 @@ func TestRun_SummaryExcludesSkipped(t *testing.T) {
 	os.Stdout = w
 	err := app.Run(context.Background())
 	os.Stdout = stdout
-	w.Close()
+	_ = w.Close()
 	out, _ := io.ReadAll(r)
 	if err != nil {
 		t.Fatal(err)
