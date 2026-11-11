@@ -66,6 +66,7 @@ func (s *PipService) ListPackages(ctx context.Context) ([]common.InstalledPackag
 	}
 
 	// A venv (uv writes installer "uv") behaves as in v2.18.0: no installer, so no skips and no PEP 668 override.
+	// uv in system Python keeps "uv": applyPatches patches it with the PEP 668 override.
 	//nolint:gosec // safe: fixed args, pythonPath from config
 	out, err := exec.CommandContext(ctx, s.pythonPath, "-c", "import sys; print(sys.prefix != getattr(sys, 'base_prefix', sys.prefix))").Output()
 	if err == nil && strings.TrimSpace(string(out)) == "True" {

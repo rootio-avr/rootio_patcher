@@ -144,14 +144,12 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch, i
 			patchVersion)
 
 		a.logger.DebugContext(ctx, "Patch details", slog.String("patch_name", patchName))
-
-		// pip list -v reports who installed each package: "pip" is ours. apt writes "debian" (trixie,
-		// noble pip) or nothing (""), apk nothing, rpm "rpm". nil = a venv, pip too old to report it (or name
-		// not listed): v2.18.0 behaviour. ponytail: rpm packages built with pip say "pip" (UBI9 python3-six, UBI8
+		// installer (pip list -v): "pip"/"uv" patched (uv dist-info is pip-compatible); "debian", "", "rpm" skipped;
+		// nil = venv or pip too old to report: patched as v2.18.0. ponytail: rpm packages built with pip say "pip" and are patched.
 		// python39-setuptools), so they are patched as on v2.18.0.
 		inst := installer[canonicalName(patch.PackageName)]
-		if inst != nil && *inst != "pip" {
-			a.logger.WarnContext(ctx, "skipping package not installed by pip", slog.String("package", patch.PackageName), slog.String("installer", *inst))
+		if inst != nil && !pipCompatibleInstallers[*inst] {
+			a.logger.WarnContext(ctx, "skipping package not installed by pip or uv", slog.String("package", patch.PackageName), slog.String("installer", *inst))
 			fmt.Printf("  ⚠ Skipped %s: not pip-owned (installer %q)\n\n", patch.PackageName, *inst)
 			continue
 		}
@@ -181,5 +179,8 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch, i
 
 // canonicalName is the PEP 503 form, so pip's "typing_extensions" matches the API's "typing-extensions".
 func canonicalName(name string) string { return pep503.Replace(strings.ToLower(name)) }
+
+// pipCompatibleInstallers are the INSTALLER values whose packages pip can uninstall and reinstall.
+var pipCompatibleInstallers = map[string]bool{"pip": true, "uv": true}
 
 var pep503 = strings.NewReplacer("_", "-", ".", "-") // ponytail: "a__b" stays "a--b"; no real dist names like that
