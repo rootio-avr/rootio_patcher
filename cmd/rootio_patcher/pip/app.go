@@ -145,12 +145,13 @@ func (a *App) applyPatches(ctx context.Context, patches []rootio.PackagePatch, i
 
 		a.logger.DebugContext(ctx, "Patch details", slog.String("patch_name", patchName))
 
-		// pip list -v reports who installed each package: "pip" is ours. apt writes "debian" (trixie,
+		// pip list -v reports who installed each package: "pip" and "uv" (writes pip-compatible dist-info, pip can
+		// uninstall/reinstall it; e.g. certbot's tools/pip_install.py into system Python) are ours. apt writes "debian" (trixie,
 		// noble pip) or nothing (""), apk nothing, rpm "rpm". nil = a venv, pip too old to report it (or name
 		// not listed): v2.18.0 behaviour. ponytail: rpm packages built with pip say "pip" (UBI9 python3-six, UBI8
 		// python39-setuptools), so they are patched as on v2.18.0.
 		inst := installer[canonicalName(patch.PackageName)]
-		if inst != nil && *inst != "pip" {
+		if inst != nil && *inst != "pip" && *inst != "uv" {
 			a.logger.WarnContext(ctx, "skipping package not installed by pip", slog.String("package", patch.PackageName), slog.String("installer", *inst))
 			fmt.Printf("  ⚠ Skipped %s: not pip-owned (installer %q)\n\n", patch.PackageName, *inst)
 			continue
