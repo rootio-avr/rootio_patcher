@@ -3,6 +3,7 @@ package apt
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"path"
 	"strings"
@@ -64,10 +65,12 @@ type Executor struct {
 	pkgURL  string
 	runner  CommandRunner
 	verbose bool
+	logger  *slog.Logger // held-package skips; NewAppWithServices sets the app logger
+	skipped []HeldSkip
 }
 
 func NewExecutor(apiKey, pkgURL string, verbose bool, runner CommandRunner) *Executor {
-	return &Executor{apiKey: apiKey, pkgURL: pkgURL, verbose: verbose, runner: runner}
+	return &Executor{apiKey: apiKey, pkgURL: pkgURL, verbose: verbose, runner: runner, logger: slog.Default()}
 }
 
 // Setup installs the Root.io APT repository, GPG key, auth config, and pin preferences
@@ -100,7 +103,7 @@ func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 	if len(names) == 0 {
 		return nil
 	}
-	names = e.excludeHeld(ctx, e.heldPackages(ctx), []string{"install"}, names)
+	names = e.excludeHeld(ctx, e.heldPackages(ctx), []string{"install"}, names, nil)
 	if len(names) == 0 {
 		return nil
 	}

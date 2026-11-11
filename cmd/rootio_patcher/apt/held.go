@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"sort"
 	"strings"
@@ -52,9 +53,11 @@ func (e *Executor) heldPackages(ctx context.Context) map[string]bool {
 // package untouched. A name that is itself held is dropped; the rest are
 // simulated with `apt-get -s <installArgs> <names>`, and if the transaction
 // would change a held package, each name is simulated alone to find the ones
-// responsible. Every skip is printed. With no held packages it returns names
+// responsible. Every skip is logged at WARN. With no held packages it returns names
 // unchanged and runs nothing.
-func (e *Executor) excludeHeld(ctx context.Context, held map[string]bool, installArgs, names []string) []string {
+// versions maps a name to the version being skipped, for the WARN record and
+// the HELD_SKIPPED summary; a name missing from it is a distro upgrade.
+func (e *Executor) excludeHeld(ctx context.Context, held map[string]bool, installArgs, names []string, versions map[string]string) []string {
 	if len(held) == 0 || len(names) == 0 {
 		return names
 	}
@@ -63,7 +66,7 @@ func (e *Executor) excludeHeld(ctx context.Context, held map[string]bool, instal
 	var candidates []string
 	for _, n := range names {
 		if held[stripArch(n)] {
-			fmt.Printf("skipped %s: held by the base image\n", n)
+			e.skip(ctx, n, versions[n], "held by the base image")
 			continue
 		}
 		candidates = append(candidates, n)
@@ -84,7 +87,7 @@ func (e *Executor) excludeHeld(ctx context.Context, held map[string]bool, instal
 	var keep []string
 	for _, n := range candidates {
 		if hit := simulate([]string{n}); len(hit) > 0 {
-			fmt.Printf("skipped %s: would change %s, held by the base image\n", n, strings.Join(hit, " "))
+			e.skip(ctx, n, versions[n], "would change held package "+strings.Join(hit, " "))
 			continue
 		}
 		keep = append(keep, n)
@@ -101,10 +104,11 @@ func (e *Executor) dropHeldPatches(ctx context.Context, patches []rootio.Package
 		return patches
 	}
 	byName := map[string]rootio.PackagePatch{}
+	versions := map[string]string{}
 	var names []string
 	for _, p := range patches {
 		if held[p.PackageName] {
-			fmt.Printf("skipped %s: held by the base image\n", p.PackageName)
+			e.skip(ctx, p.PackageName, p.Patch.Version, "held by the base image")
 			continue
 		}
 		n := p.Patch.Name
@@ -112,6 +116,7 @@ func (e *Executor) dropHeldPatches(ctx context.Context, patches []rootio.Package
 			n = p.PatchAlias.Name
 		}
 		byName[n] = p
+		versions[n] = p.Patch.Version
 		names = append(names, n)
 	}
 	installArgs := []string{"-o", "Dpkg::Options::=--force-overwrite", "install", "--allow-downgrades"}
@@ -119,10 +124,40 @@ func (e *Executor) dropHeldPatches(ctx context.Context, patches []rootio.Package
 		installArgs = []string{"-o", "Dpkg::Options::=--force-overwrite", "install", "--allow-remove-essential", "--no-install-recommends"}
 	}
 	var keep []rootio.PackagePatch
-	for _, n := range e.excludeHeld(ctx, held, installArgs, names) {
+	for _, n := range e.excludeHeld(ctx, held, installArgs, names, versions) {
 		keep = append(keep, byName[n])
 	}
 	return keep
+}
+
+// HeldSkip is one patch or upgrade left out because of a held package.
+type HeldSkip struct{ Package, Version, Reason string }
+
+// skip logs a held-package skip at WARN and records it for HeldSummary.
+func (e *Executor) skip(ctx context.Context, pkg, version, reason string) {
+	if version == "" {
+		version = "upgrade"
+	}
+	e.logger.WarnContext(ctx, "skipped patch: held package",
+		slog.String("ecosystem", "apt"),
+		slog.String("package", pkg),
+		slog.String("version", version),
+		slog.String("reason", reason),
+	)
+	e.skipped = append(e.skipped, HeldSkip{pkg, version, reason})
+}
+
+// HeldSummary returns the machine-readable summary line for skipped held
+// packages ("HELD_SKIPPED <n>: <pkg>=<version>,..."), or "" when none were.
+func (e *Executor) HeldSummary() string {
+	if len(e.skipped) == 0 {
+		return ""
+	}
+	parts := make([]string, len(e.skipped))
+	for i, s := range e.skipped {
+		parts[i] = s.Package + "=" + s.Version
+	}
+	return fmt.Sprintf("HELD_SKIPPED %d: %s", len(e.skipped), strings.Join(parts, ","))
 }
 
 // heldChanges parses apt-get -s output and returns the held packages the

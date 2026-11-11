@@ -14,7 +14,8 @@ type APIClient = common.OsAPIClient
 
 // App orchestrates the apt remediate workflow
 type App struct {
-	inner *common.OsApp[OSInfo]
+	inner    *common.OsApp[OSInfo]
+	executor *Executor
 }
 
 func NewApp(apiKey, apiURL, pkgURL string, dryRun, useAlias, verbose, skipUpgrades bool, ignoreSet map[string]struct{}, logger *slog.Logger) *App {
@@ -32,14 +33,23 @@ func NewAppWithServices(
 	apiClient APIClient,
 	executor *Executor,
 ) *App {
+	executor.logger = logger
 	return &App{inner: common.NewOsApp(
 		pkgURL, dryRun, useAlias, skipUpgrades, ignoreSet, logger,
 		scanner, apiClient, executor,
 		aptConfig(),
-	)}
+	), executor: executor}
 }
 
-func (a *App) Run(ctx context.Context) error { return a.inner.Run(ctx) }
+// Run runs the remediation, then prints the HELD_SKIPPED summary line when any
+// patch was skipped because of a held package. Skips do not change the exit code.
+func (a *App) Run(ctx context.Context) error {
+	err := a.inner.Run(ctx)
+	if line := a.executor.HeldSummary(); line != "" {
+		fmt.Println(line)
+	}
+	return err
+}
 
 func aptConfig() common.OsAppConfig[OSInfo] {
 	return common.OsAppConfig[OSInfo]{

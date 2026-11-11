@@ -1,7 +1,11 @@
 package apt
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -150,4 +154,30 @@ func TestHeldChanges_Parse(t *testing.T) {
 	assert.Equal(t, []string{"libgnutls30", "libk5crypto3", "libssl3"}, heldChanges([]byte(out), held))
 	assert.Empty(t, heldChanges([]byte("Inst curl [1] (2 x)\n"), held))
 	assert.Equal(t, "libc6", stripArch("libc6:amd64"))
+}
+
+// A held skip must be visible: a WARN record per skip with package, version
+// and reason, and one HELD_SKIPPED summary line on stdout. Exit stays 0.
+func TestHeld_SkipLogsWarnAndSummary(t *testing.T) {
+	var logBuf bytes.Buffer
+	lg := slog.New(slog.NewTextHandler(&logBuf, nil))
+	r := &holdRunner{held: "libgnutls30\nlibk5crypto3\n"}
+	e := NewExecutor("k", "https://pkg.root.io", false, r)
+	app := NewAppWithServices("k", "https://pkg.root.io", false, false, false, true, nil, lg, heldScanner(), heldAPI(), e)
+
+	stdout := os.Stdout
+	rd, wr, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = wr
+	runErr := app.Run(context.Background())
+	os.Stdout = stdout
+	require.NoError(t, wr.Close())
+	out, err := io.ReadAll(rd)
+	require.NoError(t, err)
+
+	require.NoError(t, runErr, "held skips must not fail the run")
+	logs := logBuf.String()
+	assert.Contains(t, logs, `level=WARN msg="skipped patch: held package" ecosystem=apt package=libgnutls30 version=1.aikido.1 reason="held by the base image"`)
+	assert.Contains(t, logs, `level=WARN msg="skipped patch: held package" ecosystem=apt package=libkrb5-3 version=1.aikido.1 reason="would change held package libk5crypto3"`)
+	assert.Contains(t, string(out), "HELD_SKIPPED 3: libgnutls30=1.aikido.1,libk5crypto3=1.aikido.1,libkrb5-3=1.aikido.1\n")
 }
