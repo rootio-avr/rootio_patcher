@@ -41,14 +41,17 @@ func NewAppWithServices(
 	), executor: executor}
 }
 
-// Run runs the remediation, then prints the HELD_SKIPPED summary line when any
-// patch was skipped because of a held package. Skips do not change the exit code.
+// Run runs the remediation, then, only if it succeeded, prints the HELD_SKIPPED
+// summary line when any patch was skipped because of a held package. Skips do
+// not change the exit code; a failed run prints no summary.
 func (a *App) Run(ctx context.Context) error {
-	err := a.inner.Run(ctx)
+	if err := a.inner.Run(ctx); err != nil {
+		return err
+	}
 	if line := a.executor.HeldSummary(); line != "" {
 		fmt.Println(line)
 	}
-	return err
+	return nil
 }
 
 func aptConfig() common.OsAppConfig[OSInfo] {

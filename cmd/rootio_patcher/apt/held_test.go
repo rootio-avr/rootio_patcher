@@ -3,6 +3,7 @@ package apt
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -180,4 +181,34 @@ func TestHeld_SkipLogsWarnAndSummary(t *testing.T) {
 	assert.Contains(t, logs, `level=WARN msg="skipped patch: held package" ecosystem=apt package=libgnutls30 version=1.aikido.1 reason="held by the base image"`)
 	assert.Contains(t, logs, `level=WARN msg="skipped patch: held package" ecosystem=apt package=libkrb5-3 version=1.aikido.1 reason="would change held package libk5crypto3"`)
 	assert.Contains(t, string(out), "HELD_SKIPPED 3: libgnutls30=1.aikido.1,libk5crypto3=1.aikido.1,libkrb5-3=1.aikido.1\n")
+}
+
+// A real apt failure after a held skip must not print HELD_SKIPPED: the
+// summary means "the transaction succeeded with these skips". WARNs stay.
+func TestHeld_AptFailure_NoSummary(t *testing.T) {
+	var logBuf bytes.Buffer
+	lg := slog.New(slog.NewTextHandler(&logBuf, nil))
+	r := &holdRunner{held: "libgnutls30\n"}
+	r.RunFunc = func(_ context.Context, name string, args ...string) error {
+		if name == "apt-get" && len(args) > 2 && args[2] == "install" {
+			return errors.New("exit status 1")
+		}
+		return nil
+	}
+	e := NewExecutor("k", "https://pkg.root.io", false, r)
+	app := NewAppWithServices("k", "https://pkg.root.io", false, false, false, true, nil, lg, heldScanner(), heldAPI(), e)
+
+	stdout := os.Stdout
+	rd, wr, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = wr
+	runErr := app.Run(context.Background())
+	os.Stdout = stdout
+	require.NoError(t, wr.Close())
+	out, err := io.ReadAll(rd)
+	require.NoError(t, err)
+
+	require.Error(t, runErr, "a real apt failure must still fail the run")
+	assert.Contains(t, logBuf.String(), "level=WARN", "the per-package WARN is still emitted")
+	assert.NotContains(t, string(out), "HELD_SKIPPED")
 }
