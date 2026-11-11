@@ -88,10 +88,13 @@ func TestApplyPatches_InstallerOwnership(t *testing.T) {
 		{Name: "cryptography", Installer: strp("")},         // apk writes no INSTALLER
 		{Name: "attrs", Installer: strp("uv")},              // uv: pip-compatible, patched
 		{Name: "typing_extensions", Installer: strp("pip")}, // pip's spelling
-		{Name: "certifi"},                                   // old pip: no installer key
+		{Name: "poetry-pkg", Installer: strp("poetry")},
+		{Name: "uv-upper", Installer: strp("UV")},
+		{Name: "uvx-pkg", Installer: strp("uvx")},
+		{Name: "certifi"}, // old pip: no installer key
 	}
 	var patches []rootio.PackagePatch
-	for _, n := range []string{"idna", "six", "pip", "setuptools", "cryptography", "attrs", "typing-extensions", "certifi"} {
+	for _, n := range []string{"idna", "six", "pip", "setuptools", "cryptography", "attrs", "typing-extensions", "certifi", "poetry-pkg", "uv-upper", "uvx-pkg"} {
 		patches = append(patches, rootio.PackagePatch{PackageName: n, Patch: rootio.PatchInfo{Name: n, Version: "1+aikido.1"}})
 	}
 	svc := &MockPipService{}
