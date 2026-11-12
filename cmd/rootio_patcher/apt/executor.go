@@ -3,6 +3,7 @@ package apt
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"path"
 	"strings"
@@ -56,7 +57,7 @@ var lowLevelPackages = map[string]bool{
 // CommandRunner is an alias for common.CommandRunner
 type CommandRunner = common.CommandRunner
 
-func NewRealRunner() CommandRunner { return common.NewRealRunner() }
+func NewRealRunner() CommandRunner { return aptRunner{common.NewRealRunner()} }
 
 // Executor performs the actual apt remediation steps on the running system
 type Executor struct {
@@ -64,10 +65,12 @@ type Executor struct {
 	pkgURL  string
 	runner  CommandRunner
 	verbose bool
+	logger  *slog.Logger // held-package skips; NewAppWithServices sets the app logger
+	skipped []HeldSkip
 }
 
 func NewExecutor(apiKey, pkgURL string, verbose bool, runner CommandRunner) *Executor {
-	return &Executor{apiKey: apiKey, pkgURL: pkgURL, verbose: verbose, runner: runner}
+	return &Executor{apiKey: apiKey, pkgURL: pkgURL, verbose: verbose, runner: runner, logger: slog.Default()}
 }
 
 // Setup installs the Root.io APT repository, GPG key, auth config, and pin preferences
@@ -100,6 +103,10 @@ func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 	if len(names) == 0 {
 		return nil
 	}
+	names = e.excludeHeld(ctx, e.heldPackages(ctx), []string{"install"}, names, nil)
+	if len(names) == 0 {
+		return nil
+	}
 	e.logf("→ installing %d upgrade(s): %s", len(names), strings.Join(names, " "))
 	args := append([]string{"install", "-y"}, names...)
 	return e.runner.Run(ctx, "apt-get", args...)
@@ -111,6 +118,9 @@ func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 // at pin-priority 1001, which APT already prefers over the upstream repo (non-aliased path).
 func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patches []rootio.PackagePatch, useAlias bool) error {
 	if len(patches) == 0 {
+		return nil
+	}
+	if patches = e.dropHeldPatches(ctx, patches, useAlias); len(patches) == 0 {
 		return nil
 	}
 
