@@ -93,7 +93,7 @@ func TestHeld_NonAliased_SkipsHeldAndHeldChangingPatches(t *testing.T) {
 	r := &holdRunner{held: "libgnutls30\nlibk5crypto3\n"}
 	runHeld(t, r, false, true)
 
-	assert.True(t, r.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "curl", "libcurl4"),
+	assert.True(t, r.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "--no-install-recommends", "curl", "libcurl4"),
 		"non-held patches must install exactly as today, minus the held ones; got %v", installCalls(r.Calls))
 	for _, c := range r.Calls {
 		for _, a := range c.Args {
@@ -127,7 +127,7 @@ func TestHeld_Upgrades_SkipHeldNames(t *testing.T) {
 
 	got := installCalls(r.Calls)
 	require.Len(t, got, 1)
-	assert.Equal(t, []string{"install", "-y", "bash", "tar"}, got[0])
+	assert.Equal(t, []string{"install", "-y", "--no-install-recommends", "bash", "tar"}, got[0])
 }
 
 // Must-not-change: with no held packages the commands run are identical to a

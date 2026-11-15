@@ -119,7 +119,7 @@ func (e *Executor) dropHeldPatches(ctx context.Context, patches []rootio.Package
 		versions[n] = p.Patch.Version
 		names = append(names, n)
 	}
-	installArgs := []string{"-o", "Dpkg::Options::=--force-overwrite", "install", "--allow-downgrades"}
+	installArgs := []string{"-o", "Dpkg::Options::=--force-overwrite", "install", "--allow-downgrades", "--no-install-recommends"}
 	if useAlias {
 		installArgs = []string{"-o", "Dpkg::Options::=--force-overwrite", "install", "--allow-remove-essential", "--no-install-recommends"}
 	}

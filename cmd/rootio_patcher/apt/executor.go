@@ -108,7 +108,7 @@ func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 		return nil
 	}
 	e.logf("→ installing %d upgrade(s): %s", len(names), strings.Join(names, " "))
-	args := append([]string{"install", "-y"}, names...)
+	args := append([]string{"install", "-y", "--no-install-recommends"}, names...)
 	return e.runner.Run(ctx, "apt-get", args...)
 }
 
@@ -130,7 +130,7 @@ func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patch
 			names = append(names, p.Patch.Name)
 			e.logf("→ installing non-aliased %s", p.Patch.Name)
 		}
-		args := append([]string{"-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades"}, names...)
+		args := append([]string{"-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "--no-install-recommends"}, names...)
 		return e.runner.Run(ctx, "apt-get", args...)
 	}
 

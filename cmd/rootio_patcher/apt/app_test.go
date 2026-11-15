@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -176,7 +177,7 @@ func TestApp_Run_OnlyUpgrades(t *testing.T) {
 
 	assert.True(t, runner.calledWith("apt-get", "apt-get", "update"), "apt-get update must run")
 	// Broad upgrade installs all non-patched installed packages by name (sorted), no --allow-downgrades.
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "curl", "openssl"), "must install upgrades")
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "--no-install-recommends", "curl", "openssl"), "must install upgrades")
 	// GPG key / repo setup must NOT happen for upgrades-only
 	for _, c := range runner.Calls {
 		joined := c.Name + " " + strings.Join(c.Args, " ")
@@ -213,7 +214,7 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 	// original curl must be removed
 	assert.True(t, runner.calledWith("env"), "original package removal must run")
 	// broad upgrade runs by name (curl is patched, so only openssl remains)
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "openssl"), "broad upgrade must install non-patched packages")
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "--no-install-recommends", "openssl"), "broad upgrade must install non-patched packages")
 	// repo source list + pin AND the remaining Root.io files must all be removed
 	cleanupFiles := []string{
 		sourcesListDir + "/rootio.list",
@@ -235,7 +236,7 @@ func TestApp_Run_WithPatches_SetupAndCleanup(t *testing.T) {
 	// Sequencing: RemoveRootioRepo (rm rootio.list) must come BEFORE the broad
 	// upgrade install, which must come BEFORE final cleanup (rm gpg key).
 	idxRepoRemoved := indexOfCall(runner.Calls, "rm", "-f", sourcesListDir+"/rootio.list")
-	idxUpgrade := indexOfCall(runner.Calls, "apt-get", "install", "-y", "openssl")
+	idxUpgrade := indexOfCall(runner.Calls, "apt-get", "install", "-y", "--no-install-recommends", "openssl")
 	idxKeyRemoved := indexOfCall(runner.Calls, "rm", "-f", gpgKeyPath)
 	require.GreaterOrEqual(t, idxRepoRemoved, 0)
 	require.GreaterOrEqual(t, idxUpgrade, 0)
@@ -339,7 +340,7 @@ func TestApp_Run_NonAliased_InstallsOriginalNames(t *testing.T) {
 	// No version pin: pin-priority 1001 for the rootio registry guarantees the
 	// rootio package wins, and avoids epoch-mismatch failures for packages like
 	// bsdutils/login where the API omits the epoch from Patch.Version.
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "curl", "openssl"),
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "-o", "Dpkg::Options::=--force-overwrite", "install", "-y", "--allow-downgrades", "--no-install-recommends", "curl", "openssl"),
 		"non-aliased must install by name only, relying on pin-priority 1001")
 
 	// Must NOT install any rootio-* aliased name
@@ -468,9 +469,33 @@ func TestExecutor_InstallUpgrades_NoAllowDowngrades(t *testing.T) {
 	e := NewExecutor("test-api-key", "https://pkg.root.io", false, runner)
 	require.NoError(t, e.InstallUpgrades(context.Background(), []string{"curl", "openssl"}))
 
-	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "curl", "openssl"))
+	assert.True(t, runner.calledWith("apt-get", "apt-get", "install", "-y", "--no-install-recommends", "curl", "openssl"))
 	for _, c := range runner.Calls {
 		assert.NotContains(t, c.Args, "--allow-downgrades", "InstallUpgrades must not use --allow-downgrades")
+	}
+}
+
+// --- Executor: no install path pulls Recommends ---
+// apt installs a package's Recommends by default. They arrive at the distro's version after the patch plan
+// was computed, so they ship unpatched: nginx:1.21.6 gained mailutils/exim4/python3.9/... (35 packages),
+// postgres:18.0 gained systemd/dbus/libexpat1. Every install the patcher runs must skip Recommends.
+
+func TestExecutor_InstallPaths_NoRecommends(t *testing.T) {
+	patches := []rootio.PackagePatch{{PackageName: "curl", Patch: rootio.PatchInfo{Name: "curl", Version: "8.5.0-2.aikido.1"},
+		PatchAlias: rootio.PatchInfo{Name: "rootio-curl", Version: "8.5.0-2.aikido.1"}}}
+	for _, useAlias := range []bool{false, true} {
+		runner := &MockRunner{}
+		e := NewExecutor("k", "https://pkg.root.io", useAlias, runner)
+		require.NoError(t, e.InstallUpgrades(context.Background(), []string{"openssl"}))
+		require.NoError(t, e.InstallPatches(context.Background(), "https://pkg.root.io", patches, useAlias))
+		installs := 0
+		for _, c := range runner.Calls {
+			if c.Name == "apt-get" && slices.Contains(c.Args, "install") {
+				installs++
+				assert.Contains(t, c.Args, "--no-install-recommends", "useAlias=%v: %v", useAlias, c.Args)
+			}
+		}
+		assert.GreaterOrEqual(t, installs, 2, "useAlias=%v", useAlias)
 	}
 }
 
