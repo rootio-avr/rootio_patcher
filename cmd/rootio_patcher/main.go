@@ -209,6 +209,7 @@ type NpmRemediateCmd struct {
 	DryRun         bool     `default:"true" help:"Preview changes without applying them"`
 	UpgradePlan    string   `name:"upgrade-plan" help:"JSON file of per-package upgrades (action upgrade, exact version). Planned packages are patched to that version; all other packages use the Root API. When omitted, root-upgrade-plan.json in the project directory is used if present; a missing default file means no plan."`
 	Ignore         []string `help:"Ignore package@version (repeatable). Also merged with .rootioignore file." name:"ignore" sep:","`
+	BundledTree    []string `name:"bundled-tree" sep:"," help:"Installed node_modules tree with no lockfile to patch in place (repeatable), e.g. /usr/local/lib/node_modules: npm's own bundled packages, corepack, a Lambda runtime. Each package with a Root build is swapped for that build's tarball; one that can't be swapped fails the run. Replaces the lockfile mode."`
 }
 
 // MavenCmd handles Maven-related commands
@@ -307,6 +308,17 @@ func (cmd *NpmRemediateCmd) Run(ctx context.Context, cfg *config.Config, logger 
 	dir, err := filepath.Abs(cmd.Directory)
 	if err != nil {
 		return fmt.Errorf("invalid directory: %w", err)
+	}
+
+	if len(cmd.BundledTree) > 0 {
+		trees := make([]string, len(cmd.BundledTree))
+		for i, tree := range cmd.BundledTree {
+			if trees[i], err = filepath.Abs(tree); err != nil {
+				return fmt.Errorf("invalid bundled tree: %w", err)
+			}
+		}
+		return npm.NewBundledApp(cfg.APIKey, cfg.APIURL, cfg.PKGURL, trees, cmd.DryRun, cmd.Ignore, logger).
+			WithUpgradePlan(cmd.UpgradePlan).Run(ctx)
 	}
 
 	app := npm.NewApp(cfg.APIKey, cfg.APIURL, cmd.PackageManager, dir, cmd.DryRun, cmd.Ignore, logger)
