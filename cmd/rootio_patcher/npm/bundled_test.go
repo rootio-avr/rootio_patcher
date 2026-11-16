@@ -122,6 +122,7 @@ func npmTree(t *testing.T) string {
 	writePkg(t, filepath.Join(root, "npm"), "npm", "10.9.0", "npm")
 	writePkg(t, filepath.Join(nm, "picomatch"), "picomatch", "4.0.4", "old picomatch")
 	writePkg(t, filepath.Join(nm, "glob"), "glob", "10.4.5", "glob")
+	require.NoError(t, os.WriteFile(filepath.Join(nm, "glob", "only-in-old.js"), []byte("stale"), 0o644))
 	writePkg(t, filepath.Join(nm, "glob", "node_modules", "minimatch"), "minimatch", "9.0.0", "nested minimatch")
 	writePkg(t, filepath.Join(nm, "@sigstore", "core"), "@sigstore/core", "1.0.0", "old core")
 	return root
@@ -158,6 +159,8 @@ func TestBundled_RotatesEveryPackageWithARootBuild_KeepingNestedNodeModules(t *t
 		require.NoError(t, err)
 		assert.Equal(t, want, string(got))
 	}
+	_, err = os.Stat(filepath.Join(nm, "glob", "only-in-old.js"))
+	assert.True(t, os.IsNotExist(err), "files the new version doesn't ship are removed")
 	nested, err := os.ReadFile(filepath.Join(nm, "glob", "node_modules", "minimatch", "index.js"))
 	require.NoError(t, err)
 	assert.Equal(t, "nested minimatch", string(nested), "glob's own node_modules survives its swap")

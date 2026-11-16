@@ -362,37 +362,45 @@ func verifyIntegrity(data []byte, integrity, shasum string) error {
 	return errors.New("no integrity or shasum to verify the tarball")
 }
 
-// swapPackageDir replaces dir with the tarball's package, keeping dir's nested node_modules, and checks the
-// result declares name@version. The old directory is only removed once the new one is in place.
+// swapPackageDir replaces dir's contents with the tarball's package, keeping dir's nested node_modules, after
+// checking the tarball declares name@version. dir itself is never renamed: in an image build it usually comes from
+// a lower layer, and overlayfs refuses to rename such a directory (EXDEV). Its files are removed in place and the
+// new ones, extracted into a sibling temp dir in the top layer, are moved in.
 func swapPackageDir(dir, name, version string, tgz []byte) error {
-	parent := filepath.Dir(dir)
-	tmp, err := os.MkdirTemp(parent, "."+filepath.Base(dir)+".rootio-")
+	tmp, err := os.MkdirTemp(filepath.Dir(dir), "."+filepath.Base(dir)+".rootio-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	newDir := filepath.Join(tmp, "new")
-	if err := extractPackage(tgz, newDir); err != nil {
+	if err := extractPackage(tgz, tmp); err != nil {
 		return fmt.Errorf("extract: %w", err)
 	}
-	if pkg, ok := readPackageJSON(newDir, name); !ok || pkg.Version != version {
+	if pkg, ok := readPackageJSON(tmp, name); !ok || pkg.Version != version {
 		return fmt.Errorf("tarball does not declare %s@%s", name, version)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "node_modules")); err == nil {
-		if err := os.RemoveAll(filepath.Join(newDir, "node_modules")); err != nil {
-			return err
-		}
-		if err := os.Rename(filepath.Join(dir, "node_modules"), filepath.Join(newDir, "node_modules")); err != nil {
-			return err
-		}
-	}
-	if err := os.Rename(dir, filepath.Join(tmp, "old")); err != nil {
+	old, err := os.ReadDir(dir)
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(newDir, dir); err != nil {
-		// put the original back so the tree stays usable
-		_ = os.Rename(filepath.Join(tmp, "old"), dir)
+	for _, e := range old {
+		if e.Name() == "node_modules" {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			return fmt.Errorf("remove old %s: %w", e.Name(), err)
+		}
+	}
+	fresh, err := os.ReadDir(tmp)
+	if err != nil {
 		return err
+	}
+	for _, e := range fresh {
+		if e.Name() == "node_modules" {
+			continue // the installed tree's own nested node_modules stays
+		}
+		if err := os.Rename(filepath.Join(tmp, e.Name()), filepath.Join(dir, e.Name())); err != nil {
+			return fmt.Errorf("move in %s: %w", e.Name(), err)
+		}
 	}
 	return nil
 }
