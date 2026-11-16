@@ -98,13 +98,17 @@ func (a *BundledApp) Run(ctx context.Context) error {
 	for _, line := range res.Skipped {
 		fmt.Printf("skipped %s\n", line)
 	}
+	verb := "rotated"
+	if a.dryRun {
+		verb = "would rotate"
+	}
 	for _, line := range res.Rotated {
-		fmt.Printf("rotated %s\n", line)
+		fmt.Printf("%s %s\n", verb, line)
 	}
 	for _, line := range res.Failed {
 		fmt.Printf("NOT ROTATED %s\n", line)
 	}
-	fmt.Printf("\nbundled npm: %d rotated, %d failed, %d skipped\n", len(res.Rotated), len(res.Failed), len(res.Skipped))
+	fmt.Printf("\nbundled npm: %d %s, %d failed, %d skipped\n", len(res.Rotated), verb, len(res.Failed), len(res.Skipped))
 	if len(res.Failed) > 0 {
 		return fmt.Errorf("bundled npm: %d package(s) with a Root build could not be rotated", len(res.Failed))
 	}
