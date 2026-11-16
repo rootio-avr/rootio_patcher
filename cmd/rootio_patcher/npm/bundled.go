@@ -313,7 +313,7 @@ func (a *BundledApp) get(ctx context.Context, rawURL string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: HTTP %d", redact(rawURL), resp.StatusCode)
 	}
@@ -375,7 +375,7 @@ func swapPackageDir(dir, name, version string, tgz []byte) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 	if err := extractPackage(tgz, tmp); err != nil {
 		return fmt.Errorf("extract: %w", err)
 	}
@@ -416,7 +416,7 @@ func extractPackage(tgz []byte, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
@@ -453,7 +453,7 @@ func extractPackage(tgz []byte, dest string) error {
 				return err
 			}
 			if _, err := io.Copy(f, io.LimitReader(tr, 256<<20)); err != nil {
-				f.Close()
+				_ = f.Close() // the copy error is the one to report
 				return err
 			}
 			if err := f.Close(); err != nil {
