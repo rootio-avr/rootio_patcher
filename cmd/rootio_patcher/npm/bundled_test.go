@@ -268,3 +268,18 @@ func TestExtractPackage_RefusesEscapesAndLinks(t *testing.T) {
 	require.NoError(t, gz.Close())
 	require.ErrorContains(t, extractPackage(buf.Bytes(), t.TempDir()), "link in package tarball")
 }
+
+func TestBundled_IgnoredPackageIsNotRotatedEvenIfTheAPIReturnsIt(t *testing.T) {
+	root := npmTree(t)
+	api := &MockAPIClient{AnalyzePackagesFunc: func(context.Context, []rootio.Package, []rootio.Package, string) (*rootio.AnalyzePackagesResponse, error) {
+		return &rootio.AnalyzePackagesResponse{Patches: []rootio.PackagePatch{patchFor("minimatch", "9.0.0", "9.0.0-aikido.4")}}, nil
+	}}
+	app := newTestBundledApp(t, []string{root}, "http://unused.invalid", false, api)
+	app.ignoreSet = common.LoadIgnoreList("", []string{"minimatch@9.0.0"})
+
+	res, err := app.run(context.Background())
+
+	require.NoError(t, err)
+	assert.Empty(t, res.Rotated)
+	assert.Empty(t, res.Failed)
+}

@@ -158,7 +158,11 @@ func (a *BundledApp) run(ctx context.Context) (*BundledResult, error) {
 
 	patches := map[string]rootio.PackagePatch{}
 	for _, p := range resp.Patches {
-		patches[p.PackageName+"@"+p.Version] = p
+		key := p.PackageName + "@" + p.Version
+		if _, ignored := a.ignoreSet[key]; ignored {
+			continue // enforced here too: the API's answer alone doesn't decide what an ignore means
+		}
+		patches[key] = p
 	}
 	tarballs := map[string][]byte{}
 	for _, inst := range installed {
