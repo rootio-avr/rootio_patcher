@@ -173,6 +173,18 @@ rootio_patcher npm remediate [FLAGS]
 
 **How it works:** Pre-install patching - updates `package.json` with overrides/resolutions. After running, execute `npm install` to apply patches.
 
+**Installed trees with no lockfile (`--bundled-tree`):** npm's own bundled packages (`/usr/local/lib/node_modules/npm/node_modules`), a Lambda runtime (`/var/lang/lib/node_modules`), corepack or a vendored app tree never see an `npm install`, so the lockfile mode can't reach them. `--bundled-tree <dir>` (repeatable) patches such a tree in place instead:
+
+```bash
+rootio_patcher npm remediate --bundled-tree=/usr/local/lib/node_modules --dry-run=false
+```
+
+1. Lists every package directory under the tree (`node_modules/<name>`, `node_modules/@scope/<name>`, at any depth; symlinks are not followed).
+2. Asks the Root API which have a Root build (`--ignore` and `<tree>/.rootioignore` apply, and so does `--upgrade-plan` when given).
+3. Downloads each build's tarball from `ROOTIO_PKG_URL`, checks its integrity, and replaces the package directory, keeping its own nested `node_modules`.
+
+A package that has a Root build but can't be swapped (registry miss, integrity mismatch, bad tarball) is printed as `NOT ROTATED …` and the command exits non-zero. An unreachable Root API is an error too. pnpm store entries (`.pnpm/<name>@<version>/…`) are reported as skipped: their path encodes the version.
+
 When a plan file is present, npm remediate merges it with the Root API result. An installed package named in the plan is patched to the plan `version` exactly as written (`1.6.0`, `4.17.21-aikido.2`, `2.2.2+root.io.1`). Every other package goes to the Root API, with each planned package sent as an `ignore` entry (`name@installed`). Both lists are applied together. `action` must be `upgrade`; any other value is an error. A planned package that is not installed is logged and skipped. Entries for other ecosystems are ignored.
 
 ```json
