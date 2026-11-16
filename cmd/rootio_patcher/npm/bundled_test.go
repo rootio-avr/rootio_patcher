@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -282,4 +285,45 @@ func TestBundled_IgnoredPackageIsNotRotatedEvenIfTheAPIReturnsIt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, res.Rotated)
 	assert.Empty(t, res.Failed)
+}
+
+func TestVerifyIntegrity_StrongestAlgorithmAnyEntry(t *testing.T) {
+	data := []byte("tarball")
+	good512 := sri(data)
+	bad512 := sri([]byte("other"))
+	sum256 := sha256.Sum256(data)
+	good256 := "sha256-" + base64.StdEncoding.EncodeToString(sum256[:])
+
+	require.NoError(t, verifyIntegrity(data, bad512+" "+good512, ""), "a later entry of the same algorithm matches")
+	require.NoError(t, verifyIntegrity(data, good256+" "+good512, ""))
+	require.ErrorContains(t, verifyIntegrity(data, good256+" "+bad512, ""), "integrity mismatch (sha512)",
+		"only the strongest algorithm listed counts")
+	require.NoError(t, verifyIntegrity(data, "md5-xyz", fmt.Sprintf("%x", sha1.Sum(data))), "unsupported SRI: shasum")
+	require.ErrorContains(t, verifyIntegrity(data, "", ""), "no integrity or shasum")
+}
+
+func TestBundled_KeyIsSentOnlyToTheRootRegistry(t *testing.T) {
+	data := npmTarball(t, "picomatch", "4.0.4-aikido.1", "fixed", nil)
+	var foreignAuth string
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		foreignAuth = req.Header.Get("Authorization")
+		_, _ = w.Write(data)
+	}))
+	t.Cleanup(foreign.Close)
+	var registryAuthed bool
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		_, pass, ok := req.BasicAuth()
+		registryAuthed = ok && pass == "key"
+		_ = json.NewEncoder(w).Encode(map[string]any{"versions": map[string]any{"4.0.4-aikido.1": map[string]any{
+			"dist": map[string]string{"tarball": foreign.URL + "/picomatch.tgz", "integrity": sri(data)}}}})
+	}))
+	t.Cleanup(registry.Close)
+	app := newTestBundledApp(t, nil, registry.URL, false, nil)
+
+	got, err := app.fetchTarball(context.Background(), "picomatch", "4.0.4-aikido.1")
+
+	require.NoError(t, err)
+	assert.Equal(t, data, got)
+	assert.True(t, registryAuthed, "the packument request to the registry carries the key")
+	assert.Empty(t, foreignAuth, "a tarball on another host gets no credentials")
 }

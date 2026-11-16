@@ -308,53 +308,55 @@ func (a *BundledApp) get(ctx context.Context, rawURL string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.SetBasicAuth("root", a.apiKey)
+	if a.sameOrigin(req.URL) { // the key only goes to the Root registry, not to a tarball host a packument names
+		req.SetBasicAuth("root", a.apiKey)
+	}
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: HTTP %d", redact(rawURL), resp.StatusCode)
+		return nil, fmt.Errorf("GET %s: HTTP %d", rawURL, resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 512<<20))
 }
 
-func redact(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "<url>"
-	}
-	u.User = nil
-	return u.String()
+func (a *BundledApp) sameOrigin(u *url.URL) bool {
+	reg, err := url.Parse(a.pkgURL)
+	return err == nil && strings.EqualFold(u.Scheme, reg.Scheme) && strings.EqualFold(u.Host, reg.Host)
 }
 
-// verifyIntegrity checks an SRI string ("sha512-<b64>", possibly several space-separated) or a hex sha1 shasum.
-// One of them is required: a tarball nothing vouches for is not swapped in.
+// sriAlgos are the SRI hash algorithms checked, strongest first.
+var sriAlgos = []struct {
+	name string
+	new  func() hash.Hash
+}{{"sha512", sha512.New}, {"sha256", sha256.New}, {"sha1", sha1.New}} //nolint:gosec // see import
+
+// verifyIntegrity checks an SRI string ("sha512-<b64>", possibly several space-separated entries) the way SRI does:
+// only the strongest algorithm listed counts, and any of its entries matching passes. With no supported SRI entry,
+// the hex sha1 shasum is checked. One of them is required: a tarball nothing vouches for is not swapped in.
 func verifyIntegrity(data []byte, integrity, shasum string) error {
-	if integrity != "" {
-		for _, sri := range strings.Fields(integrity) {
-			algo, want, ok := strings.Cut(sri, "-")
-			if !ok {
-				continue
-			}
-			var h hash.Hash
-			switch algo {
-			case "sha512":
-				h = sha512.New()
-			case "sha256":
-				h = sha256.New()
-			case "sha1":
-				h = sha1.New() //nolint:gosec // see import
-			default:
-				continue
-			}
-			h.Write(data)
-			if base64.StdEncoding.EncodeToString(h.Sum(nil)) == want {
+	entries := map[string][]string{}
+	for _, sri := range strings.Fields(integrity) {
+		if algo, want, ok := strings.Cut(sri, "-"); ok {
+			entries[algo] = append(entries[algo], want)
+		}
+	}
+	for _, algo := range sriAlgos {
+		wants, ok := entries[algo.name]
+		if !ok {
+			continue
+		}
+		h := algo.new()
+		h.Write(data)
+		got := base64.StdEncoding.EncodeToString(h.Sum(nil))
+		for _, want := range wants {
+			if got == want {
 				return nil
 			}
-			return fmt.Errorf("integrity mismatch (%s)", algo)
 		}
+		return fmt.Errorf("integrity mismatch (%s)", algo.name)
 	}
 	if shasum != "" {
 		sum := sha1.Sum(data) //nolint:gosec // see import
