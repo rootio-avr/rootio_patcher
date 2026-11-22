@@ -1,0 +1,34 @@
+name: Bump gitops
+
+# After a release, set imageRebuilder.patcherVersion in gitops and push straight to its `prod` branch
+# (same as the backend CI deploys). Needs the GITOPS_PROJECT_TOKEN secret: a GitLab token with write access to gitops.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag to roll out, e.g. v2.18.9
+        required: true
+
+concurrency: bump-gitops
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bump imageRebuilder.patcherVersion in gitops
+        env:
+          GITOPS_PROJECT_TOKEN: ${{ secrets.GITOPS_PROJECT_TOKEN }}
+          VERSION: ${{ github.event.release.tag_name || inputs.version }}
+        run: |
+          git clone --branch prod "https://gitlab-ci-token:${GITOPS_PROJECT_TOKEN}@gitlab.com/root-io/nxgn-platform/gitops"
+          cd gitops
+          git config user.name "rootio_patcher | GitHub Actions"
+          git config user.email "ci@root.io"
+          scripts/set_patcher_version.sh "$VERSION"
+          git add apps/image-build-orchestrator/values.yaml
+          git diff --cached --quiet || git commit -m "Update rootio_patcher to ${VERSION}"
+          # Another push to prod may land between clone and push, so rebase and retry.
+          for i in 1 2 3; do git push origin prod && exit 0; git pull --rebase origin prod; done
+          exit 1
