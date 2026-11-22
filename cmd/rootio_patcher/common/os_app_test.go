@@ -227,3 +227,10 @@ func TestFilterPatches(t *testing.T) {
 		})
 	}
 }
+
+// An ecosystem with no FIPS marker (apk, rpm) never sees a package as FIPS.
+func TestIsFips_EmptyMarkerNeverMatches(t *testing.T) {
+	assert.False(t, isFips("1.0-r0.aikido.fips.1", ""))
+	assert.True(t, isFips("1.0.aikido.fips.1", "aikido.fips."))
+	assert.Empty(t, installedFips([]InstalledPackage{{Name: "x", Version: "1.0.aikido.fips.1"}}, ""))
+}

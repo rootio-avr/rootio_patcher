@@ -57,6 +57,7 @@ func (a *App) Run(ctx context.Context) error {
 func aptConfig(executor *Executor) common.OsAppConfig[OSInfo] {
 	return common.OsAppConfig[OSInfo]{
 		Name:          "apt",
+		FipsMarker:    "aikido.fips.",
 		KeepFips:      executor.KeepFips,
 		NoPackagesMsg: "No packages found via dpkg-query",
 		UpdateMsg:     "\nUpdating package lists...",

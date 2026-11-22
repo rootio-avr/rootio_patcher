@@ -54,6 +54,9 @@ type OsAppConfig[T any] struct {
 	GetRegistryURL func(pkgURL string, osInfo *T) string
 	// LogOsInfo emits OS-specific debug fields after OS detection
 	LogOsInfo func(ctx context.Context, logger *slog.Logger, osInfo *T)
+	// FipsMarker is the version token of a Root FIPS build (apt: "aikido.fips."). Empty (apk, rpm:
+	// no known FIPS suffix) turns the FIPS keep rules off.
+	FipsMarker string
 	// KeepFips, when set, is called before any install with the names of installed FIPS
 	// packages (apt writes the pin that stops anything but another FIPS build replacing them).
 	KeepFips func(ctx context.Context, names []string) error
@@ -152,7 +155,7 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 	patches := a.dropFipsLosses(ctx, installed, filterPatches(response.Patches, a.ignoreSet))
 	var upgradeNames []string
 	if !a.skipUpgrades {
-		upgradeNames = computeUpgradeSet(installed, patches, a.config.PackageBlacklist, a.ignoreSet)
+		upgradeNames = computeUpgradeSet(a.withoutFips(installed), patches, a.config.PackageBlacklist, a.ignoreSet)
 	}
 	hasPatches := len(patches) > 0
 
@@ -268,17 +271,15 @@ func ignoreNamesFromSet(ignoreSet map[string]struct{}) map[string]struct{} {
 	return names
 }
 
-// fipsMarker is in the version of every Root FIPS build. The skip and the upgrade exclusion apply to
-// every OS ecosystem (apk and rpm included; no apk FIPS build is published yet), only apt also pins.
-const fipsMarker = "aikido.fips."
-
-func isFips(version string) bool { return strings.Contains(version, fipsMarker) }
+// isFips reports whether version carries the ecosystem's FIPS marker. An empty marker (an
+// ecosystem with no known FIPS version suffix) never matches.
+func isFips(version, marker string) bool { return marker != "" && strings.Contains(version, marker) }
 
 // installedFips returns the sorted names of installed packages that are FIPS builds.
-func installedFips(installed []InstalledPackage) []string {
+func installedFips(installed []InstalledPackage, marker string) []string {
 	var names []string
 	for _, p := range installed {
-		if isFips(p.Version) {
+		if isFips(p.Version, marker) {
 			names = append(names, p.Name)
 		}
 	}
@@ -286,9 +287,20 @@ func installedFips(installed []InstalledPackage) []string {
 	return names
 }
 
+// withoutFips returns installed minus the FIPS builds, which never go to the broad upgrade.
+func (a *OsApp[T]) withoutFips(installed []InstalledPackage) []InstalledPackage {
+	var rest []InstalledPackage
+	for _, p := range installed {
+		if !isFips(p.Version, a.config.FipsMarker) {
+			rest = append(rest, p)
+		}
+	}
+	return rest
+}
+
 // keepFips pins every FIPS package in installed through the config hook, when there is one.
 func (a *OsApp[T]) keepFips(ctx context.Context, installed []InstalledPackage) error {
-	names := installedFips(installed)
+	names := installedFips(installed, a.config.FipsMarker)
 	if a.config.KeepFips == nil || len(names) == 0 {
 		return nil
 	}
@@ -302,12 +314,12 @@ func (a *OsApp[T]) keepFips(ctx context.Context, installed []InstalledPackage) e
 // non-FIPS one. A newer FIPS build still goes through. Each drop is logged as FIPS_KEPT.
 func (a *OsApp[T]) dropFipsLosses(ctx context.Context, installed []InstalledPackage, patches []rootio.PackagePatch) []rootio.PackagePatch {
 	fips := map[string]bool{}
-	for _, n := range installedFips(installed) {
+	for _, n := range installedFips(installed, a.config.FipsMarker) {
 		fips[n] = true
 	}
 	var keep []rootio.PackagePatch
 	for _, p := range patches {
-		if fips[p.PackageName] && !isFips(p.Patch.Version) {
+		if fips[p.PackageName] && !isFips(p.Patch.Version, a.config.FipsMarker) {
 			a.logger.WarnContext(ctx, "FIPS_KEPT "+p.PackageName, slog.String("patch_version", p.Patch.Version))
 			continue
 		}
@@ -318,7 +330,7 @@ func (a *OsApp[T]) dropFipsLosses(ctx context.Context, installed []InstalledPack
 
 // computeUpgradeSet returns the names of installed packages that should be
 // offered for a broad OS upgrade: those NOT already covered by a Root.io patch,
-// NOT in the blacklist, NOT ignored, and NOT an installed FIPS build.
+// NOT in the blacklist, and NOT ignored.
 // The result is de-duplicated and sorted ascending for deterministic output.
 func computeUpgradeSet(installed []InstalledPackage, patches []rootio.PackagePatch, blacklist map[string]bool, ignoreSet map[string]struct{}) []string {
 	patched := make(map[string]struct{}, len(patches))
@@ -334,7 +346,7 @@ func computeUpgradeSet(installed []InstalledPackage, patches []rootio.PackagePat
 		if _, isPatch := patched[name]; isPatch {
 			continue
 		}
-		if blacklist[name] || isFips(pkg.Version) {
+		if blacklist[name] {
 			continue
 		}
 		if _, isIgnored := ignored[name]; isIgnored {
