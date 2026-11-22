@@ -75,9 +75,9 @@ func (e *Executor) dropFipsLosses(ctx context.Context, patches []rootio.PackageP
 	return keep
 }
 
-// FipsSummary returns the machine-readable summary line for patches left out to keep a FIPS
+// fipsSummary returns the machine-readable summary line for patches left out to keep a FIPS
 // build ("FIPS_KEPT <n>: <pkg>=<version>,..."), or "" when none were.
-func (e *Executor) FipsSummary() string {
+func (e *Executor) fipsSummary() string {
 	if len(e.kept) == 0 {
 		return ""
 	}
@@ -88,11 +88,11 @@ func (e *Executor) FipsSummary() string {
 	return fmt.Sprintf("FIPS_KEPT %d: %s", len(e.kept), strings.Join(parts, ","))
 }
 
-// KeepFips pins every installed FIPS package away from the "main" components (Debian and Root's
+// keepFips pins every installed FIPS package away from the "main" components (Debian and Root's
 // regular builds), so no later apt step can replace it with a non-FIPS build. The Root "fips"
 // component stays allowed, so a newer FIPS build still installs. The file stays in the image.
 // Nothing is written when no FIPS package is installed.
-func (e *Executor) KeepFips(ctx context.Context) error {
+func (e *Executor) keepFips(ctx context.Context) error {
 	var names []string
 	for n := range e.fipsPackages(ctx) {
 		names = append(names, n)

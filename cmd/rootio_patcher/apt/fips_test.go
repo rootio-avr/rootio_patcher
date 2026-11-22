@@ -74,7 +74,7 @@ func TestFips_KeepsInstalledFipsPackages(t *testing.T) {
 		}
 	}
 	assert.True(t, runner.calledWith("sh", "sh", "-c", `printf 'Package: curl libsystemd0 libudev1\nPin: release c=main\nPin-Priority: -1\n' > /etc/apt/preferences.d/rootio-fips-keep`))
-	assert.Equal(t, "FIPS_KEPT 1: curl=7.88.1-10+deb12u15.aikido.20", app.executor.FipsSummary())
+	assert.Equal(t, "FIPS_KEPT 1: curl=7.88.1-10+deb12u15.aikido.20", app.executor.fipsSummary())
 }
 
 // curl is not FIPS before the patches and is after: the pin comes from the fresh list.
@@ -88,7 +88,7 @@ func TestFips_NoFipsPackagesWritesNothing(t *testing.T) {
 	runner := &fipsRunner{dpkgOut: []string{"curl 7.88.1-10+deb12u1\nbash 5.2\n"}}
 	app := runFips(t, runner, []rootio.PackagePatch{fipsPatch("curl", "7.88.1-10+deb12u15.aikido.20")}, false)
 	assert.False(t, runner.pinWritten())
-	assert.Empty(t, app.executor.FipsSummary())
+	assert.Empty(t, app.executor.fipsSummary())
 }
 
 func TestFips_DryRunWritesNothing(t *testing.T) {

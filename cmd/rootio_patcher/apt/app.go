@@ -52,12 +52,12 @@ func (a *App) Run(ctx context.Context) error {
 	if line := a.executor.HeldSummary(); line != "" {
 		fmt.Println(line)
 	}
-	if line := a.executor.FipsSummary(); line != "" {
+	if line := a.executor.fipsSummary(); line != "" {
 		fmt.Println(line)
 	}
 	// After the patches, from a fresh dpkg-query: a package that just became FIPS is pinned too.
 	if !a.dryRun {
-		if err := a.executor.KeepFips(ctx); err != nil {
+		if err := a.executor.keepFips(ctx); err != nil {
 			return fmt.Errorf("keep FIPS packages failed: %w", err)
 		}
 	}
