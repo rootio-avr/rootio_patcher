@@ -81,7 +81,7 @@ func (e *Executor) InstallPatches(ctx context.Context, _ string, patches []rooti
 	if len(patches) == 0 {
 		return nil
 	}
-	if patches = e.dropFipsLosses(ctx, patches); len(patches) == 0 {
+	if patches = e.dropFipsLosses(ctx, patches, useAlias); len(patches) == 0 {
 		return nil
 	}
 	var names []string

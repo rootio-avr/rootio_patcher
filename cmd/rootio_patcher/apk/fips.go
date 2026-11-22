@@ -15,7 +15,7 @@ import (
 
 // fipsRevision matches the revision of a Root FIPS apk build: -r<pkgrel>008<N>, the sibling of the
 // plain Root build -r<pkgrel>007<N>.
-var fipsRevision = regexp.MustCompile(`-r\d+008\d+`)
+var fipsRevision = regexp.MustCompile(`-r\d+008\d+$`)
 
 // nameVersion splits an `apk info -v` entry, e.g. "curl-8.5.0-r0", at the first "-<digit>".
 var nameVersion = regexp.MustCompile(`^(.+?)-(\d.*)$`)
@@ -74,20 +74,24 @@ func (e *Executor) excludeFips(ctx context.Context, names []string) []string {
 
 // dropFipsLosses drops patches that would replace an installed FIPS package with a non-FIPS
 // version. A newer FIPS patch stays.
-func (e *Executor) dropFipsLosses(ctx context.Context, patches []rootio.PackagePatch) []rootio.PackagePatch {
+func (e *Executor) dropFipsLosses(ctx context.Context, patches []rootio.PackagePatch, useAlias bool) []rootio.PackagePatch {
 	fips := e.fipsPackages(ctx)
 	if len(fips) == 0 {
 		return patches
 	}
 	var keep []rootio.PackagePatch
 	for _, p := range patches {
-		if _, ok := fips[p.PackageName]; ok && !isFips(p.Patch.Version) {
+		// The version that gets installed, under the name that gets installed (rootio-<name> with aliases).
+		info := common.GetPatchInfo(p, useAlias)
+		_, orig := fips[p.PackageName]
+		_, alias := fips[info.Name]
+		if (orig || alias) && !isFips(info.Version) {
 			e.logger.WarnContext(ctx, "skipped patch: installed FIPS package",
 				slog.String("ecosystem", "apk"),
 				slog.String("package", p.PackageName),
-				slog.String("version", p.Patch.Version),
+				slog.String("version", info.Version),
 			)
-			e.kept = append(e.kept, p.PackageName+"="+p.Patch.Version)
+			e.kept = append(e.kept, p.PackageName+"="+info.Version)
 			continue
 		}
 		keep = append(keep, p)
