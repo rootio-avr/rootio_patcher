@@ -2,14 +2,23 @@ name: Bump gitops
 
 # After a release, set imageRebuilder.patcherVersion in gitops and push straight to its `prod` branch
 # (same as the backend CI deploys). Needs the GITOPS_PROJECT_TOKEN secret: a GitLab token with write access to gitops.
+# Called by release.yml: a release created with GITHUB_TOKEN does not start other workflows, so `on: release` never fires.
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+    secrets:
+      GITOPS_PROJECT_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       version:
         description: Release tag to roll out, e.g. v2.18.9
         required: true
+
+permissions: {}
 
 concurrency: bump-gitops
 
@@ -20,7 +29,7 @@ jobs:
       - name: Bump imageRebuilder.patcherVersion in gitops
         env:
           GITOPS_PROJECT_TOKEN: ${{ secrets.GITOPS_PROJECT_TOKEN }}
-          VERSION: ${{ github.event.release.tag_name || inputs.version }}
+          VERSION: ${{ inputs.version }}
         run: |
           git clone --branch prod "https://gitlab-ci-token:${GITOPS_PROJECT_TOKEN}@gitlab.com/root-io/nxgn-platform/gitops"
           cd gitops

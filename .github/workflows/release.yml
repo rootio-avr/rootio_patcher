@@ -34,3 +34,14 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Prerelease tags (v2.19.0-rc1) are not rolled out.
+  bump-gitops:
+    needs: goreleaser
+    if: ${{ !contains(github.ref_name, '-') }}
+    permissions: {}
+    uses: ./.github/workflows/bump-gitops.yml
+    with:
+      version: ${{ github.ref_name }}
+    secrets:
+      GITOPS_PROJECT_TOKEN: ${{ secrets.GITOPS_PROJECT_TOKEN }}
