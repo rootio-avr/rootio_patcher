@@ -23,7 +23,7 @@ const (
 // CommandRunner is an alias for common.CommandRunner
 type CommandRunner = common.CommandRunner
 
-func NewRealRunner() CommandRunner { return common.NewRealRunner() }
+func NewRealRunner() CommandRunner { return apkRunner{common.NewRealRunner()} }
 
 // Executor performs the actual apk remediation steps on the running system
 type Executor struct {
@@ -32,6 +32,7 @@ type Executor struct {
 	runner CommandRunner
 	fs     fileSystem
 	logger *slog.Logger
+	kept   []string // FIPS_KEPT: patches left out to keep an installed FIPS build
 }
 
 func NewExecutor(apiKey, pkgURL string, logger *slog.Logger, runner CommandRunner) *Executor {
@@ -64,6 +65,9 @@ func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 	if len(names) == 0 {
 		return nil
 	}
+	if names = e.excludeFips(ctx, names); len(names) == 0 {
+		return nil
+	}
 	e.logf("installing upgrades", "packages", strings.Join(names, " "))
 	args := append([]string{"add", "--upgrade"}, names...)
 	return e.runner.Run(ctx, "apk", args...)
@@ -75,6 +79,9 @@ func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 // registryURL is accepted to satisfy the OsExecutor interface but is unused by APK.
 func (e *Executor) InstallPatches(ctx context.Context, _ string, patches []rootio.PackagePatch, useAlias bool) error {
 	if len(patches) == 0 {
+		return nil
+	}
+	if patches = e.dropFipsLosses(ctx, patches); len(patches) == 0 {
 		return nil
 	}
 	var names []string
