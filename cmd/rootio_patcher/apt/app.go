@@ -34,12 +34,10 @@ func NewAppWithServices(
 	executor *Executor,
 ) *App {
 	executor.logger = logger
-	cfg := aptConfig()
-	cfg.KeepFips = executor.KeepFips
 	return &App{inner: common.NewOsApp(
 		pkgURL, dryRun, useAlias, skipUpgrades, ignoreSet, logger,
 		scanner, apiClient, executor,
-		cfg,
+		aptConfig(executor),
 	), executor: executor}
 }
 
@@ -56,9 +54,10 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
-func aptConfig() common.OsAppConfig[OSInfo] {
+func aptConfig(executor *Executor) common.OsAppConfig[OSInfo] {
 	return common.OsAppConfig[OSInfo]{
 		Name:          "apt",
+		KeepFips:      executor.KeepFips,
 		NoPackagesMsg: "No packages found via dpkg-query",
 		UpdateMsg:     "\nUpdating package lists...",
 		UpdateErrMsg:  "apt-get update failed",

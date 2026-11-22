@@ -268,7 +268,8 @@ func ignoreNamesFromSet(ignoreSet map[string]struct{}) map[string]struct{} {
 	return names
 }
 
-// fipsMarker is in the version of every Root FIPS build.
+// fipsMarker is in the version of every Root FIPS build. The skip and the upgrade exclusion apply to
+// every OS ecosystem (apk and rpm included; no apk FIPS build is published yet), only apt also pins.
 const fipsMarker = "aikido.fips."
 
 func isFips(version string) bool { return strings.Contains(version, fipsMarker) }
