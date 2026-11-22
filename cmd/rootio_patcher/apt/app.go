@@ -16,6 +16,7 @@ type APIClient = common.OsAPIClient
 type App struct {
 	inner    *common.OsApp[OSInfo]
 	executor *Executor
+	dryRun   bool
 }
 
 func NewApp(apiKey, apiURL, pkgURL string, dryRun, useAlias, verbose, skipUpgrades bool, ignoreSet map[string]struct{}, logger *slog.Logger) *App {
@@ -37,8 +38,8 @@ func NewAppWithServices(
 	return &App{inner: common.NewOsApp(
 		pkgURL, dryRun, useAlias, skipUpgrades, ignoreSet, logger,
 		scanner, apiClient, executor,
-		aptConfig(executor),
-	), executor: executor}
+		aptConfig(),
+	), executor: executor, dryRun: dryRun}
 }
 
 // Run runs the remediation, then, only if it succeeded, prints the HELD_SKIPPED
@@ -51,14 +52,21 @@ func (a *App) Run(ctx context.Context) error {
 	if line := a.executor.HeldSummary(); line != "" {
 		fmt.Println(line)
 	}
+	if line := a.executor.FipsSummary(); line != "" {
+		fmt.Println(line)
+	}
+	// After the patches, from a fresh dpkg-query: a package that just became FIPS is pinned too.
+	if !a.dryRun {
+		if err := a.executor.KeepFips(ctx); err != nil {
+			return fmt.Errorf("keep FIPS packages failed: %w", err)
+		}
+	}
 	return nil
 }
 
-func aptConfig(executor *Executor) common.OsAppConfig[OSInfo] {
+func aptConfig() common.OsAppConfig[OSInfo] {
 	return common.OsAppConfig[OSInfo]{
 		Name:          "apt",
-		FipsMarker:    "aikido.fips.",
-		KeepFips:      executor.KeepFips,
 		NoPackagesMsg: "No packages found via dpkg-query",
 		UpdateMsg:     "\nUpdating package lists...",
 		UpdateErrMsg:  "apt-get update failed",

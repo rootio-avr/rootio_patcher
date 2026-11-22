@@ -67,6 +67,7 @@ type Executor struct {
 	verbose bool
 	logger  *slog.Logger // held-package skips; NewAppWithServices sets the app logger
 	skipped []HeldSkip
+	kept    []HeldSkip // FIPS_KEPT: patches left out to keep an installed FIPS build
 }
 
 func NewExecutor(apiKey, pkgURL string, verbose bool, runner CommandRunner) *Executor {
@@ -103,6 +104,7 @@ func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 	if len(names) == 0 {
 		return nil
 	}
+	names = e.excludeFips(ctx, names)
 	names = e.excludeHeld(ctx, e.heldPackages(ctx), []string{"install"}, names, nil)
 	if len(names) == 0 {
 		return nil
@@ -120,6 +122,7 @@ func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patch
 	if len(patches) == 0 {
 		return nil
 	}
+	patches = e.dropFipsLosses(ctx, patches)
 	if patches = e.dropHeldPatches(ctx, patches, useAlias); len(patches) == 0 {
 		return nil
 	}
@@ -262,18 +265,6 @@ func (e *Executor) blockOriginalFromRegistry(ctx context.Context, pkgName, regis
 		`echo 'Package: %s\nPin: origin %s\nPin-Priority: -1' >> %s/rootio`,
 		pkgName, host, prefsDir,
 	)
-	return e.runner.Run(ctx, "sh", "-c", script)
-}
-
-// KeepFips pins the installed FIPS packages away from every "main" component (Debian and Root's
-// regular builds), so no later apt step can replace them with a non-FIPS build. The Root "fips"
-// component stays allowed, so a newer FIPS build still installs. The file outlives the run on purpose.
-func (e *Executor) KeepFips(ctx context.Context, names []string) error {
-	if err := e.runner.Run(ctx, "mkdir", "-p", prefsDir); err != nil {
-		return err
-	}
-	script := fmt.Sprintf(`printf 'Package: %s\nPin: release c=main\nPin-Priority: -1\n' > %s/rootio-fips-keep`,
-		strings.Join(names, " "), prefsDir)
 	return e.runner.Run(ctx, "sh", "-c", script)
 }
 

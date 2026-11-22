@@ -142,6 +142,9 @@ func TestHeld_NoHeldPackages_IdenticalCommands(t *testing.T) {
 
 		assert.Equal(t, plain.Calls, withQuery.Calls, "useAlias=%v", useAlias)
 		for _, q := range withQuery.queries {
+			if q.Name == "dpkg-query" { // the FIPS package list, not a held query
+				continue
+			}
 			assert.Equal(t, "apt-mark", q.Name, "no apt-get -s may run without held packages: %v", q)
 		}
 	}

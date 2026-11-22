@@ -54,12 +54,6 @@ type OsAppConfig[T any] struct {
 	GetRegistryURL func(pkgURL string, osInfo *T) string
 	// LogOsInfo emits OS-specific debug fields after OS detection
 	LogOsInfo func(ctx context.Context, logger *slog.Logger, osInfo *T)
-	// FipsMarker is the version token of a Root FIPS build (apt: "aikido.fips."). Empty (apk, rpm:
-	// no known FIPS suffix) turns the FIPS keep rules off.
-	FipsMarker string
-	// KeepFips, when set, is called before any install with the names of installed FIPS
-	// packages (apt writes the pin that stops anything but another FIPS build replacing them).
-	KeepFips func(ctx context.Context, names []string) error
 	// PackageBlacklist is a per-ecosystem set of package names never offered for upgrade
 	PackageBlacklist map[string]bool
 }
@@ -152,10 +146,10 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 	// 4. Compute the work set.
 	//    Patches are filtered by the ignore list; the broad upgrade set is
 	//    computed client-side as installed − patched − blacklist − ignored.
-	patches := a.dropFipsLosses(ctx, installed, filterPatches(response.Patches, a.ignoreSet))
+	patches := filterPatches(response.Patches, a.ignoreSet)
 	var upgradeNames []string
 	if !a.skipUpgrades {
-		upgradeNames = computeUpgradeSet(a.withoutFips(installed), patches, a.config.PackageBlacklist, a.ignoreSet)
+		upgradeNames = computeUpgradeSet(installed, patches, a.config.PackageBlacklist, a.ignoreSet)
 	}
 	hasPatches := len(patches) > 0
 
@@ -163,13 +157,6 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 		slog.Int("patches", len(patches)),
 		slog.Int("upgrade_set", len(upgradeNames)),
 	)
-
-	// Pin the FIPS packages installed now (also covers the early return and an upgrades-only run).
-	if !a.dryRun {
-		if err := a.keepFips(ctx, installed); err != nil {
-			return err
-		}
-	}
 
 	// 5. Nothing to do?
 	if !hasPatches && len(upgradeNames) == 0 {
@@ -195,15 +182,6 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 		fmt.Printf("\nInstalling %d Root.io patch(es)...\n", len(patches))
 		if err := a.executor.InstallPatches(ctx, registryURL, patches, a.useAlias); err != nil {
 			return fmt.Errorf("patches failed: %w", err)
-		}
-
-		// A package a patch just turned into a FIPS build must be pinned too: rescan.
-		now, err := a.scanner.ListPackages(ctx)
-		if err != nil {
-			return fmt.Errorf("package rescan failed: %w", err)
-		}
-		if err := a.keepFips(ctx, now); err != nil {
-			return err
 		}
 
 		// Remove the Root.io repo+pin BEFORE upgrades so the broad upgrade
@@ -269,63 +247,6 @@ func ignoreNamesFromSet(ignoreSet map[string]struct{}) map[string]struct{} {
 		}
 	}
 	return names
-}
-
-// isFips reports whether version carries the ecosystem's FIPS marker. An empty marker (an
-// ecosystem with no known FIPS version suffix) never matches.
-func isFips(version, marker string) bool { return marker != "" && strings.Contains(version, marker) }
-
-// installedFips returns the sorted names of installed packages that are FIPS builds.
-func installedFips(installed []InstalledPackage, marker string) []string {
-	var names []string
-	for _, p := range installed {
-		if isFips(p.Version, marker) {
-			names = append(names, p.Name)
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
-// withoutFips returns installed minus the FIPS builds, which never go to the broad upgrade.
-func (a *OsApp[T]) withoutFips(installed []InstalledPackage) []InstalledPackage {
-	var rest []InstalledPackage
-	for _, p := range installed {
-		if !isFips(p.Version, a.config.FipsMarker) {
-			rest = append(rest, p)
-		}
-	}
-	return rest
-}
-
-// keepFips pins every FIPS package in installed through the config hook, when there is one.
-func (a *OsApp[T]) keepFips(ctx context.Context, installed []InstalledPackage) error {
-	names := installedFips(installed, a.config.FipsMarker)
-	if a.config.KeepFips == nil || len(names) == 0 {
-		return nil
-	}
-	if err := a.config.KeepFips(ctx, names); err != nil {
-		return fmt.Errorf("keep FIPS packages failed: %w", err)
-	}
-	return nil
-}
-
-// dropFipsLosses drops patches that would replace an installed FIPS build with a
-// non-FIPS one. A newer FIPS build still goes through. Each drop is logged as FIPS_KEPT.
-func (a *OsApp[T]) dropFipsLosses(ctx context.Context, installed []InstalledPackage, patches []rootio.PackagePatch) []rootio.PackagePatch {
-	fips := map[string]bool{}
-	for _, n := range installedFips(installed, a.config.FipsMarker) {
-		fips[n] = true
-	}
-	var keep []rootio.PackagePatch
-	for _, p := range patches {
-		if fips[p.PackageName] && !isFips(p.Patch.Version, a.config.FipsMarker) {
-			a.logger.WarnContext(ctx, "FIPS_KEPT "+p.PackageName, slog.String("patch_version", p.Patch.Version))
-			continue
-		}
-		keep = append(keep, p)
-	}
-	return keep
 }
 
 // computeUpgradeSet returns the names of installed packages that should be
