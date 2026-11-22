@@ -161,6 +161,13 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 		slog.Int("upgrade_set", len(upgradeNames)),
 	)
 
+	// Pin the FIPS packages installed now (also covers the early return and an upgrades-only run).
+	if !a.dryRun {
+		if err := a.keepFips(ctx, installed); err != nil {
+			return err
+		}
+	}
+
 	// 5. Nothing to do?
 	if !hasPatches && len(upgradeNames) == 0 {
 		fmt.Println("\nNo patches needed — all packages are up to date!")
@@ -174,11 +181,6 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 	}
 
 	// 7. Execute remediation
-	if fips := installedFips(installed); a.config.KeepFips != nil && len(fips) > 0 {
-		if err := a.config.KeepFips(ctx, fips); err != nil {
-			return fmt.Errorf("keep FIPS packages failed: %w", err)
-		}
-	}
 	if hasPatches {
 		registryURL := cfg.GetRegistryURL(a.pkgURL, osInfo)
 
@@ -190,6 +192,15 @@ func (a *OsApp[T]) Run(ctx context.Context) error {
 		fmt.Printf("\nInstalling %d Root.io patch(es)...\n", len(patches))
 		if err := a.executor.InstallPatches(ctx, registryURL, patches, a.useAlias); err != nil {
 			return fmt.Errorf("patches failed: %w", err)
+		}
+
+		// A package a patch just turned into a FIPS build must be pinned too: rescan.
+		now, err := a.scanner.ListPackages(ctx)
+		if err != nil {
+			return fmt.Errorf("package rescan failed: %w", err)
+		}
+		if err := a.keepFips(ctx, now); err != nil {
+			return err
 		}
 
 		// Remove the Root.io repo+pin BEFORE upgrades so the broad upgrade
@@ -258,7 +269,7 @@ func ignoreNamesFromSet(ignoreSet map[string]struct{}) map[string]struct{} {
 }
 
 // fipsMarker is in the version of every Root FIPS build.
-const fipsMarker = ".aikido.fips."
+const fipsMarker = "aikido.fips."
 
 func isFips(version string) bool { return strings.Contains(version, fipsMarker) }
 
@@ -272,6 +283,18 @@ func installedFips(installed []InstalledPackage) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// keepFips pins every FIPS package in installed through the config hook, when there is one.
+func (a *OsApp[T]) keepFips(ctx context.Context, installed []InstalledPackage) error {
+	names := installedFips(installed)
+	if a.config.KeepFips == nil || len(names) == 0 {
+		return nil
+	}
+	if err := a.config.KeepFips(ctx, names); err != nil {
+		return fmt.Errorf("keep FIPS packages failed: %w", err)
+	}
+	return nil
 }
 
 // dropFipsLosses drops patches that would replace an installed FIPS build with a

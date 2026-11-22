@@ -534,3 +534,23 @@ func TestApp_Run_KeepsFipsPackages(t *testing.T) {
 		}
 	}
 }
+
+// A package that a FIPS patch turns into a FIPS build in this run is pinned too (rescan after install).
+func TestApp_Run_PinsPackageThatBecomesFips(t *testing.T) {
+	scans := 0
+	scanner := &MockScanner{ListPackagesFunc: func(_ context.Context) ([]InstalledPackage, error) {
+		scans++
+		if scans == 1 {
+			return []InstalledPackage{{Name: "curl", Version: "7.88.1-10+deb12u1"}}, nil
+		}
+		return []InstalledPackage{{Name: "curl", Version: "7.88.1-10+deb12u15.aikido.fips.22"}}, nil
+	}}
+	apiClient := &MockAPIClient{AnalyzeOsPackagesFunc: func(_ context.Context, _, _, _ string, _ []rootio.Package) (*rootio.OsAnalyzeResponse, error) {
+		return &rootio.OsAnalyzeResponse{Patches: []rootio.PackagePatch{
+			{PackageName: "curl", Patch: rootio.PatchInfo{Name: "curl", Version: "7.88.1-10+deb12u15.aikido.fips.22"}},
+		}}, nil
+	}}
+	runner := &MockRunner{}
+	require.NoError(t, newTestAppFull(scanner, apiClient, runner, false, false, false, nil).Run(context.Background()))
+	assert.True(t, runner.calledWith("sh", "sh", "-c", `printf 'Package: curl\nPin: release c=main\nPin-Priority: -1\n' > /etc/apt/preferences.d/rootio-fips-keep`))
+}
