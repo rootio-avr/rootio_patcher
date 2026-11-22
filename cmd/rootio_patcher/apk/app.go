@@ -14,7 +14,9 @@ type APIClient = common.OsAPIClient
 
 // App orchestrates the apk remediate workflow
 type App struct {
-	inner *common.OsApp[OSInfo]
+	inner    *common.OsApp[OSInfo]
+	executor *Executor
+	dryRun   bool
 }
 
 func NewApp(apiKey, apiURL, pkgURL string, dryRun, useAlias, verbose, skipUpgrades bool, ignoreSet map[string]struct{}, logger *slog.Logger) *App {
@@ -36,10 +38,25 @@ func NewAppWithServices(
 		pkgURL, dryRun, useAlias, skipUpgrades, ignoreSet, logger,
 		scanner, apiClient, executor,
 		apkConfig(),
-	)}
+	), executor: executor, dryRun: dryRun}
 }
 
-func (a *App) Run(ctx context.Context) error { return a.inner.Run(ctx) }
+// Run runs the remediation, then, only if it succeeded, prints the FIPS_KEPT summary and pins the
+// installed FIPS packages (not in dry-run), from a fresh package list.
+func (a *App) Run(ctx context.Context) error {
+	if err := a.inner.Run(ctx); err != nil {
+		return err
+	}
+	if line := a.executor.fipsSummary(); line != "" {
+		fmt.Println(line)
+	}
+	if !a.dryRun {
+		if err := a.executor.keepFips(ctx); err != nil {
+			return fmt.Errorf("keep FIPS packages failed: %w", err)
+		}
+	}
+	return nil
+}
 
 func apkConfig() common.OsAppConfig[OSInfo] {
 	return common.OsAppConfig[OSInfo]{

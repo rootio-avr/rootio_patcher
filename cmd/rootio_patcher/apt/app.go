@@ -16,6 +16,7 @@ type APIClient = common.OsAPIClient
 type App struct {
 	inner    *common.OsApp[OSInfo]
 	executor *Executor
+	dryRun   bool
 }
 
 func NewApp(apiKey, apiURL, pkgURL string, dryRun, useAlias, verbose, skipUpgrades bool, ignoreSet map[string]struct{}, logger *slog.Logger) *App {
@@ -38,7 +39,7 @@ func NewAppWithServices(
 		pkgURL, dryRun, useAlias, skipUpgrades, ignoreSet, logger,
 		scanner, apiClient, executor,
 		aptConfig(),
-	), executor: executor}
+	), executor: executor, dryRun: dryRun}
 }
 
 // Run runs the remediation, then, only if it succeeded, prints the HELD_SKIPPED
@@ -50,6 +51,15 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	if line := a.executor.HeldSummary(); line != "" {
 		fmt.Println(line)
+	}
+	if line := a.executor.fipsSummary(); line != "" {
+		fmt.Println(line)
+	}
+	// After the patches, from a fresh dpkg-query: a package that just became FIPS is pinned too.
+	if !a.dryRun {
+		if err := a.executor.keepFips(ctx); err != nil {
+			return fmt.Errorf("keep FIPS packages failed: %w", err)
+		}
 	}
 	return nil
 }

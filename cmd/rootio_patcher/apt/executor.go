@@ -67,6 +67,7 @@ type Executor struct {
 	verbose bool
 	logger  *slog.Logger // held-package skips; NewAppWithServices sets the app logger
 	skipped []HeldSkip
+	kept    []HeldSkip // FIPS_KEPT: patches left out to keep an installed FIPS build
 }
 
 func NewExecutor(apiKey, pkgURL string, verbose bool, runner CommandRunner) *Executor {
@@ -103,6 +104,7 @@ func (e *Executor) InstallUpgrades(ctx context.Context, names []string) error {
 	if len(names) == 0 {
 		return nil
 	}
+	names = e.excludeFips(ctx, names)
 	names = e.excludeHeld(ctx, e.heldPackages(ctx), []string{"install"}, names, nil)
 	if len(names) == 0 {
 		return nil
@@ -120,6 +122,7 @@ func (e *Executor) InstallPatches(ctx context.Context, registryURL string, patch
 	if len(patches) == 0 {
 		return nil
 	}
+	patches = e.dropFipsLosses(ctx, patches)
 	if patches = e.dropHeldPatches(ctx, patches, useAlias); len(patches) == 0 {
 		return nil
 	}
