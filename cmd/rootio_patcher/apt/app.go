@@ -34,10 +34,12 @@ func NewAppWithServices(
 	executor *Executor,
 ) *App {
 	executor.logger = logger
+	cfg := aptConfig()
+	cfg.KeepFips = executor.KeepFips
 	return &App{inner: common.NewOsApp(
 		pkgURL, dryRun, useAlias, skipUpgrades, ignoreSet, logger,
 		scanner, apiClient, executor,
-		aptConfig(),
+		cfg,
 	), executor: executor}
 }
 

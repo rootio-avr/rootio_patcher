@@ -265,6 +265,18 @@ func (e *Executor) blockOriginalFromRegistry(ctx context.Context, pkgName, regis
 	return e.runner.Run(ctx, "sh", "-c", script)
 }
 
+// KeepFips pins the installed FIPS packages away from every "main" component (Debian and Root's
+// regular builds), so no later apt step can replace them with a non-FIPS build. The Root "fips"
+// component stays allowed, so a newer FIPS build still installs. The file outlives the run on purpose.
+func (e *Executor) KeepFips(ctx context.Context, names []string) error {
+	if err := e.runner.Run(ctx, "mkdir", "-p", prefsDir); err != nil {
+		return err
+	}
+	script := fmt.Sprintf(`printf 'Package: %s\nPin: release c=main\nPin-Priority: -1\n' > %s/rootio-fips-keep`,
+		strings.Join(names, " "), prefsDir)
+	return e.runner.Run(ctx, "sh", "-c", script)
+}
+
 func (e *Executor) IndexUpdate(ctx context.Context) error {
 	return e.runner.Run(ctx, "apt-get", "update")
 }
