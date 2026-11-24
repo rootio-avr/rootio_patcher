@@ -376,3 +376,20 @@ func TestMavenParser_ResolveProperty(t *testing.T) {
 		})
 	}
 }
+
+// A failing `mvn dependency:tree` must fail Parse, not return direct deps only (false "no patches needed").
+func TestMavenParser_Parse_TreeFailureIsFatal(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "mvn"), []byte("#!/bin/sh\necho '[ERROR] boom' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	pom := filepath.Join(t.TempDir(), "pom.xml")
+	if err := os.WriteFile(pom, []byte(`<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>g</groupId><artifactId>a</artifactId><version>1</version></project>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewParser(testLogger()).Parse(context.Background(), pom); err == nil || !strings.Contains(err.Error(), "dependency:tree failed") {
+		t.Fatalf("want dependency:tree error, got %v", err)
+	}
+}
