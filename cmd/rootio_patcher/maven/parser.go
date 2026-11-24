@@ -195,7 +195,12 @@ func (p *MavenParser) Parse(ctx context.Context, filePath string) ([]common.Pack
 
 	transitiveDeps, treeSuccess := p.parseTransitiveDependencies(ctx, pomToUse)
 	if !treeSuccess {
-		p.logger.WarnContext(ctx, "mvn dependency:tree failed, results may be incomplete")
+		// With mvn installed, a failed tree means the transitive deps are unknown: "no patches needed" would be a
+		// false all-clear. Without mvn (nothing to retry) keep the direct-deps-only fallback.
+		if _, err := exec.LookPath("mvn"); err == nil {
+			return nil, fmt.Errorf("mvn dependency:tree failed for %s: transitive dependencies unknown, refusing to report no patches needed", pomToUse)
+		}
+		p.logger.WarnContext(ctx, "mvn not found, results may be incomplete")
 	}
 
 	for _, dep := range transitiveDeps {
@@ -517,21 +522,22 @@ func (p *MavenParser) parseTransitiveDependencies(ctx context.Context, pomFile s
 		"-DincludeScope=compile",
 	}
 
-	cmd := exec.Command("mvn", args...)
-	cmd.Dir = filepath.Dir(pomFile)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// If dependency:tree fails, return empty list (not fatal)
-		p.logger.ErrorContext(ctx, "mvn dependency:tree failed", slog.Any("error", err))
-		if len(output) > 0 {
-			// Show first 500 chars of error output
-			errMsg := string(output)
-			if len(errMsg) > 500 {
-				errMsg = errMsg[:500] + "..."
-			}
-			p.logger.DebugContext(ctx, "Maven output", slog.String("output", errMsg))
+	var output []byte
+	var err error
+	for attempt := 1; attempt <= 2; attempt++ { // one retry: resolution failures are often transient
+		cmd := exec.Command("mvn", args...)
+		cmd.Dir = filepath.Dir(pomFile)
+		if output, err = cmd.CombinedOutput(); err == nil {
+			break
 		}
+		// The tail holds Maven's [ERROR] lines; the head is download noise.
+		tail := string(output)
+		if len(tail) > 2000 {
+			tail = "..." + tail[len(tail)-2000:]
+		}
+		p.logger.ErrorContext(ctx, "mvn dependency:tree failed", slog.Any("error", err), slog.Int("attempt", attempt), slog.String("output", tail))
+	}
+	if err != nil {
 		return []common.PackageInfo{}, false
 	}
 
